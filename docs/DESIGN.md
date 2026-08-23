@@ -406,10 +406,13 @@ re-points it at heat-treatment oils).
 
 ### M2 — The verdict loop
 Terminal, reference books, consequence resolution, money and reputation. **Largely delivered.**
-Remaining: sample lifecycle transition table, results grouped by category.
+Remaining: results grouped by category (#11), sample lifecycle transition table (#9), and the two
+§2.6 presentation elements that were specified but never built (#36).
 
 **This is the gate.** If reading results and deciding is not interesting alone, stop and re-examine
-before adding co-op.
+before adding co-op. Nothing in M3–M5 or D2 should start before this milestone closes and the gate
+has actually been played — the point of a gate is that it can fail, and it cannot fail if the work
+behind it has already shipped.
 
 ### M3 — Contamination + calibration
 Residue and blanks are implemented in the model. Remaining: the wash station as a physical action,
@@ -424,7 +427,10 @@ Crate arrival, day timer, end-of-day summary, grid rebuild with the fume-hood bo
 save/load. **Save/load in co-op is the hard part, not the gameplay.** Decide client rejoin *now*.
 
 ### M6 — Art pass
-Style enforcer, palette, lab architecture, instrument models, props, baked lighting, hand meshes.
+Style enforcer, palette, lab architecture, instrument models, props, baked lighting.
+
+Hands and the character body landed early, during M2 — a first-person game with no hands reads as
+unfinished long before the art pass, and the body had to exist before M4 rather than after it.
 
 ### M7 — Content & balance
 Six profiles, the full fault set, the 20-day contract arc, ambiguity tuning, meta-progression,
@@ -439,6 +445,9 @@ no architecture change.
 
 ### D2 — Deliveries and customers
 Truck, delivery bay, cartons, unboxing, delivery notes and reconciliation.
+
+Gated behind M2. D2 adds volume and ceremony to the front of the loop; it cannot make the middle of
+the loop interesting, and building it first would only make a weak verdict loop take longer to reach.
 
 ---
 
