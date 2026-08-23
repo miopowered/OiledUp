@@ -116,3 +116,6 @@ InitTestScene*.unity*
 # Headless compile-check scratch. Lives outside Assets/ so Unity never imports it.
 /tools/**/bin/
 /tools/**/obj/
+
+# Local record of UGS ids, written by setup-ugs.sh. Not read at runtime.
+.env.ugs

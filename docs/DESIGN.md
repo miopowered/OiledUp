@@ -427,9 +427,21 @@ sample path in place, so the fixture would add walking distance rather than a de
 NGO + Relay + Lobby, host-authoritative state, local-prop split, Vivox proximity voice, 4 players.
 Acceptance: four clients, 60 samples, no desync, **no client ever receives ground truth**.
 
+**Clients rejoin** (decided, #17). A dropped client reconnects and resumes. The identity is the UGS
+Authentication `PlayerId` — NGO's `clientId` is per-connection and gets reused, so it cannot key a
+session. Server-side, a record per `PlayerId` holds only what is not already shared: what is in
+their hands, where they stood, and any part-finished held action. The vault, instrument occupancy,
+the economy and the day clock live on the host regardless of who is connected, so they need no
+per-player restore.
+
+This drags part of M5's save/load forward, which is the expensive call. It is worth it: a run is
+~100 minutes since the twenty-day contract landed, and losing one to a dropped connection at minute
+80 costs far more than the work does.
+
 ### M5 — Day cycle + layout
 Crate arrival, day timer, end-of-day summary, grid rebuild with the fume-hood bottleneck, shop,
-save/load. **Save/load in co-op is the hard part, not the gameplay.** Decide client rejoin *now*.
+save/load. **Save/load in co-op is the hard part, not the gameplay.** Client rejoin is settled — see
+M4.
 
 ### M6 — Art pass
 Style enforcer, palette, lab architecture, instrument models, props, baked lighting.
