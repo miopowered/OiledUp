@@ -46,6 +46,19 @@ namespace Residue.Gameplay.World
             }
         }
 
+        /// <summary>
+        /// Point the pulse at a specific renderer. For highlights created at runtime, where the
+        /// first renderer under the object is not necessarily the one that should glow.
+        /// </summary>
+        public void Retarget(Renderer renderer)
+        {
+            if (renderer == null) return;
+
+            Apply(0f);   // let go of the old renderer, or it stays lit forever
+            target = renderer;
+            Apply(0f);
+        }
+
         private void Update()
         {
             if (!active || target == null) return;
@@ -57,7 +70,11 @@ namespace Residue.Gameplay.World
 
         private void Apply(float intensity)
         {
-            if (target == null || block == null) return;
+            if (target == null) return;
+
+            // Lazily, because Retarget can be called from AddComponent before Awake has finished.
+            block ??= new MaterialPropertyBlock();
+
             target.GetPropertyBlock(block);
             block.SetColor(EmissionColor, colour * intensity);
             target.SetPropertyBlock(block);

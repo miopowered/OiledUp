@@ -182,6 +182,19 @@ namespace Residue.Editor.Art
             {
                 case SurfaceKind.Opaque:
                     SetOpaque(material);
+
+                    // Emission enabled but black: nothing glows by default, and the look is
+                    // unchanged. This exists so EmissivePulse can raise emission per-renderer for
+                    // the §2.6 targeting highlight — a MaterialPropertyBlock can set a property but
+                    // cannot enable a shader keyword, so without _EMISSION on the shared material
+                    // the highlight writes a value the shader never reads and silently does nothing.
+                    material.EnableKeyword("_EMISSION");
+                    material.SetTexture("_EmissionMap", null);
+                    material.SetColor("_EmissionColor", Color.black);
+
+                    // Explicit, because Unity sets EmissiveIsBlack when it sees a black emission
+                    // colour and then strips the emission pass entirely — which would undo the above.
+                    material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
                     break;
 
                 case SurfaceKind.Emissive:

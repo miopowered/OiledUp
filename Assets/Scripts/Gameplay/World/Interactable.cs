@@ -35,12 +35,43 @@ namespace Residue.Gameplay.World
         /// </summary>
         public virtual void SetTargeted(bool targeted)
         {
+            if (highlight == null && targeted) AttachHighlight();
             if (highlight == null) return;
             highlight.Active = targeted;
         }
 
         [SerializeField] private EmissivePulse highlight;
+        private bool triedHighlight;
 
         protected virtual void Reset() => highlight = GetComponentInChildren<EmissivePulse>();
+
+        /// <summary>
+        /// Attach a highlight on first look rather than requiring one to be wired in the scene.
+        /// <para>
+        /// Most interactables — vials, printouts — are instantiated at runtime from prefabs, so the
+        /// scene builder never sees them and could not wire a highlight even in principle. Before
+        /// this, nothing in the lab had one, which made <see cref="SetTargeted"/> a no-op on every
+        /// object and left the 6 px crosshair as the only feedback about what you were about to grab.
+        /// </para>
+        /// Deliberately not done in <c>Awake</c>: two subclasses already declare a private
+        /// <c>Awake</c>, which would silently hide a virtual one and skip this for exactly the
+        /// objects that need it most.
+        /// </summary>
+        private void AttachHighlight()
+        {
+            if (triedHighlight) return;
+            triedHighlight = true;
+
+            // Self before children. A machine's first child renderer is its body, which is what we
+            // want — but its status light and its display are each driven by their own property
+            // block, and picking one of those would make two systems fight over emission.
+            var renderer = GetComponent<Renderer>();
+            if (renderer == null) renderer = GetComponentInChildren<Renderer>();
+            if (renderer == null) return;
+
+            highlight = GetComponent<EmissivePulse>();
+            if (highlight == null) highlight = gameObject.AddComponent<EmissivePulse>();
+            highlight.Retarget(renderer);
+        }
     }
 }
