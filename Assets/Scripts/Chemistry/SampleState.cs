@@ -26,6 +26,19 @@ namespace Residue.Chemistry
 
         public int CollectedDay;
 
+        /// <summary>
+        /// The earlier sample this is a re-draw of, when the player filed MONITOR and the unit
+        /// stayed in service (§5.4). <see cref="SampleId.None"/> for a first draw.
+        /// <para>
+        /// Equipment tags repeat legitimately across a contract, so identity has to be explicit —
+        /// and §6.1 wants the player to be able to see a unit's history rather than infer it from
+        /// a label they may have transcribed wrong.
+        /// </para>
+        /// </summary>
+        public SampleId ResampleOf = SampleId.None;
+
+        public bool IsResample => ResampleOf.IsValid;
+
         // ---- Physical ----
 
         /// <summary>Remaining volume. Starts at 100 ml; the full panel costs more than that (§4.5).</summary>

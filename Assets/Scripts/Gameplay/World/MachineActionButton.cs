@@ -39,6 +39,15 @@ namespace Residue.Gameplay.World
             if (station == null) station = GetComponentInParent<MachineStation>();
         }
 
+        private static bool ShiftOver
+        {
+            get
+            {
+                var lab = LabRuntime.Instance;
+                return lab != null && lab.Lab != null && lab.Lab.ShiftOver;
+            }
+        }
+
         public override float HoldSeconds
         {
             get
@@ -66,6 +75,7 @@ namespace Residue.Gameplay.World
 
             if (machine.IsRunning) return "Instrument busy";
             if (!machine.IsEmpty) return "Remove the vial before running a blank";
+            if (ShiftOver) return "Shift over — no new runs";
             return $"Run solvent blank ({machine.RunSeconds:F0}s)";
         }
 
@@ -76,11 +86,12 @@ namespace Residue.Gameplay.World
 
             if (action == MachineAction.Clean)
             {
+                // Flushing is housekeeping, not analysis — still allowed after the shift ends.
                 var economy = LabRuntime.Instance?.Lab.Economy;
                 return economy != null && economy.SolventUnits >= 1f;
             }
 
-            return machine.IsEmpty;
+            return machine.IsEmpty && !ShiftOver;
         }
 
         public override void Interact(PlayerInteractor player)

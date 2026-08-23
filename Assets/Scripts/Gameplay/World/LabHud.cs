@@ -159,8 +159,13 @@ namespace Residue.Gameplay.World
 
             var span = System.TimeSpan.FromSeconds(Mathf.Max(0f, lab.DaySecondsRemaining));
 
+            string clock = lab.ShiftOver
+                ? "SHIFT OVER — file your verdicts"
+                : $"{span.Minutes:D2}:{span.Seconds:D2} left";
+            statusLabel.style.color = new StyleColor(lab.ShiftOver ? SignalPalette.Caution : SignalPalette.Dim);
+
             statusLabel.text =
-                $"DAY {lab.Day}   {span.Minutes:D2}:{span.Seconds:D2} left\n" +
+                $"DAY {lab.Day}   {clock}\n" +
                 $"£{lab.Economy.Money:N0}   REP {lab.Economy.Reputation:F0}   " +
                 $"SOLVENT {lab.Economy.SolventUnits:F0}\n" +
                 $"{open} sample{(open == 1 ? "" : "s")} open";

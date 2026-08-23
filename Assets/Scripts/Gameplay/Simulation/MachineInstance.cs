@@ -61,6 +61,19 @@ namespace Residue.Gameplay.Simulation
         /// <summary>Most recent output, kept so the player can walk away and come back to read it.</summary>
         public TestResult LastResult;
 
+        /// <summary>
+        /// Most recent solvent blank, held separately so a later sample run cannot overwrite it.
+        /// <para>
+        /// This is the §5.2 tell. Hard rule: never punish something the player could not have
+        /// checked — contamination is only fair because a blank reveals it, so the blank result has
+        /// to survive long enough to be read at the terminal.
+        /// </para>
+        /// </summary>
+        public TestResult LastBlank;
+
+        /// <summary>Day the last blank was run, so the terminal can say how stale it is.</summary>
+        public int LastBlankDay = -1;
+
         public MachineInstance(string instanceId, MachineDef def)
         {
             InstanceId = instanceId;

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Residue.Chemistry;
 using Residue.Data;
+using UnityEngine;
 
 namespace Residue.Gameplay.Simulation
 {
@@ -106,6 +107,58 @@ namespace Residue.Gameplay.Simulation
 
             reports.Reverse(); // restore chronological order after the reverse iteration
             return reports;
+        }
+
+        // -- Resampling -------------------------------------------------------------------------------
+
+        private readonly List<SampleId> pendingRequeue = new();
+
+        /// <summary>Mark a unit as kept in service and due for another draw next cycle.</summary>
+        public void QueueRequeue(SampleId id)
+        {
+            if (!pendingRequeue.Contains(id)) pendingRequeue.Add(id);
+        }
+
+        /// <summary>Drain the requeue list. Returns a copy so the caller can generate while iterating.</summary>
+        public List<SampleId> TakePendingRequeues()
+        {
+            var taken = new List<SampleId>(pendingRequeue);
+            pendingRequeue.Clear();
+            return taken;
+        }
+
+        /// <summary>
+        /// Build the next draw from a unit the player filed MONITOR on.
+        /// <para>
+        /// Lives here because it needs ground truth: the same fault has to come back further along,
+        /// not a fresh roll. A re-draw that re-rolled the fault would make MONITOR a coin flip
+        /// rather than a decision to watch something specific.
+        /// </para>
+        /// </summary>
+        public GeneratedSample BuildRequeue(SampleId original, SampleGenerator generator, int day, ref Rng rng)
+        {
+            if (generator == null) return null;
+            if (!states.TryGetValue(original, out var state)) return null;
+            if (!truths.TryGetValue(original, out var truth)) return null;
+
+            var fault = truth.PrimaryFault;
+            if (fault == null) return null;
+
+            float previous = truth.FaultSeverities.Count > 0 ? truth.FaultSeverities[0] : 0.5f;
+
+            var request = GenerationRequest.Default(state.Profile, state.EquipmentTag, day);
+            request.ForcedFault = fault;
+            request.ForcedSeverity01 = Mathf.Clamp01(previous + rng.Range(0.18f, 0.32f));
+            request.CascadeChance = 0f;
+            request.HoursSinceOilChange = state.HoursSinceOilChange + state.Profile.DefaultOilChangeHours * 0.12f;
+
+            var generated = generator.Generate(request, ref rng);
+            if (generated == null) return null;
+
+            generated.State.ResampleOf = original;
+            generated.State.FieldTechNote =
+                $"Resample. Previously reported MONITOR on day {state.FiledOnDay}; unit kept in service.";
+            return generated;
         }
 
         /// <summary>

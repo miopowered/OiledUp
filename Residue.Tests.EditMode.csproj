@@ -55,6 +55,7 @@
   <ItemGroup>
     <Compile Include="Assets\Tests\EditMode\EconomyTests.cs" />
     <Compile Include="Assets\Tests\EditMode\ChemistryTests.cs" />
+    <Compile Include="Assets\Tests\EditMode\LabStateTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\Tests\EditMode\Residue.Tests.EditMode.asmdef" />

@@ -81,10 +81,29 @@ namespace Residue.Gameplay.World
             }
 
             if (!machine.IsEmpty && player.Carried == null)
-                return ranSinceLoad ? $"Take vial from {title}" : $"Run {title} ({machine.RunSeconds:F0}s)";
+            {
+                if (ranSinceLoad) return $"Take vial from {title}";
+                return ShiftOver
+                    ? $"{title} — shift over, no new runs"
+                    : $"Run {title} ({machine.RunSeconds:F0}s)";
+            }
 
             if (player.Carried != null) return "Hands full";
             return $"{title} — empty";
+        }
+
+        /// <summary>
+        /// The working day has run out. Instruments stop accepting work, but anything already
+        /// loaded can still be retrieved — being locked out of your own vials would be a softlock,
+        /// and the pressure is meant to come from unfinished analysis, not confiscated glassware.
+        /// </summary>
+        private bool ShiftOver
+        {
+            get
+            {
+                var lab = LabRuntime.Instance;
+                return lab != null && lab.Lab != null && lab.Lab.ShiftOver;
+            }
         }
 
         public override bool CanInteract(PlayerInteractor player)
@@ -93,12 +112,13 @@ namespace Residue.Gameplay.World
 
             if (player.Carried != null)
             {
-                if (!machine.IsEmpty) return false;
+                if (ShiftOver || !machine.IsEmpty) return false;
                 var sample = LabRuntime.Instance?.SampleFor(player.Carried.SampleId);
                 return machine.CanAccept(sample) == LoadRefusal.Accepted;
             }
 
-            return !machine.IsEmpty;
+            if (machine.IsEmpty) return false;
+            return ranSinceLoad || !ShiftOver;
         }
 
         public override void Interact(PlayerInteractor player)

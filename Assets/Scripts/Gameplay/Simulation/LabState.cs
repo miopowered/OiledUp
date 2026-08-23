@@ -96,8 +96,24 @@ namespace Residue.Gameplay.Simulation
 
         // -- Day cycle ------------------------------------------------------------------------------
 
-        public void BeginDay()
+        /// <summary>
+        /// The working day has run out. Instruments refuse to <i>start</i> new runs; anything
+        /// already running finishes. Samples you did not get to are still your problem — that is
+        /// the §6.1 pressure of the queue outpacing your hands.
+        /// </summary>
+        public bool ShiftOver => DayInProgress && DaySecondsRemaining <= 0f;
+
+        /// <summary>All contracted days are done. Checked after the day ends, not after the next begins.</summary>
+        public bool ContractComplete => !DayInProgress && Day >= Plan.Length;
+
+        /// <summary>Run is over: the contract finished, or the money ran out (§1.2).</summary>
+        public bool IsRunOver => Economy.IsBankrupt || ContractComplete;
+
+        /// <summary>Starts the next day. Returns false when the run is over, so callers cannot run past the contract.</summary>
+        public bool BeginDay()
         {
+            if (IsRunOver) return false;
+
             Day++;
             var plan = Plan.ForDay(Day);
             DaySecondsRemaining = plan.DaySeconds;
@@ -107,7 +123,9 @@ namespace Residue.Gameplay.Simulation
             foreach (var m in Machines) m.Runtime.BeginDay(ref rng);
 
             GenerateArrivals(plan);
+            GenerateRequeues();
             DayStarted?.Invoke(Day);
+            return true;
         }
 
         public void Tick(float deltaSeconds)
@@ -128,6 +146,12 @@ namespace Residue.Gameplay.Simulation
                 if (result == null) continue;
 
                 machine.LastResult = result;
+                if (finished == RunKind.Blank)
+                {
+                    machine.LastBlank = result;
+                    machine.LastBlankDay = Day;
+                }
+
                 Economy.Charge(result.Cost);
                 RunCompleted?.Invoke(machine, result);
             }
@@ -147,14 +171,31 @@ namespace Residue.Gameplay.Simulation
             {
                 Economy.Apply(report);
                 lastReports.Add(report);
+
+                // MONITOR on a developing fault keeps the unit in service and it gets resampled
+                // next cycle with worse numbers (§5.4). Queue it now; the chemistry progresses when
+                // the next day generates it.
+                if (report.RequeueSample) Samples.QueueRequeue(report.Sample);
             }
 
             DayEnded?.Invoke(lastReports);
             return lastReports;
         }
 
-        /// <summary>Run is over: the contract finished, or the money ran out (§1.2).</summary>
-        public bool IsRunOver => Economy.IsBankrupt || Day > Plan.Length;
+        /// <summary>Re-send the units the player chose to keep watching, with the fault further along.</summary>
+        private void GenerateRequeues()
+        {
+            foreach (var id in Samples.TakePendingRequeues())
+            {
+                var generated = Samples.BuildRequeue(id, generator, Day, ref rng);
+                if (generated == null) continue;
+
+                generated.State.Location = SampleLocation.InCrate("intake", -1);
+                generated.State.IsSettled = false;
+                generated.State.TemperatureC = rng.Range(4f, 22f);
+                Samples.Add(generated);
+            }
+        }
 
         // -- Arrivals -------------------------------------------------------------------------------
 

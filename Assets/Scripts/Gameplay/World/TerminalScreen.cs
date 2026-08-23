@@ -175,7 +175,64 @@ namespace Residue.Gameplay.World
             }
 
             panel.Add(scroll);
+            panel.Add(InstrumentsPanel(lab));
             return panel;
+        }
+
+        /// <summary>
+        /// Per-instrument state, including the last solvent blank.
+        /// <para>
+        /// A blank belongs to the machine, not to any sample, so it has nowhere to live in the
+        /// results table — and without this the player pays for a blank and never sees it. §5.2 only
+        /// works because contamination is checkable; an unreadable tell is the same as no tell.
+        /// </para>
+        /// </summary>
+        private VisualElement InstrumentsPanel(LabState lab)
+        {
+            var box = new VisualElement();
+            box.style.marginTop = 10;
+            box.style.paddingTop = 8;
+            box.style.borderTopWidth = 1;
+            box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+            box.Add(SectionTitle("INSTRUMENTS"));
+
+            foreach (var machine in lab.Machines)
+            {
+                var header = new Label($"{machine.Def.DisplayName} · {machine.Runtime.RunsSinceClean} run(s) since flush");
+                header.style.fontSize = 11;
+                header.style.color = new StyleColor(SignalPalette.Ink);
+                box.Add(header);
+
+                if (machine.LastBlank == null)
+                {
+                    box.Add(Tiny("no blank run — residue unknown", SignalPalette.Caution));
+                    continue;
+                }
+
+                string residue = "";
+                foreach (var kv in machine.LastBlank.Values)
+                {
+                    if (kv.Value <= 0.0001f) continue;
+                    if (residue.Length > 0) residue += "  ";
+                    residue += $"{kv.Key} {kv.Value:0.###}";
+                }
+
+                box.Add(residue.Length == 0
+                    ? Tiny($"blank day {machine.LastBlankDay}: clean", SignalPalette.Normal)
+                    : Tiny($"blank day {machine.LastBlankDay}: {residue}", SignalPalette.Caution));
+            }
+
+            return box;
+        }
+
+        private static Label Tiny(string text, Color colour)
+        {
+            var label = new Label(text);
+            label.style.fontSize = 10;
+            label.style.color = new StyleColor(colour);
+            label.style.marginBottom = 4;
+            label.style.whiteSpace = WhiteSpace.Normal;
+            return label;
         }
 
         private VisualElement Detail(LabState lab)
@@ -198,6 +255,15 @@ namespace Residue.Gameplay.World
             sub.style.color = new StyleColor(SignalPalette.Dim);
             sub.style.marginBottom = 6;
             panel.Add(sub);
+
+            if (sample.IsResample)
+            {
+                var history = new Label($"RE-DRAW of {sample.ResampleOf} — you filed MONITOR on this unit.");
+                history.style.fontSize = 12;
+                history.style.color = new StyleColor(SignalPalette.Caution);
+                history.style.marginBottom = 6;
+                panel.Add(history);
+            }
 
             if (!string.IsNullOrEmpty(sample.FieldTechNote))
             {
@@ -390,6 +456,35 @@ namespace Residue.Gameplay.World
             total.style.marginTop = 8;
             total.style.color = new StyleColor(net >= 0 ? SignalPalette.Normal : SignalPalette.Critical);
             panel.Add(total);
+
+            // §1.2: a run ends on contract completion or financial failure. Without this the
+            // fixed-length contract never resolves and the game has no win or loss state at all.
+            if (lab.IsRunOver)
+            {
+                bool bankrupt = lab.Economy.IsBankrupt;
+
+                var verdict = new Label(bankrupt
+                    ? "OUTPOST CLOSED — the account is overdrawn."
+                    : $"CONTRACT COMPLETE — {lab.Plan.DisplayName}, {lab.Plan.Length} days.");
+                verdict.style.fontSize = 17;
+                verdict.style.unityFontStyleAndWeight = FontStyle.Bold;
+                verdict.style.marginTop = 10;
+                verdict.style.whiteSpace = WhiteSpace.Normal;
+                verdict.style.color = new StyleColor(bankrupt ? SignalPalette.Critical : SignalPalette.Normal);
+                panel.Add(verdict);
+
+                var summary = new Label(
+                    $"Closing balance £{lab.Economy.Money:N0} from £{lab.Tuning.StartingMoney:N0} · " +
+                    $"reputation {lab.Economy.Reputation:F0} · " +
+                    $"earned £{lab.Economy.TotalEarned:N0}, lost £{lab.Economy.TotalLost:N0}");
+                summary.style.fontSize = 13;
+                summary.style.marginTop = 4;
+                summary.style.whiteSpace = WhiteSpace.Normal;
+                summary.style.color = new StyleColor(SignalPalette.Dim);
+                panel.Add(summary);
+
+                return panel;
+            }
 
             var next = new Button(() =>
             {
