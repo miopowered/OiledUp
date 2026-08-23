@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -44,6 +45,29 @@ namespace Residue.Gameplay.World
         public string Prompt { get; private set; }
         public bool PromptBlocked { get; private set; }
         public string Toast { get; private set; }
+
+        // -- Diagnostics -----------------------------------------------------------------------------
+        //
+        // Exposed so InteractionDebug can draw the EXACT query this component runs. A debug overlay
+        // that rebuilds its own ray would diagnose a different raycast than the one misbehaving,
+        // which is worse than no overlay at all.
+
+        public float Range => range;
+        public LayerMask Mask => mask;
+
+        /// <summary>The ray cast this frame, from camera centre.</summary>
+        public Ray LastRay { get; private set; }
+
+        public bool LastHadHit { get; private set; }
+        public RaycastHit LastHit { get; private set; }
+
+        /// <summary>
+        /// Every collider along the ray, nearest first. Only populated while
+        /// <see cref="InteractionDebug.Enabled"/> — RaycastAll allocates, so it stays off by default.
+        /// </summary>
+        public IReadOnlyList<RaycastHit> LastAllHits => allHits;
+
+        private readonly List<RaycastHit> allHits = new();
 
         private float toastUntil;
 
@@ -104,8 +128,24 @@ namespace Residue.Gameplay.World
             Interactable found = null;
 
             var ray = new Ray(camera.transform.position, camera.transform.forward);
-            if (Physics.Raycast(ray, out var hit, range, mask, QueryTriggerInteraction.Collide))
-                found = hit.collider.GetComponentInParent<Interactable>();
+            LastRay = ray;
+
+            bool didHit = Physics.Raycast(ray, out var hit, range, mask, QueryTriggerInteraction.Collide);
+            LastHadHit = didHit;
+            LastHit = hit;
+
+            if (didHit) found = hit.collider.GetComponentInParent<Interactable>();
+
+            if (InteractionDebug.Enabled)
+            {
+                allHits.Clear();
+                allHits.AddRange(Physics.RaycastAll(ray, range, mask, QueryTriggerInteraction.Collide));
+                allHits.Sort((a, b) => a.distance.CompareTo(b.distance));
+            }
+            else if (allHits.Count > 0)
+            {
+                allHits.Clear();
+            }
 
             // Never target the thing already in your hands.
             if (found != null && Carried != null && found == (Interactable)Carried) found = null;

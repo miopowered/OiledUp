@@ -288,9 +288,16 @@ namespace Residue.Editor.Build
                     new Vector3(-0.06f, 0.16f, front + 0.01f), station, MachineAction.Blank);
 
                 // Its own manual, sitting beside it. §5.5: where you keep a reference matters.
-                books.Add(AddBook(machineGo, "Manual", bookMesh, palette,
-                    new Vector3(visual.Size.x * 0.5f + 0.13f, 0.015f, 0f),
-                    BookKind.MachineManual, MachineIds[i]));
+                //
+                // Parented to the Stations root, NOT to the machine. A child book is inside the
+                // machine's GetComponentsInChildren, so the machine's collider bounds swallow it —
+                // which makes targeting diagnostics lie and would make any bounds-based selection
+                // pick the wrong object.
+                var bookGo = AddBook(root, $"Manual_{MachineIds[i]}", bookMesh, palette,
+                    Vector3.zero, BookKind.MachineManual, MachineIds[i]);
+                bookGo.transform.position = machineGo.transform.position +
+                    new Vector3(visual.Size.x * 0.5f + 0.13f, 0.015f, 0f);
+                books.Add(bookGo);
             }
 
             // Staging racks on the island, plus one beside the instruments so a finished vial can be
@@ -344,6 +351,8 @@ namespace Residue.Editor.Build
             shelfGo.transform.position = new Vector3(RoomWidth * 0.5f - 1.1f, BenchHeight + 0.5f, 1.98f);
             AddChild(shelfGo, "Plank", shelfMesh, palette, Vector3.zero, addCollider: true);
 
+            // Shelf books are parented to the shelf, which is fine: the shelf has no Interactable,
+            // so nothing's bounds are polluted by them.
             books.Add(AddBook(shelfGo, "Elements", bookMesh, palette,
                 new Vector3(-0.28f, 0.04f, 0f), BookKind.ElementIndex, null));
             books.Add(AddBook(shelfGo, "Diagnostics", bookMesh, palette,
@@ -551,6 +560,11 @@ namespace Residue.Editor.Build
             interactorSo.FindProperty("carrySocket").objectReferenceValue = carry.transform;
             interactorSo.ApplyModifiedPropertiesWithoutUndo();
 
+            var interactionDebug = go.AddComponent<InteractionDebug>();
+            var debugSo = new SerializedObject(interactionDebug);
+            debugSo.FindProperty("interactor").objectReferenceValue = interactor;
+            debugSo.ApplyModifiedPropertiesWithoutUndo();
+
             // HUD
             var hudGo = new GameObject("HUD");
             SceneManager.MoveGameObjectToScene(hudGo, scene);
@@ -559,6 +573,7 @@ namespace Residue.Editor.Build
             var hud = hudGo.AddComponent<LabHud>();
             var hudSo = new SerializedObject(hud);
             hudSo.FindProperty("interactor").objectReferenceValue = interactor;
+            hudSo.FindProperty("interactionDebug").objectReferenceValue = interactionDebug;
             hudSo.ApplyModifiedPropertiesWithoutUndo();
 
             // Terminal screen, on its own document so it can sit above the HUD.

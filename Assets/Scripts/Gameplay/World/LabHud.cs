@@ -15,6 +15,7 @@ namespace Residue.Gameplay.World
     public sealed class LabHud : MonoBehaviour
     {
         [SerializeField] private PlayerInteractor interactor;
+        [SerializeField] private InteractionDebug interactionDebug;
 
         private VisualElement crosshair;
         private Label promptLabel;
@@ -23,6 +24,7 @@ namespace Residue.Gameplay.World
         private Label toastLabel;
         private Label statusLabel;
         private Label handsLabel;
+        private Label debugLabel;
         private VisualElement root;
 
         private void OnEnable()
@@ -116,6 +118,18 @@ namespace Residue.Gameplay.World
             handsLabel.style.left = 16;
             handsLabel.style.bottom = 32;
             root.Add(handsLabel);
+
+            // Interaction diagnostics. Deliberately monospaced-ish and magenta-tinted so it can
+            // never be mistaken for game UI.
+            debugLabel = new Label();
+            Style(debugLabel, 12, new Color(1f, 0.6f, 0.95f));
+            debugLabel.style.position = Position.Absolute;
+            debugLabel.style.right = 16;
+            debugLabel.style.top = 12;
+            debugLabel.style.whiteSpace = WhiteSpace.Normal;
+            debugLabel.style.unityTextAlign = TextAnchor.UpperLeft;
+            debugLabel.style.maxWidth = 620;
+            root.Add(debugLabel);
         }
 
         private void Update()
@@ -165,6 +179,10 @@ namespace Residue.Gameplay.World
             {
                 handsLabel.text = string.Empty;
             }
+
+            debugLabel.text = InteractionDebug.Enabled && interactionDebug != null
+                ? interactionDebug.BuildReadout()
+                : string.Empty;
 
             UpdateStatus();
         }
