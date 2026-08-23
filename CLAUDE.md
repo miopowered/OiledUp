@@ -74,6 +74,23 @@ test suite, create assets, and read the resulting errors — without a GUI.
 promise the game makes to the player; read the comment above one before changing it. Run them via
 the Test Runner window, via `Unity_RunCommand`, or in CI.
 
+### 4. In-game debug keys
+
+- **F3** — interaction overlay. Wireframes every nearby collider, the ray, and the ordered list of
+  what it passes through. This is how you tell a collider/mesh mismatch from a blocker in front of
+  the thing you wanted.
+- **F4** — third person. Pulls the camera back and un-hides `CharacterBody`, which is otherwise
+  culled from its owner's eye camera. The body exists for other players and there are none until M4,
+  so this is the only way to see the walk cycle.
+
+Driving the game from `Unity_RunCommand` works, with one trap: queue input with
+`InputSystem.QueueStateEvent` and **do not** call `InputSystem.Update()`. Forcing an update consumes
+the press in a synthetic frame, so edge-triggered actions (`WasPressedThisFrame` — jump, interact)
+have already gone false by the time the next game frame runs. Level-triggered ones (`ReadValue` —
+move, sprint) survive either way, which makes this look like "jump is broken" rather than a test
+artefact. Note also that the Editor throttles frames while unfocused, so `Time.timeScale` and
+wall-clock delays are only loosely related.
+
 ---
 
 ## Unity discipline

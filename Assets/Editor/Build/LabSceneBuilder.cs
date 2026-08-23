@@ -23,10 +23,10 @@ namespace Residue.Editor.Build
     /// Regenerating replaces the scene wholesale. Anything hand-placed in it will be lost, which is
     /// the trade for having it be reproducible.
     /// <para>
-    /// <b>Precondition:</b> a <i>saved</i> scene must be open, and the Editor must not be in play
-    /// mode. Unity refuses <c>NewScene(Additive)</c> while an untitled unsaved scene is open, and
-    /// additive is what keeps this from raising a save-changes modal that would hang MCP. If you
-    /// need to clear the hierarchy first, open another saved scene rather than an empty one.
+    /// <b>Precondition:</b> the open scene must have no unsaved changes, and the Editor must not be
+    /// in play mode. Rebuilding closes whatever is open, and closing a dirty scene raises a
+    /// save-changes modal that hangs every MCP call until a human clicks it. The scene is left open
+    /// afterwards, so this can be run repeatedly without any hierarchy juggling in between.
     /// </para>
     /// </summary>
     public static class LabSceneBuilder
@@ -50,6 +50,18 @@ namespace Residue.Editor.Build
         [MenuItem("Residue/Build/Rebuild Greybox Lab", priority = 40)]
         public static void Rebuild()
         {
+            // Building replaces whatever is open, so refuse if that would lose work. This is also
+            // what makes the NewScene call below safe: closing a clean scene is silent, closing a
+            // dirty one raises a "save changes?" modal that blocks the Editor and hangs every MCP
+            // call an agent makes.
+            var open = SceneManager.GetActiveScene();
+            if (open.isDirty)
+            {
+                Debug.LogError("[LabSceneBuilder] The open scene has unsaved changes. Save or " +
+                               "discard them before rebuilding.");
+                return;
+            }
+
             EnsureFolders();
 
             if (AssetDatabase.LoadAssetAtPath<ContentCatalog>(CatalogPath) == null)
@@ -63,6 +75,20 @@ namespace Residue.Editor.Build
                 Debug.Log("[LabSceneBuilder] No palette material yet; running palette rebuild first.");
                 PaletteBootstrap.Rebuild();
             }
+
+            EnsureLayer(ThirdPersonView.PlayerBodyLayer, "PlayerBody");
+
+            // Single, not additive. Additive cannot run while an untitled scene is active, and it
+            // cannot save over the Lab scene if the Lab scene is the thing already open — which is
+            // the normal state of an Editor someone has been playing in. The dirty check above is
+            // what makes closing the current scene safe.
+            //
+            // This has to happen BEFORE anything below loads an asset. Opening a scene in Single
+            // mode runs UnloadUnusedAssets, which destroys any asset a local variable is the only
+            // thing holding. Those variables do not become C# null — they become Unity's fake-null,
+            // so wiring them into a component silently serialises a null reference and the failure
+            // only shows up as an empty catalog at runtime, three steps from the cause.
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             var palette = AssetDatabase.LoadAssetAtPath<Material>(PaletteMaterial);
             var catalog = AssetDatabase.LoadAssetAtPath<ContentCatalog>(CatalogPath);
@@ -79,12 +105,8 @@ namespace Residue.Editor.Build
             var inputAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.InputSystem.InputActionAsset>(
                 "Assets/InputSystem_Actions.inputactions");
 
-            // Additive so the currently open scene is never closed — closing it would raise a
-            // "save changes?" modal, which blocks the Editor and hangs every MCP call.
             var screenMaterial = EnsureScreenMaterial();
             var printoutPrefab = BuildPrintoutPrefab(palette);
-
-            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
 
             var books = new List<ReferenceBook>();
 
@@ -98,12 +120,11 @@ namespace Residue.Editor.Build
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
-            EditorSceneManager.CloseScene(scene, removeScene: true);
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            Debug.Log($"[LabSceneBuilder] Built {ScenePath}. Open it and press Play.");
+            Debug.Log($"[LabSceneBuilder] Built {ScenePath}. It is open now — press Play.");
         }
 
         // -- Environment -------------------------------------------------------------------------------
@@ -534,9 +555,19 @@ namespace Residue.Editor.Build
             controllerComponent.radius = 0.3f;
             controllerComponent.center = new Vector3(0f, 0.9f, 0f);
 
+            // Three transforms, three owners, no contention: PlayerController writes eye height and
+            // pitch to Head, PlayerHeadMotion writes bob and landing dip to CameraRig, and the
+            // cameras just hang there. Collapsing any two of these into one transform means two
+            // systems assigning localPosition every frame and the loser looking like jitter.
+            var headGo = new GameObject("Head");
+            headGo.transform.SetParent(go.transform, false);
+            headGo.transform.localPosition = new Vector3(0f, 1.7f, 0f);
+
+            var rigGo = new GameObject("CameraRig");
+            rigGo.transform.SetParent(headGo.transform, false);
+
             var cameraGo = new GameObject("EyeCamera");
-            cameraGo.transform.SetParent(go.transform, false);
-            cameraGo.transform.localPosition = new Vector3(0f, 1.7f, 0f);
+            cameraGo.transform.SetParent(rigGo.transform, false);
             var camera = cameraGo.AddComponent<Camera>();
             camera.nearClipPlane = 0.05f;
             camera.farClipPlane = 60f;
@@ -545,14 +576,22 @@ namespace Residue.Editor.Build
             cameraGo.tag = "MainCamera";
 
             var carry = new GameObject("CarrySocket");
-            carry.transform.SetParent(cameraGo.transform, false);
+            carry.transform.SetParent(rigGo.transform, false);
             carry.transform.localPosition = new Vector3(0.22f, -0.18f, 0.42f);
 
             var player = go.AddComponent<PlayerController>();
             var playerSo = new SerializedObject(player);
             playerSo.FindProperty("inputAsset").objectReferenceValue = inputAsset;
             playerSo.FindProperty("eyeCamera").objectReferenceValue = camera;
+            playerSo.FindProperty("head").objectReferenceValue = headGo.transform;
             playerSo.ApplyModifiedPropertiesWithoutUndo();
+
+            var headMotion = go.AddComponent<PlayerHeadMotion>();
+            var motionSo = new SerializedObject(headMotion);
+            motionSo.FindProperty("player").objectReferenceValue = player;
+            motionSo.FindProperty("rig").objectReferenceValue = rigGo.transform;
+            motionSo.FindProperty("eyeCamera").objectReferenceValue = camera;
+            motionSo.ApplyModifiedPropertiesWithoutUndo();
 
             var interactor = go.AddComponent<PlayerInteractor>();
             var interactorSo = new SerializedObject(interactor);
@@ -566,6 +605,20 @@ namespace Residue.Editor.Build
             // every real target beyond it is discarded. Nothing in the lab was ever selectable
             // except by accident.
             SetLayerRecursively(go, PlayerInteractor.IgnoreRaycastLayer);
+
+            // Both of these are built after the layer sweep above, so each sets its own layer:
+            // hands join the player on Ignore Raycast, the body goes on its own layer so the owner's
+            // camera can cull it while everyone else's still sees it.
+            var hands = BuildHands(rigGo, palette, player, interactor);
+            SetLayerRecursively(hands, PlayerInteractor.IgnoreRaycastLayer);
+            BuildCharacterBody(go, palette, player, interactor);
+
+            var thirdPerson = go.AddComponent<ThirdPersonView>();
+            var thirdSo = new SerializedObject(thirdPerson);
+            thirdSo.FindProperty("player").objectReferenceValue = player;
+            thirdSo.FindProperty("eyeCamera").objectReferenceValue = camera;
+            thirdSo.FindProperty("hands").objectReferenceValue = hands;
+            thirdSo.ApplyModifiedPropertiesWithoutUndo();
 
             var interactionDebug = go.AddComponent<InteractionDebug>();
             var debugSo = new SerializedObject(interactionDebug);
@@ -608,6 +661,137 @@ namespace Residue.Editor.Build
             bookSo.ApplyModifiedPropertiesWithoutUndo();
 
             return (player, screen, bookScreen);
+        }
+
+        // -- Character ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Forearm and palm per side, hung off the camera rig so head bob carries into them for free.
+        /// Deliberately not on their own overlay camera: that needs URP camera stacking, which means
+        /// a URP reference in three asmdefs. Tracked separately; a 0.05 m near clip is enough until
+        /// someone presses their face into a wall.
+        /// </summary>
+        private static GameObject BuildHands(GameObject rig, Material palette,
+                                             PlayerController player, PlayerInteractor interactor)
+        {
+            var root = new GameObject("Hands");
+            root.transform.SetParent(rig.transform, false);
+
+            var handMesh = SaveMesh(new ProcMesh.Builder()
+                .Box(Vector3.zero, new Vector3(0.085f, 0.055f, 0.11f), PaletteUv.Family.NeutralWarm, 9)
+                .Box(new Vector3(0f, 0f, -0.16f), new Vector3(0.072f, 0.072f, 0.20f),
+                    PaletteUv.Family.NeutralCold, 6)
+                .ToMesh("Player_Hand"));
+
+            var left = AddChild(root, "HandL", handMesh, palette, Vector3.zero, addCollider: false);
+            var right = AddChild(root, "HandR", handMesh, palette, Vector3.zero, addCollider: false);
+
+            var hands = root.AddComponent<PlayerHands>();
+            var so = new SerializedObject(hands);
+            so.FindProperty("player").objectReferenceValue = player;
+            so.FindProperty("interactor").objectReferenceValue = interactor;
+            so.FindProperty("leftHand").objectReferenceValue = left.transform;
+            so.FindProperty("rightHand").objectReferenceValue = right.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return root;
+        }
+
+        /// <summary>
+        /// The segmented figure other players see. Every segment is a pivot GameObject with the box
+        /// offset inside it, because <see cref="CharacterBody"/> rotates the pivot — a box centred on
+        /// its own pivot would spin in place instead of swinging from the joint.
+        /// </summary>
+        private static void BuildCharacterBody(GameObject playerGo, Material palette,
+                                               PlayerController player, PlayerInteractor interactor)
+        {
+            var root = new GameObject("Body");
+            root.transform.SetParent(playerGo.transform, false);
+
+            var pelvis = Joint(root, "Pelvis", new Vector3(0f, 0.92f, 0f));
+            Segment(pelvis, "Pelvis_Mesh", palette, Vector3.zero, new Vector3(0.30f, 0.17f, 0.20f),
+                PaletteUv.Family.DeepBlue, 5);
+
+            var torso = Joint(pelvis, "Torso", new Vector3(0f, 0.09f, 0f));
+            Segment(torso, "Torso_Mesh", palette, new Vector3(0f, 0.23f, 0f),
+                new Vector3(0.36f, 0.46f, 0.22f), PaletteUv.Family.NeutralWarm, 8);
+
+            var neck = Joint(torso, "Neck", new Vector3(0f, 0.50f, 0f));
+            Segment(neck, "Head_Mesh", palette, new Vector3(0f, 0.11f, 0f),
+                new Vector3(0.20f, 0.22f, 0.21f), PaletteUv.Family.NeutralWarm, 10);
+
+            var (upperArmL, lowerArmL) = Limb(torso, "L", new Vector3(-0.23f, 0.42f, 0f),
+                palette, 0.28f, 0.26f, new Vector3(0.10f, 0.28f, 0.10f), new Vector3(0.085f, 0.26f, 0.085f),
+                PaletteUv.Family.NeutralWarm, PaletteUv.Family.NeutralWarm);
+            var (upperArmR, lowerArmR) = Limb(torso, "R", new Vector3(0.23f, 0.42f, 0f),
+                palette, 0.28f, 0.26f, new Vector3(0.10f, 0.28f, 0.10f), new Vector3(0.085f, 0.26f, 0.085f),
+                PaletteUv.Family.NeutralWarm, PaletteUv.Family.NeutralWarm);
+
+            var (upperLegL, lowerLegL) = Limb(pelvis, "LegL", new Vector3(-0.10f, -0.08f, 0f),
+                palette, 0.42f, 0.40f, new Vector3(0.13f, 0.42f, 0.13f), new Vector3(0.11f, 0.40f, 0.11f),
+                PaletteUv.Family.Sump, PaletteUv.Family.Sump);
+            var (upperLegR, lowerLegR) = Limb(pelvis, "LegR", new Vector3(0.10f, -0.08f, 0f),
+                palette, 0.42f, 0.40f, new Vector3(0.13f, 0.42f, 0.13f), new Vector3(0.11f, 0.40f, 0.11f),
+                PaletteUv.Family.Sump, PaletteUv.Family.Sump);
+
+            Segment(lowerLegL, "FootL", palette, new Vector3(0f, -0.365f, 0.05f),
+                new Vector3(0.12f, 0.07f, 0.24f), PaletteUv.Family.Sump, 2);
+            Segment(lowerLegR, "FootR", palette, new Vector3(0f, -0.365f, 0.05f),
+                new Vector3(0.12f, 0.07f, 0.24f), PaletteUv.Family.Sump, 2);
+
+            var body = root.AddComponent<CharacterBody>();
+            var so = new SerializedObject(body);
+            so.FindProperty("player").objectReferenceValue = player;
+            so.FindProperty("interactor").objectReferenceValue = interactor;
+            so.FindProperty("pelvis").objectReferenceValue = pelvis.transform;
+            so.FindProperty("torso").objectReferenceValue = torso.transform;
+            so.FindProperty("neck").objectReferenceValue = neck.transform;
+            so.FindProperty("upperArmL").objectReferenceValue = upperArmL.transform;
+            so.FindProperty("lowerArmL").objectReferenceValue = lowerArmL.transform;
+            so.FindProperty("upperArmR").objectReferenceValue = upperArmR.transform;
+            so.FindProperty("lowerArmR").objectReferenceValue = lowerArmR.transform;
+            so.FindProperty("upperLegL").objectReferenceValue = upperLegL.transform;
+            so.FindProperty("lowerLegL").objectReferenceValue = lowerLegL.transform;
+            so.FindProperty("upperLegR").objectReferenceValue = upperLegR.transform;
+            so.FindProperty("lowerLegR").objectReferenceValue = lowerLegR.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            // Culled from the owner's own eye camera by ThirdPersonView. No colliders anywhere in
+            // here, so the layer is purely a rendering concern and the interaction ray is unaffected.
+            SetLayerRecursively(root, ThirdPersonView.PlayerBodyLayer);
+        }
+
+        private static GameObject Joint(GameObject parent, string name, Vector3 localPosition)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPosition;
+            return go;
+        }
+
+        private static void Segment(GameObject parent, string name, Material palette, Vector3 offset,
+                                    Vector3 size, PaletteUv.Family family, int step)
+        {
+            var mesh = SaveMesh(new ProcMesh.Builder()
+                .Box(Vector3.zero, size, family, step)
+                .ToMesh($"Body_{name}"));
+            AddChild(parent, name, mesh, palette, offset, addCollider: false);
+        }
+
+        private static (GameObject upper, GameObject lower) Limb(
+            GameObject parent, string suffix, Vector3 socket, Material palette,
+            float upperLength, float lowerLength, Vector3 upperSize, Vector3 lowerSize,
+            PaletteUv.Family upperFamily, PaletteUv.Family lowerFamily)
+        {
+            var upper = Joint(parent, $"Upper{suffix}", socket);
+            Segment(upper, $"Upper{suffix}_Mesh", palette, new Vector3(0f, -upperLength * 0.5f, 0f),
+                upperSize, upperFamily, 6);
+
+            var lower = Joint(upper, $"Lower{suffix}", new Vector3(0f, -upperLength, 0f));
+            Segment(lower, $"Lower{suffix}_Mesh", palette, new Vector3(0f, -lowerLength * 0.5f, 0f),
+                lowerSize, lowerFamily, 4);
+
+            return (upper, lower);
         }
 
         private static void WireTerminal(TerminalStation station, TerminalScreen screen)
@@ -838,6 +1022,34 @@ namespace Residue.Editor.Build
 
             if (addCollider) go.AddComponent<MeshCollider>();
             return go;
+        }
+
+        /// <summary>
+        /// Names a user layer in TagManager if it is free. Refuses to overwrite an existing name —
+        /// silently stealing a layer someone else is using would move their objects out from under
+        /// whatever culling mask or physics query depends on them.
+        /// </summary>
+        private static void EnsureLayer(int index, string name)
+        {
+            var assets = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/TagManager.asset");
+            if (assets == null || assets.Length == 0) return;
+
+            var so = new SerializedObject(assets[0]);
+            var layers = so.FindProperty("layers");
+            if (layers == null || index < 0 || index >= layers.arraySize) return;
+
+            var entry = layers.GetArrayElementAtIndex(index);
+            if (entry.stringValue == name) return;
+
+            if (!string.IsNullOrEmpty(entry.stringValue))
+            {
+                Debug.LogWarning($"[LabSceneBuilder] Layer {index} is already named " +
+                                 $"'{entry.stringValue}'; wanted '{name}'. Leaving it alone.");
+                return;
+            }
+
+            entry.stringValue = name;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void EnsureFolders()

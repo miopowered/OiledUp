@@ -40,7 +40,17 @@ namespace Residue.Gameplay.World
         private void Start()
         {
             var lab = LabRuntime.Instance;
-            machine = lab != null ? lab.Lab.FindMachine(machineInstanceId) : null;
+
+            // LabRuntime disables itself and logs when content is missing, and its Lab is then null.
+            // Dereferencing it anyway gives one NullReferenceException per station, which buries the
+            // single error that actually says what went wrong.
+            if (lab == null || lab.Lab == null)
+            {
+                enabled = false;
+                return;
+            }
+
+            machine = lab.Lab.FindMachine(machineInstanceId);
 
             if (machine == null)
             {
