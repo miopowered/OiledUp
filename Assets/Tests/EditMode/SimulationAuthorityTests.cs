@@ -56,9 +56,21 @@ namespace Residue.Tests.EditMode
             content = null;
         }
 
+        /// <summary>
+        /// Build the runtime with its catalog already wired, by creating the object <b>inactive</b>.
+        /// <para>
+        /// Awake runs on AddComponent when the GameObject is active, which would hit the missing-
+        /// catalog branch, disable the component and return — and Awake never runs a second time, so
+        /// toggling SetActive afterwards does not fix it. That leaves <c>Lab</c> null for a reason
+        /// that has nothing to do with authority, which makes the client test pass without testing
+        /// anything. Inactive until wired is the only ordering where both tests mean what they say.
+        /// </para>
+        /// </summary>
         private LabRuntime Spawn()
         {
             host = new GameObject("LabRuntime_UnderTest");
+            host.SetActive(false);
+
             var runtime = host.AddComponent<LabRuntime>();
 
             var so = new UnityEditor.SerializedObject(runtime);
@@ -66,10 +78,7 @@ namespace Residue.Tests.EditMode
             so.FindProperty("seed").intValue = 20260823;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            // AddComponent already ran Awake with no catalog wired, so re-run it now that there is
-            // one. Cheap, and it keeps the test honest about which path built the state.
-            host.SetActive(false);
-            host.SetActive(true);
+            host.SetActive(true);   // Awake runs here, with a catalog to find.
             return runtime;
         }
 
