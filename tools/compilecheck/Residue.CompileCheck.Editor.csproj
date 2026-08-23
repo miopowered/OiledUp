@@ -1,0 +1,64 @@
+<!--
+  Companion to Residue.CompileCheck.csproj covering the editor-only assemblies:
+  Assets/Editor (content generation, import enforcement) and Assets/Tests.
+
+  Split from the runtime check because these need UnityEditor.dll and NUnit, which the runtime
+  assemblies must never reference. If this project ever compiles a file that also appears in the
+  runtime check, the split has been broken.
+
+  Usage:  dotnet build tools/compilecheck/Residue.CompileCheck.Editor.csproj
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Residue.CompileCheck.Editor</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <NoWarn>$(NoWarn);CS0649;CS0414;CS0169</NoWarn>
+
+    <!--
+      Without this, anything inside #if UNITY_EDITOR is invisible to the check and can rot silently
+      until Unity compiles it. UNITY_INCLUDE_TESTS matches the define constraint on the test asmdef.
+    -->
+    <DefineConstants>$(DefineConstants);UNITY_EDITOR;UNITY_INCLUDE_TESTS</DefineConstants>
+
+    <!-- NUnit ships as net472; the compiler only needs its metadata, so silence the framework mismatch. -->
+    <NoWarn>$(NoWarn);MSB3277;NU1701</NoWarn>
+    <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
+
+    <UnityRoot Condition="'$(UnityRoot)' == ''">C:\Program Files\Unity\Hub\Editor\6000.5.9f1</UnityRoot>
+    <UnityManaged>$(UnityRoot)\Editor\Data\Managed</UnityManaged>
+    <ProjectRoot>$(MSBuildThisFileDirectory)..\..</ProjectRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(ProjectRoot)\Assets\Scripts\**\*.cs" />
+    <Compile Include="$(ProjectRoot)\Assets\Editor\**\*.cs" />
+    <Compile Include="$(ProjectRoot)\Assets\Tests\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      The module folder already contains UnityEditor.CoreModule.dll. Do NOT also reference the
+      top-level UnityEditor.dll facade: every editor type would then be defined twice and every
+      use of MenuItem/SerializedProperty fails with CS0433.
+    -->
+    <Reference Include="$(UnityManaged)\UnityEngine\*.dll" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\PackageCache\com.unity.ext.nunit*\net472\unity-custom\nunit.framework.dll"
+              Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll')" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll')" Private="false" />
+  </ItemGroup>
+
+  <Target Name="VerifyUnityPresent" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(UnityManaged)\UnityEditor.dll')"
+           Text="UnityEditor.dll not found at '$(UnityManaged)'. Pass -p:UnityRoot=&quot;...&quot;." />
+  </Target>
+
+</Project>

@@ -1,0 +1,59 @@
+<!--
+  Fast headless compile check for the Residue runtime assemblies.
+
+  This is NOT the build. Unity is the build. This project exists so a coding agent with no
+  Editor GUI can get real C# errors in ~2 seconds instead of waiting on a domain reload or a
+  five-minute -batchmode run that cannot even start while the Editor holds the project lock.
+
+  It compiles everything under Assets/Scripts against Unity's own managed DLLs, so signatures,
+  namespaces and overload resolution are checked for real. It does NOT run tests and does NOT
+  understand asmdef boundaries; Unity still has the final word. See docs/WORKFLOW.md.
+
+  Usage:  dotnet build tools/compilecheck/Residue.CompileCheck.csproj
+-->
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>Residue.CompileCheck</AssemblyName>
+    <RootNamespace>Residue</RootNamespace>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+
+    <!-- Serialized-but-unassigned fields are the norm in Unity; do not report them as warnings. -->
+    <NoWarn>$(NoWarn);CS0649;CS0414;CS0169</NoWarn>
+
+    <UnityRoot Condition="'$(UnityRoot)' == ''">C:\Program Files\Unity\Hub\Editor\6000.5.9f1</UnityRoot>
+    <UnityManaged>$(UnityRoot)\Editor\Data\Managed</UnityManaged>
+    <ProjectRoot>$(MSBuildThisFileDirectory)..\..</ProjectRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(ProjectRoot)\Assets\Scripts\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Unity engine surface. -->
+    <Reference Include="$(UnityManaged)\UnityEngine\*.dll" Private="false" />
+
+    <!--
+      Compiled package assemblies, so InputSystem / Netcode types resolve. These only exist after
+      Unity has imported the packages at least once; the target below fails loudly if they are missing.
+    -->
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll')"
+               Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll')"
+               Private="false" />
+  </ItemGroup>
+
+  <Target Name="VerifyUnityPresent" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(UnityManaged)\UnityEngine\UnityEngine.CoreModule.dll')"
+           Text="Unity managed DLLs not found at '$(UnityManaged)'. Pass -p:UnityRoot=&quot;C:\Program Files\Unity\Hub\Editor\&lt;version&gt;&quot;." />
+  </Target>
+
+</Project>
