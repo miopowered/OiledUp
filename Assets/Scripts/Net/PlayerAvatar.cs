@@ -65,6 +65,41 @@ namespace Residue.Net
             if (body != null) body.SetRemoteState(crouching.Value, carrying.Value);
         }
 
+        /// <summary>
+        /// Put this player somewhere, and let them start falling once they are there.
+        /// <para>
+        /// Sent to the owner rather than applied on the server, because §3.1 gives a client authority
+        /// over its own transform — a server write would be overwritten by the next owner update.
+        /// </para>
+        /// The <see cref="CharacterController"/> has to be off while the transform is written: it
+        /// caches its own position and will happily put the player back where it thought it was.
+        /// </summary>
+        [Rpc(SendTo.Owner)]
+        public void PlaceRpc(Vector3 position, float yaw)
+        {
+            bool hadMotor = motor != null && motor.enabled;
+            if (motor != null) motor.enabled = false;
+
+            transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+
+            if (motor != null) motor.enabled = true;
+            if (!hadMotor && controller != null) controller.enabled = true;
+
+            placed = true;
+        }
+
+        /// <summary>
+        /// True once the server has said where this player belongs.
+        /// <para>
+        /// Until then the owner is frozen. A player object is created when the connection is
+        /// approved, which for a host is during <c>StartHost</c> — before the lab scene exists. In an
+        /// empty Boot scene there is no floor, so an unfrozen player falls for the whole Relay and
+        /// Lobby handshake: measured at roughly twenty-two kilometres down by the time the lab
+        /// arrived, which presents as "the game loaded but the world is empty".
+        /// </para>
+        /// </summary>
+        private bool placed;
+
         public override void OnNetworkSpawn()
         {
             bool mine = IsOwner;
@@ -88,7 +123,10 @@ namespace Residue.Net
 
             // The motor moves this transform. On a replica the transform is written by
             // OwnerNetworkTransform instead, and two things writing one transform is jitter.
-            if (motor != null) motor.enabled = mine;
+            //
+            // Frozen for the owner too until PlaceRpc arrives: gravity in a scene with no floor is
+            // how the player ended up twenty-two kilometres beneath the lab.
+            if (motor != null) motor.enabled = mine && placed;
 
             if (hands != null) hands.gameObject.SetActive(mine);
 

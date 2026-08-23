@@ -99,8 +99,13 @@ namespace Residue.Net
             {
                 manager.ConnectionApprovalCallback = Approve;
                 manager.OnClientDisconnectCallback += OnClientDisconnect;
+                manager.OnClientConnectedCallback += OnClientConnected;
                 SeatTheHost(manager);
             }
+
+            // This object lives in the lab scene, so by the time it spawns there is a floor to stand
+            // on. Everyone connected is still frozen wherever they were created — place them now.
+            PlaceEveryone();
 
             PublishAll();
         }
@@ -125,7 +130,71 @@ namespace Residue.Net
             {
                 manager.ConnectionApprovalCallback = null;
                 manager.OnClientDisconnectCallback -= OnClientDisconnect;
+                manager.OnClientConnectedCallback -= OnClientConnected;
             }
+        }
+
+        // -- Placing players ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// Where players stand when the lab opens. Spread along the near wall, facing the instruments.
+        /// <para>
+        /// Four fixed spots rather than one, because everybody spawning on the same tile means four
+        /// capsules resolving their overlap by shoving each other across the room.
+        /// </para>
+        /// </summary>
+        private static readonly Vector3[] SpawnPoints =
+        {
+            new(-1.2f, 0.05f, 2.6f),
+            new(0.0f, 0.05f, 2.6f),
+            new(1.2f, 0.05f, 2.6f),
+            new(2.4f, 0.05f, 2.6f)
+        };
+
+        private const float SpawnYaw = 180f;   // facing the bench, which is where the game is
+
+        /// <summary>
+        /// Tell every connected player where they belong.
+        /// <para>
+        /// A player object exists from the moment its connection is approved — for a host, during
+        /// <c>StartHost</c>, long before the lab scene has loaded. It is created in whatever scene is
+        /// current, which is the Boot menu: no floor, and nothing to stop it falling. Freezing it and
+        /// placing it here is what turns "connected" into "standing in the lab".
+        /// </para>
+        /// Restores the saved pose for a rejoining player instead, so a reconnect puts you back where
+        /// you were rather than at the door (§M4).
+        /// </summary>
+        private void PlaceEveryone()
+        {
+            var manager = NetworkManager.Singleton;
+            if (manager == null) return;
+
+            int index = 0;
+            foreach (var client in manager.ConnectedClientsList)
+            {
+                Place(client, index);
+                index++;
+            }
+        }
+
+        private void Place(NetworkClient client, int index)
+        {
+            var player = client?.PlayerObject;
+            if (player == null) return;
+
+            var avatar = player.GetComponent<PlayerAvatar>();
+            if (avatar == null) return;
+
+            Vector3 position = SpawnPoints[index % SpawnPoints.Length];
+            float yaw = SpawnYaw;
+
+            if (Sessions.TryGet(client.ClientId, out var session) && session.Pose.HasValue)
+            {
+                position = session.Pose.Position;
+                yaw = session.Pose.Yaw;
+            }
+
+            avatar.PlaceRpc(position, yaw);
         }
 
         /// <summary>
@@ -223,6 +292,20 @@ namespace Residue.Net
 
             double absent = join.Session.AbsentSeconds(Time.realtimeSinceStartupAsDouble);
             Debug.Log($"[LabNetwork] {stableId} rejoined after {absent:F0}s away.", this);
+        }
+
+        /// <summary>
+        /// Somebody joined a lab that is already open. <see cref="PlaceEveryone"/> only runs when this
+        /// object spawns, which for a late joiner happened before they arrived — so they would stay
+        /// frozen at wherever their player object was created, which is nowhere in particular.
+        /// </summary>
+        private void OnClientConnected(ulong clientId)
+        {
+            var manager = NetworkManager.Singleton;
+            if (manager == null) return;
+            if (!manager.ConnectedClients.TryGetValue(clientId, out var client)) return;
+
+            Place(client, (int)clientId);
         }
 
         private void OnClientDisconnect(ulong clientId)

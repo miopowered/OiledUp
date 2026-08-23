@@ -185,6 +185,12 @@ namespace Residue.Gameplay.World
         {
             if (Cursor.lockState == CursorLockMode.Locked) ApplyLook();
 
+            // Everything below drives the CharacterController, and Unity logs an error per frame if
+            // it is asked to move while disabled. It is disabled on purpose between spawning and
+            // being placed in the lab (§M4) — looking around while you wait is fine, walking is not,
+            // and there is nothing to walk on yet anyway.
+            if (!controller.enabled) return;
+
             UpdateGrounded();
             UpdateCrouch();
             ApplyJump();
