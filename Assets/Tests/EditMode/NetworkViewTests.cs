@@ -171,6 +171,49 @@ namespace Residue.Tests.EditMode
         /// <see cref="SampleGroundTruth"/> itself, so adding a field there extends this test with it.
         /// </para>
         /// </summary>
+        /// <summary>
+        /// Promise: a client can walk back to the bottle and read the label, and cannot be told the
+        /// answer by a screen.
+        /// <para>
+        /// The two halves of this are in tension, which is why they are pinned together. The label
+        /// <b>must</b> reach a client, or §5.1's mis-log is a punishment with no available check —
+        /// hard rule 3. It must <b>not</b> reach a screen, or the screen diffs it against the typed
+        /// tag and corrects the player for free. The whole reason <see cref="VialView"/> is a separate
+        /// list from <see cref="SampleView"/> is to hold both of those true at once, and merging them
+        /// "to save a list" is exactly the tidy-up this test exists to fail.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void TheLabelReachesTheBottleAndNoScreen()
+        {
+            var rng = new Rng(20260823);
+            var profile = content.Profiles["quench_oil_cold"];
+            var generator = new SampleGenerator(content.AllFaults);
+
+            const string label = "WERK-1 QUENCH 1";
+            const string typed = "WERK-9 BATH Z";
+
+            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng),
+                typed).State;
+
+            Assert.IsTrue(sample.IsMislogged, "Test needs a genuine mismatch to be about anything.");
+
+            var vial = VialView.From(sample);
+            Assert.AreEqual(sample.EquipmentTag, vial.Label.ToString(),
+                "A client cannot read the label off the bottle, so a mis-log has no tell (§5.1).");
+
+            var view = SampleView.From(sample);
+            foreach (string member in MemberNames(typeof(SampleView)))
+            {
+                object value = typeof(SampleView).GetField(member)?.GetValue(view)
+                               ?? typeof(SampleView).GetProperty(member)?.GetValue(view);
+
+                Assert.AreNotEqual(sample.EquipmentTag, value?.ToString(),
+                    $"SampleView.{member} carries the paper label. Screens read this, and one that " +
+                    "can compare it to RecordTag hands the player their own mistake.");
+            }
+        }
+
         [Test]
         public void Views_NameNothingThatOnlyTheHostMayKnow()
         {
@@ -187,8 +230,7 @@ namespace Residue.Tests.EditMode
                 nameof(MachineRuntimeState.DriftSign),
                 nameof(MachineRuntimeState.DriftStartedAtRunIndex),
 
-                // The paper label, and the comparison it enables (§5.1).
-                nameof(SampleState.EquipmentTag),
+                // The comparison a mis-log is caught by. No view may make it for the player (§5.1).
                 nameof(SampleState.IsMislogged),
 
                 // Catch-alls. Substring matching means "PrimaryFaultId" and "FaultName" fail too.
@@ -197,16 +239,32 @@ namespace Residue.Tests.EditMode
                 "Actual"
             };
 
+            // The paper label is the one piece of hidden state that has to reach a client, because
+            // reading it off the bottle is the only tell a mis-log has (§5.1). So it is banned from
+            // every view except the one describing the bottle itself — see VialView, which is kept
+            // out of SampleView precisely so no screen can hold both halves of the comparison.
+            var labelWords = new[] { nameof(SampleState.EquipmentTag), "Label" };
+
             var offenders = new List<string>();
 
             foreach (var view in ViewTypes())
             {
+                bool describesTheBottle = view == typeof(VialView);
+
                 foreach (string member in MemberNames(view))
                 {
                     foreach (string word in forbidden)
                     {
                         if (member.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
                             offenders.Add($"{view.Name}.{member} (matches '{word}')");
+                    }
+
+                    if (describesTheBottle) continue;
+
+                    foreach (string word in labelWords)
+                    {
+                        if (member.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
+                            offenders.Add($"{view.Name}.{member} (carries the paper label; only VialView may)");
                     }
                 }
             }

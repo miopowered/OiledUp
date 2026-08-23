@@ -51,11 +51,23 @@ namespace Residue.Net
 
         private NetworkList<SampleView> samples;
         private NetworkList<MachineView> machines;
+        private NetworkList<VialView> vials;
 
         public DayView Day => day.Value;
         public EconomyView Economy => economy.Value;
         public NetworkList<SampleView> Samples => samples;
         public NetworkList<MachineView> Machines => machines;
+
+        /// <summary>
+        /// The bottles, as physical objects: where each one is and what its label says.
+        /// <para>
+        /// Separate from <see cref="Samples"/> on purpose — see <see cref="VialView"/>. That list is
+        /// what screens read and carries the tag the player typed; this one is what the world reads
+        /// and carries the tag on the bottle. Keeping them apart is what stops a terminal being able
+        /// to point out a mis-log the player was supposed to catch by walking back and looking.
+        /// </para>
+        /// </summary>
+        public NetworkList<VialView> Vials => vials;
 
         /// <summary>Raised on the server when a dropped player's item must be put back (§M4).</summary>
         public event Action<PlayerSession, HeldItem> ItemReleased;
@@ -67,6 +79,7 @@ namespace Residue.Net
         {
             samples = new NetworkList<SampleView>();
             machines = new NetworkList<MachineView>();
+            vials = new NetworkList<VialView>();
         }
 
         public override void OnNetworkSpawn()
@@ -517,6 +530,32 @@ namespace Residue.Net
 
             Sync(samples);
             Sync(machines);
+            Sync(vials);
+        }
+
+        /// <summary>
+        /// Publish the bottles. Consumed ones are dropped rather than sent with a tombstone: a client
+        /// reconciles by matching ids, so a vial that stops appearing is a vial to destroy, and one
+        /// list is easier to reason about than a list plus a rule about dead entries.
+        /// </summary>
+        private void Sync(NetworkList<VialView> list)
+        {
+            int i = 0;
+
+            foreach (var state in Lab.Samples.All)
+            {
+                if (state.Location.Kind == SampleLocationKind.Consumed) continue;
+
+                var view = VialView.From(state);
+                if (i < list.Count)
+                {
+                    if (!list[i].Equals(view)) list[i] = view;
+                }
+                else list.Add(view);
+                i++;
+            }
+
+            for (int extra = list.Count - 1; extra >= i; extra--) list.RemoveAt(extra);
         }
 
         private void Sync(NetworkList<SampleView> list)
