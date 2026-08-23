@@ -179,9 +179,12 @@ namespace Residue.Editor.Art
             {
                 Vector3.forward, Vector3.forward, Vector3.forward, Vector3.forward
             });
+            // U runs right-to-left in world space. A camera looking down -Z has its right vector at
+            // -X, so world +X lands on the LEFT of the screen; mapping u=1 to x=+w mirrors the
+            // texture, and text comes out backwards. V needs no flip: v=1 is world +h, which is up.
             mesh.SetUVs(0, new List<Vector2>
             {
-                new(0f, 0f), new(1f, 0f), new(1f, 1f), new(0f, 1f)
+                new(1f, 0f), new(0f, 0f), new(0f, 1f), new(1f, 1f)
             });
             mesh.SetTriangles(new List<int> { 0, 1, 2, 0, 2, 3 }, 0);
             mesh.RecalculateBounds();

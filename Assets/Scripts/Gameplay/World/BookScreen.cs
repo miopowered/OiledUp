@@ -21,12 +21,21 @@ namespace Residue.Gameplay.World
         [SerializeField] private PlayerController player;
         [SerializeField] private PlayerInteractor interactor;
 
+        [Header("Feel")]
+        [SerializeField] private int openMilliseconds = 220;
+        [SerializeField] private int turnMilliseconds = 160;
+
         private static readonly Color Paper = new(0.90f, 0.88f, 0.82f);
         private static readonly Color PaperEdge = new(0.82f, 0.79f, 0.72f);
         private static readonly Color Ink = new(0.13f, 0.12f, 0.11f);
         private static readonly Color InkSoft = new(0.38f, 0.36f, 0.33f);
 
         private VisualElement root;
+        private VisualElement bookPanel;
+        private ScrollView contentsList;
+        private VisualElement pageHost;
+        private Label headingLabel;
+
         private List<BookPage> pages = new();
         private string title = "Reference";
         private int index;
@@ -43,8 +52,21 @@ namespace Residue.Gameplay.World
         private void Update()
         {
             if (!IsOpen || Keyboard.current == null) return;
-            if (Keyboard.current.escapeKey.wasPressedThisFrame) Close();
+
+            if (Keyboard.current.escapeKey.wasPressedThisFrame) { Close(); return; }
+
+            // Arrow keys turn pages. Reading a manual should not require aiming a mouse at a list.
+            if (Keyboard.current.rightArrowKey.wasPressedThisFrame) Turn(1);
+            else if (Keyboard.current.leftArrowKey.wasPressedThisFrame) Turn(-1);
         }
+
+        private void Turn(int delta)
+        {
+            int next = Mathf.Clamp(index + delta, 0, Mathf.Max(0, pages.Count - 1));
+            if (next != index) ShowPage(next, delta);
+        }
+
+        // -- Lifecycle -------------------------------------------------------------------------------
 
         public void Open(string bookTitle, List<BookPage> bookPages)
         {
@@ -57,7 +79,15 @@ namespace Residue.Gameplay.World
             PlayerController.SetCursorLocked(false);
             if (player != null) player.enabled = false;
             if (interactor != null) interactor.enabled = false;
-            Rebuild();
+
+            BuildShell();
+            ShowPage(0, 0);
+
+            // The covers coming up: the panel rises and fades rather than appearing, and the dim
+            // behind it comes in with it. Without this a manual pops into existence, which reads as
+            // a menu rather than as something you opened.
+            Animate(root, 0f, 0f, openMilliseconds);
+            Animate(bookPanel, 0f, 26f, openMilliseconds);
         }
 
         public void Close()
@@ -69,7 +99,9 @@ namespace Residue.Gameplay.World
             if (interactor != null) interactor.enabled = true;
         }
 
-        private void Rebuild()
+        // -- Shell -----------------------------------------------------------------------------------
+
+        private void BuildShell()
         {
             root.Clear();
             root.style.flexGrow = 1f;
@@ -77,16 +109,16 @@ namespace Residue.Gameplay.World
             root.style.alignItems = Align.Center;
             root.style.justifyContent = Justify.Center;
 
-            var book = new VisualElement();
-            book.style.width = Length.Percent(78);
-            book.style.height = Length.Percent(82);
-            book.style.backgroundColor = new StyleColor(Paper);
-            book.style.paddingTop = 18;
-            book.style.paddingBottom = 18;
-            book.style.paddingLeft = 22;
-            book.style.paddingRight = 22;
-            LabHud.Round(book, 3);
-            root.Add(book);
+            bookPanel = new VisualElement();
+            bookPanel.style.width = Length.Percent(78);
+            bookPanel.style.height = Length.Percent(82);
+            bookPanel.style.backgroundColor = new StyleColor(Paper);
+            bookPanel.style.paddingTop = 18;
+            bookPanel.style.paddingBottom = 18;
+            bookPanel.style.paddingLeft = 22;
+            bookPanel.style.paddingRight = 22;
+            LabHud.Round(bookPanel, 3);
+            root.Add(bookPanel);
 
             var header = new VisualElement();
             header.style.flexDirection = FlexDirection.Row;
@@ -106,35 +138,52 @@ namespace Residue.Gameplay.World
             var close = new Button(Close) { text = "CLOSE  (Esc)" };
             StylePaperButton(close);
             header.Add(close);
-            book.Add(header);
+            bookPanel.Add(header);
 
             var body = new VisualElement();
             body.style.flexDirection = FlexDirection.Row;
             body.style.flexGrow = 1f;
-            book.Add(body);
+            bookPanel.Add(body);
 
-            body.Add(Contents());
-            body.Add(Page());
+            contentsList = new ScrollView();
+            contentsList.style.width = 210;
+            contentsList.style.marginRight = 18;
+            contentsList.style.borderRightWidth = 1;
+            contentsList.style.borderRightColor = new StyleColor(PaperEdge);
+            contentsList.style.paddingRight = 10;
+            body.Add(contentsList);
+
+            var right = new VisualElement();
+            right.style.flexGrow = 1f;
+            body.Add(right);
+
+            headingLabel = new Label();
+            headingLabel.style.fontSize = 15;
+            headingLabel.style.unityFontStyleAndWeight = FontStyle.Bold;
+            headingLabel.style.color = new StyleColor(Ink);
+            headingLabel.style.marginBottom = 8;
+            right.Add(headingLabel);
+
+            pageHost = new VisualElement();
+            pageHost.style.flexGrow = 1f;
+            right.Add(pageHost);
+
+            RefreshContents();
         }
 
-        private VisualElement Contents()
+        private void RefreshContents()
         {
-            var list = new ScrollView();
-            list.style.width = 210;
-            list.style.marginRight = 18;
-            list.style.borderRightWidth = 1;
-            list.style.borderRightColor = new StyleColor(PaperEdge);
-            list.style.paddingRight = 10;
+            contentsList.Clear();
 
             for (int i = 0; i < pages.Count; i++)
             {
                 int captured = i;
-                var entry = new Button(() => { index = captured; Rebuild(); })
+                var entry = new Button(() => ShowPage(captured, captured > index ? 1 : -1))
                 { text = pages[i].Title };
 
                 entry.style.backgroundColor = new StyleColor(
                     i == index ? PaperEdge : new Color(0f, 0f, 0f, 0f));
-                entry.style.color = new StyleColor(Ink);
+                entry.style.color = new StyleColor(i == index ? Ink : InkSoft);
                 entry.style.fontSize = 13;
                 entry.style.unityTextAlign = TextAnchor.MiddleLeft;
                 entry.style.marginLeft = 0;
@@ -147,7 +196,7 @@ namespace Residue.Gameplay.World
                 entry.style.borderLeftWidth = 0;
                 entry.style.borderRightWidth = 0;
                 LabHud.Round(entry, 2);
-                list.Add(entry);
+                contentsList.Add(entry);
             }
 
             if (pages.Count == 0)
@@ -155,27 +204,28 @@ namespace Residue.Gameplay.World
                 var empty = new Label("This volume is empty.");
                 empty.style.fontSize = 12;
                 empty.style.color = new StyleColor(InkSoft);
-                list.Add(empty);
+                contentsList.Add(empty);
             }
-
-            return list;
         }
 
-        private VisualElement Page()
+        /// <summary>
+        /// Swap the page body. <paramref name="direction"/> is +1 forward, -1 back, 0 for the first
+        /// page on open — the new sheet slides in from the side you turned towards, so a page turn
+        /// has a direction rather than just blinking.
+        /// </summary>
+        private void ShowPage(int newIndex, int direction)
         {
-            var scroll = new ScrollView();
-            scroll.style.flexGrow = 1f;
+            index = Mathf.Clamp(newIndex, 0, Mathf.Max(0, pages.Count - 1));
+            RefreshContents();
 
-            if (index < 0 || index >= pages.Count) return scroll;
+            pageHost.Clear();
+            if (pages.Count == 0) return;
 
             var page = pages[index];
+            headingLabel.text = page.Title;
 
-            var heading = new Label(page.Title);
-            heading.style.fontSize = 15;
-            heading.style.unityFontStyleAndWeight = FontStyle.Bold;
-            heading.style.color = new StyleColor(Ink);
-            heading.style.marginBottom = 8;
-            scroll.Add(heading);
+            var scroll = new ScrollView();
+            scroll.style.flexGrow = 1f;
 
             var text = new Label(page.Body);
             text.style.fontSize = 13;
@@ -183,13 +233,50 @@ namespace Residue.Gameplay.World
             text.style.whiteSpace = WhiteSpace.Normal;
             scroll.Add(text);
 
-            var footer = new Label($"page {index + 1} of {pages.Count}");
+            var footer = new Label($"page {index + 1} of {pages.Count}    [<] [>] to turn");
             footer.style.fontSize = 11;
             footer.style.color = new StyleColor(InkSoft);
             footer.style.marginTop = 14;
             scroll.Add(footer);
 
-            return scroll;
+            pageHost.Add(scroll);
+
+            if (direction != 0) Animate(pageHost, direction * 34f, 0f, turnMilliseconds);
+        }
+
+        // -- Animation -------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Fade and slide an element into place from an offset.
+        /// <para>
+        /// Transitions are disabled while the starting state is applied, otherwise the element would
+        /// animate <i>to</i> the offset first and the movement would run backwards.
+        /// </para>
+        /// </summary>
+        private static void Animate(VisualElement element, float fromX, float fromY, int milliseconds)
+        {
+            if (element == null) return;
+
+            SetTransition(element, 0);
+            element.style.opacity = 0f;
+            element.style.translate = new Translate(fromX, fromY);
+
+            element.schedule.Execute(() =>
+            {
+                SetTransition(element, milliseconds);
+                element.style.opacity = 1f;
+                element.style.translate = new Translate(0f, 0f);
+            }).StartingIn(16);
+        }
+
+        private static void SetTransition(VisualElement element, int milliseconds)
+        {
+            element.style.transitionProperty = new StyleList<StylePropertyName>(
+                new List<StylePropertyName> { "opacity", "translate" });
+            element.style.transitionDuration = new StyleList<TimeValue>(
+                new List<TimeValue> { new(milliseconds, TimeUnit.Millisecond) });
+            element.style.transitionTimingFunction = new StyleList<EasingFunction>(
+                new List<EasingFunction> { new(EasingMode.EaseOutCubic) });
         }
 
         private static void StylePaperButton(Button button)
