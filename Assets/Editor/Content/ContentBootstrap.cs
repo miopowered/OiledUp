@@ -42,6 +42,7 @@ namespace Residue.Editor.Content
 
                 var set = ContentBuilder.Build((type, name) => Resolve(type, name, created, touched));
                 MarkDirty(set);
+                WriteCatalog(set, created);
             }
             finally
             {
@@ -160,6 +161,42 @@ namespace Residue.Editor.Content
                 if (!AssetDatabase.IsValidFolder($"{Root}/{folder}"))
                     AssetDatabase.CreateFolder(Root, folder);
             }
+        }
+
+        /// <summary>
+        /// Roll every definition up into the single asset runtime code references. Written in place
+        /// like the definitions, so the scene reference to it survives a rebuild.
+        /// </summary>
+        private static void WriteCatalog(ContentSet set, List<string> created)
+        {
+            const string path = Root + "/ContentCatalog.asset";
+
+            var catalog = AssetDatabase.LoadAssetAtPath<ContentCatalog>(path);
+            if (catalog == null)
+            {
+                catalog = ScriptableObject.CreateInstance<ContentCatalog>();
+                catalog.name = "ContentCatalog";
+                AssetDatabase.CreateAsset(catalog, path);
+                created.Add(path);
+            }
+
+            var so = new SerializedObject(catalog);
+            Fill(so.FindProperty("elements"), ContentTables.Elements.Select(r => (UnityEngine.Object)set.Element(r.Id)));
+            Fill(so.FindProperty("causes"), ContentTables.Causes.Select(r => (UnityEngine.Object)set.Cause(r.Id)));
+            Fill(so.FindProperty("profiles"), ContentTables.Profiles.Select(r => (UnityEngine.Object)set.Profile(r.Id)));
+            Fill(so.FindProperty("faults"), ContentTables.Faults.Select(r => (UnityEngine.Object)set.Fault(r.Id)));
+            Fill(so.FindProperty("machines"), ContentTables.Machines.Select(r => (UnityEngine.Object)set.Machine(r.Id)));
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorUtility.SetDirty(catalog);
+        }
+
+        private static void Fill(SerializedProperty list, IEnumerable<UnityEngine.Object> values)
+        {
+            var items = values.ToList();
+            list.arraySize = items.Count;
+            for (int i = 0; i < items.Count; i++)
+                list.GetArrayElementAtIndex(i).objectReferenceValue = items[i];
         }
 
         private static void MarkDirty(ContentSet set)

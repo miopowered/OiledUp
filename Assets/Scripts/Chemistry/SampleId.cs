@@ -68,6 +68,12 @@ namespace Residue.Chemistry
         public static SampleLocation InFridge(int slot) => new()
         { Kind = SampleLocationKind.InFridge, ContainerId = "fridge", SlotIndex = slot };
 
+        public static SampleLocation Archived() => new()
+        { Kind = SampleLocationKind.Archived, SlotIndex = -1 };
+
+        public static SampleLocation Consumed() => new()
+        { Kind = SampleLocationKind.Consumed, SlotIndex = -1 };
+
         public override string ToString() => Kind switch
         {
             SampleLocationKind.Held => $"Held(client {HolderClientId})",
