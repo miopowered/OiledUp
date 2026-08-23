@@ -119,4 +119,9 @@ InitTestScene*.unity*
 
 
 !My project.slnx
-!*.csproj
+
+# The Unity template ignores *.csproj because Unity regenerates the Assembly-CSharp* and
+# Residue.* projects on every import; committing them means constant churn and merge conflicts.
+# The headless compile-check projects under tools/ are hand-written source and must be tracked,
+# so un-ignore those specifically rather than lifting the rule globally.
+!/tools/**/*.csproj
