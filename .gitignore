@@ -116,3 +116,6 @@ InitTestScene*.unity*
 # Headless compile-check scratch. Lives outside Assets/ so Unity never imports it.
 /tools/**/bin/
 /tools/**/obj/
+
+
+!My project.slnx

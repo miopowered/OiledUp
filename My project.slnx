@@ -1,0 +1,9 @@
+﻿<Solution>
+  <Project Path="Residue.Chemistry.csproj" />
+  <Project Path="Residue.Data.csproj" />
+  <Project Path="Residue.Editor.csproj" />
+  <Project Path="Residue.Gameplay.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+  <Project Path="Residue.Tests.EditMode.csproj" />
+  <Project Path="Assembly-CSharp.csproj" />
+</Solution>
