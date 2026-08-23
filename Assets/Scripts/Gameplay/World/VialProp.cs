@@ -42,16 +42,28 @@ namespace Residue.Gameplay.World
             fluidRenderer.SetPropertyBlock(block);
         }
 
-        public void AttachTo(Transform socket, bool physicsEnabled = false)
+        /// <summary>
+        /// Park this vial in a socket.
+        /// <para>
+        /// <paramref name="interactable"/> controls whether the player can target the vial directly.
+        /// It must be false while carried (it would sit between the camera and everything else) and
+        /// while loaded in an instrument — there the <see cref="MachineStation"/> mediates, and
+        /// letting the player grab the vial straight out would leave the machine still believing it
+        /// was loaded.
+        /// </para>
+        /// </summary>
+        public void AttachTo(Transform socket, bool interactable = true)
         {
             transform.SetParent(socket, worldPositionStays: false);
             transform.localPosition = Vector3.zero;
             transform.localRotation = Quaternion.identity;
 
+            foreach (var c in GetComponentsInChildren<Collider>(true)) c.enabled = interactable;
+
             if (TryGetComponent<Rigidbody>(out var body))
             {
-                body.isKinematic = !physicsEnabled;
-                body.detectCollisions = physicsEnabled;
+                body.isKinematic = true;
+                body.detectCollisions = interactable;
             }
         }
 

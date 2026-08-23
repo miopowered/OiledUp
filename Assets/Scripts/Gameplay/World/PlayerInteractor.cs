@@ -198,7 +198,7 @@ namespace Residue.Gameplay.World
             if (vial == null || Carried != null) return false;
 
             Carried = vial;
-            vial.AttachTo(carrySocket != null ? carrySocket : transform);
+            vial.AttachTo(carrySocket != null ? carrySocket : transform, interactable: false);
 
             var lab = LabRuntime.Instance;
             if (lab != null && lab.Lab.Samples.TryGet(vial.SampleId, out var sample))

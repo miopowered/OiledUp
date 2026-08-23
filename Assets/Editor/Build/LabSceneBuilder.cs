@@ -122,6 +122,15 @@ namespace Residue.Editor.Build
             AddStatic(root, "Bench_Terminal", SaveMesh(desk), palette,
                 new Vector3(RoomWidth * 0.5f - 1.1f, BenchHeight * 0.5f, 1.6f), addCollider: true);
 
+            // Island between the door and the instruments. Staging space is not decoration: with one
+            // pair of hands and four machines, somewhere to put a vial down is what stops the loop
+            // deadlocking the moment every instrument is busy.
+            var island = new ProcMesh.Builder()
+                .Box(Vector3.zero, new Vector3(3.2f, BenchHeight, 0.8f), PaletteUv.Family.Steel, 6)
+                .ToMesh("Lab_Island");
+            AddStatic(root, "Bench_Island", SaveMesh(island), palette,
+                new Vector3(0f, BenchHeight * 0.5f, -1.4f), addCollider: true);
+
             var lightGo = new GameObject("Sun");
             SceneManager.MoveGameObjectToScene(lightGo, scene);
             var light = lightGo.AddComponent<Light>();
@@ -211,6 +220,15 @@ namespace Residue.Editor.Build
                     new Vector3(0.16f, -0.05f, 0.26f), station, MachineAction.Blank);
             }
 
+            // Staging racks on the island, plus one beside the instruments so a finished vial can be
+            // parked without walking away from the bench.
+            var rackMesh = SaveMesh(ProcMesh.Box("Rack_Base", new Vector3(0.56f, 0.03f, 0.28f),
+                PaletteUv.Family.Sump, 6));
+
+            AddRack(root, scene, "rack_island_a", new Vector3(-0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
+            AddRack(root, scene, "rack_island_b", new Vector3(0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
+            AddRack(root, scene, "rack_bench", new Vector3(-3.75f, BenchHeight, benchZ), palette, rackMesh, 4);
+
             // Intake crate
             var crateGo = new GameObject("IntakeCrate");
             SceneManager.MoveGameObjectToScene(crateGo, scene);
@@ -243,6 +261,29 @@ namespace Residue.Editor.Build
             var terminal = terminalGo.AddComponent<TerminalStation>();
 
             return (terminal, crate);
+        }
+
+        private static void AddRack(GameObject root, Scene scene, string rackId, Vector3 position,
+                                    Material palette, Mesh rackMesh, int slotCount)
+        {
+            var go = new GameObject($"Rack_{rackId}");
+            SceneManager.MoveGameObjectToScene(go, scene);
+            go.transform.SetParent(root.transform, false);
+            go.transform.position = position;
+
+            AddChild(go, "Base", rackMesh, palette, new Vector3(0f, 0.015f, 0f), addCollider: true);
+
+            var slotRoot = new GameObject("Slots");
+            slotRoot.transform.SetParent(go.transform, false);
+            slotRoot.transform.localPosition = new Vector3(0f, 0.03f, 0f);
+
+            var rack = go.AddComponent<SampleRack>();
+            var so = new SerializedObject(rack);
+            so.FindProperty("rackId").stringValue = rackId;
+            so.FindProperty("slotRoot").objectReferenceValue = slotRoot.transform;
+            so.FindProperty("slotCount").intValue = slotCount;
+            so.FindProperty("columns").intValue = Mathf.Min(4, slotCount);
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static void AddActionButton(GameObject parent, string name, Mesh mesh, Material palette,

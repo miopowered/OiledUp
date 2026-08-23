@@ -13,7 +13,9 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
-            if (player.Carried != null) return "Put the vial down first";
+            // You do not type up a report one-handed with a sample in the other. Racks exist for
+            // exactly this, so name them rather than just refusing.
+            if (player.Carried != null) return "Rack the vial before filing";
 
             var lab = LabRuntime.Instance?.Lab;
             if (lab == null) return "Terminal";

@@ -121,7 +121,7 @@ namespace Residue.Gameplay.World
             if (machine.TryLoad(sample) != LoadRefusal.Accepted) return;
 
             var vial = player.ReleaseCarried();
-            vial.AttachTo(vialSocket != null ? vialSocket : transform);
+            vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
             ranSinceLoad = false;
         }
 
