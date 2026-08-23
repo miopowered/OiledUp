@@ -46,6 +46,31 @@ namespace Residue.Gameplay.World
 
         public LabState Lab { get; private set; }
 
+        /// <summary>
+        /// Whether this process simulates the lab. True in single player and on the host; the
+        /// netcode layer sets it false on a connected client before the lab scene loads.
+        /// <para>
+        /// This is the load-bearing half of hard rule 2 at M4. <see cref="LabState"/> owns a
+        /// <see cref="SampleGenerator"/>, and generating a sample produces its
+        /// <c>SampleGroundTruth</c> alongside it. A client that ran this constructor would hold a
+        /// full truth-bearing simulation in its own process — the answers to a different lab than
+        /// the host's, but a working engine for computing them all the same. §3.1 is explicit that
+        /// only the host simulates, and the cheapest way to guarantee it is to never build the
+        /// thing on a client rather than to remember not to read from it.
+        /// </para>
+        /// A static rather than a serialized field because it is a fact about the process, decided
+        /// before any scene object exists. <c>Residue.Gameplay</c> cannot ask NGO directly — the
+        /// dependency runs the other way, and that direction is what keeps ground truth off the
+        /// wire (see the assembly diagram in CLAUDE.md).
+        /// </summary>
+        public static bool SimulatesLocally = true;
+
+        /// <summary>
+        /// True when this process has no lab of its own and is reading replicated views instead.
+        /// World components use it to tell "not a host" from "host, but something went wrong".
+        /// </summary>
+        public bool IsReplicatedClient => Lab == null && !SimulatesLocally;
+
         /// <summary>Definitions, for anything that needs to look up a unit or a source hint.</summary>
         public ContentCatalog Catalog => catalog;
 
@@ -69,6 +94,14 @@ namespace Residue.Gameplay.World
                     "Residue > Content > Rebuild Definitions, then assign Assets/Data/ContentCatalog.asset.",
                     this);
                 enabled = false;
+                return;
+            }
+
+            // A client builds no lab. See SimulatesLocally: constructing one here would put a
+            // truth-bearing simulation in every player's process.
+            if (!SimulatesLocally)
+            {
+                Debug.Log("[LabRuntime] Client process — the lab is replicated, not simulated.", this);
                 return;
             }
 

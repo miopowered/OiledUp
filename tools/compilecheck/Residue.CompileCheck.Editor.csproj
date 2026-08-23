@@ -54,6 +54,18 @@
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll')" Private="false" />
     <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll')" Private="false" />
+
+    <!--
+      This project compiles Assets/Scripts as well, so it needs everything the runtime check needs.
+      Collections carries FixedString, which is how Residue.Net's view types put text on the wire;
+      the Services assemblies are the M4 connect path. Kept in step with Residue.CompileCheck.csproj
+      deliberately — if the two reference lists drift, the editor check starts failing on runtime code
+      that Unity compiles perfectly.
+    -->
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Collections.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Collections.dll')" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Services.*.dll"
+               Exclude="$(ProjectRoot)\Library\ScriptAssemblies\*.Editor.dll" Private="false" />
   </ItemGroup>
 
   <Target Name="VerifyUnityPresent" BeforeTargets="BeforeBuild">

@@ -5,7 +5,10 @@
         "Residue.Data",
         "Residue.Chemistry",
         "Residue.Gameplay",
+        "Residue.Net",
         "Residue.Editor",
+        "Unity.Netcode.Runtime",
+        "Unity.Collections",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
