@@ -49,21 +49,91 @@ namespace Residue.Gameplay.World
         private float carryBlend;
         private float crouchBlend;
 
+        // -- Remote driving ----------------------------------------------------------------------
+
+        private bool remote;
+        private bool remoteCrouching;
+        private bool remoteCarrying;
+        private Vector3 lastRemotePosition;
+        private float remoteSpeed;
+
+        /// <summary>
+        /// Animate from replicated movement instead of from the controller.
+        /// <para>
+        /// On someone else's copy of a player the controller is switched off — it would fight the
+        /// networked transform for the same fields — so everything the walk cycle reads is frozen at
+        /// whatever it held on spawn. Left alone, remote players slide around the lab in a T-pose,
+        /// which is the single most obvious way a co-op game looks broken.
+        /// </para>
+        /// Speed is recovered from how far the transform actually moved, which needs nothing sent
+        /// over the wire: the position is replicated anyway, and its derivative is free.
+        /// </summary>
+        public void SetRemote(bool value)
+        {
+            remote = value;
+            lastRemotePosition = transform.position;
+            remoteSpeed = 0f;
+        }
+
+        /// <summary>
+        /// Push the two things a replica cannot infer from position alone. Crouching and carrying
+        /// change the pose without moving anybody, so they have to be told rather than derived.
+        /// </summary>
+        public void SetRemoteState(bool crouching, bool carrying)
+        {
+            remoteCrouching = crouching;
+            remoteCarrying = carrying;
+        }
+
+        private void TrackRemoteMotion()
+        {
+            Vector3 now = transform.position;
+            Vector3 delta = now - lastRemotePosition;
+            delta.y = 0f;
+            lastRemotePosition = now;
+
+            float measured = Time.deltaTime > 0.0001f ? delta.magnitude / Time.deltaTime : 0f;
+
+            // Smoothed, because a replicated transform arrives in steps at the send rate and the raw
+            // derivative is a square wave. The legs would strobe rather than walk.
+            remoteSpeed = Mathf.Lerp(remoteSpeed, measured, Time.deltaTime * 10f);
+        }
+
         private void LateUpdate()
         {
-            if (player == null) return;
+            if (player == null && !remote) return;
 
-            float speed = player.SpeedFraction;
-            bool moving = player.IsGrounded && speed > 0.05f;
+            float speed;
+            bool moving;
+
+            if (remote)
+            {
+                TrackRemoteMotion();
+
+                // Against sprint speed, matching PlayerController.SpeedFraction so one cycle looks
+                // the same whether you are watching yourself or someone else.
+                speed = Mathf.Clamp01(remoteSpeed / 4.6f);
+                moving = speed > 0.05f;
+            }
+            else
+            {
+                speed = player.SpeedFraction;
+                moving = player.IsGrounded && speed > 0.05f;
+            }
 
             // Same relationship the head bob uses, so the camera rises on the same footfall the legs
             // produce. Two systems drifting out of phase reads as broken before anyone can say why.
             if (moving) phase += Time.deltaTime * strideFrequency * Mathf.PI * 2f * Mathf.Max(0.6f, speed);
             else phase = Mathf.MoveTowards(phase % (Mathf.PI * 2f), 0f, Time.deltaTime * 6f);
 
-            bool carrying = interactor != null && interactor.Carried != null;
+            bool carrying = remote
+                ? remoteCarrying
+                : interactor != null && interactor.Carried != null;
+
+            bool crouching = remote ? remoteCrouching : player.IsCrouching;
+
             carryBlend = Mathf.MoveTowards(carryBlend, carrying ? 1f : 0f, Time.deltaTime * 5f);
-            crouchBlend = Mathf.MoveTowards(crouchBlend, player.IsCrouching ? 1f : 0f, Time.deltaTime * 6f);
+            crouchBlend = Mathf.MoveTowards(crouchBlend, crouching ? 1f : 0f, Time.deltaTime * 6f);
 
             PoseRoot(moving ? speed : 0f);
             PoseLegs(speed);
@@ -89,7 +159,10 @@ namespace Residue.Gameplay.World
 
             // The head tracks pitch so an observer can tell what a teammate is looking at — which is
             // the whole point of §1.1.5 co-op by information asymmetry.
-            if (neck != null && player.EyeCamera != null)
+            //
+            // Read off the head pivot, which the networked transform drives on a replica, so this
+            // works for a teammate without the pitch being sent as its own value.
+            if (neck != null && player != null && player.EyeCamera != null)
             {
                 float pitch = player.EyeCamera.transform.parent != null
                     ? player.EyeCamera.transform.parent.localEulerAngles.x
