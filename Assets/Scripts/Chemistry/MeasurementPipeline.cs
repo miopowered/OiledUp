@@ -102,6 +102,54 @@ namespace Residue.Chemistry
         }
 
         /// <summary>
+        /// Push a certified reference standard through the instrument (§5.3). The values going in are
+        /// known, so whatever comes back out is the instrument's error.
+        /// <para>
+        /// Takes exactly the same path as a real sample — residue, noise and drift all apply. A
+        /// standard that dodged them would measure nothing an actual run suffers from, and the fact
+        /// that an unflushed instrument fails its own check is the §5.2 blank earning its keep rather
+        /// than a flaw here.
+        /// </para>
+        /// Consumes no sample volume: the ampoule is the consumable, and the caller charges it.
+        /// </summary>
+        public static TestResult RunReference(
+            ReferenceStandard standard,
+            MachineRuntimeState machine,
+            int day,
+            ref Rng rng)
+        {
+            var def = machine?.Def;
+            if (standard == null || def == null) return null;
+
+            var result = new TestResult
+            {
+                MachineId = def.Id,
+                DayRun = day,
+                MachineRunIndex = machine.RunIndex,
+                VolumeConsumedMl = 0f,
+                Cost = def.CostPerRun,
+                IsReference = true
+            };
+
+            foreach (var element in def.Measures)
+            {
+                if (element == null || def.IsBlindTo(element.Id)) continue;
+                if (!standard.TryGet(element.Id, out float certified)) continue;
+
+                float carried = machine.GetResidue(element.Id) * MachineRuntimeState.ResidueTransferRate;
+                float raw = certified + carried;
+
+                float noise = rng.NextGaussian(0f, Mathf.Abs(raw) * def.BaseNoisePercent);
+                result.Values[element.Id] = Mathf.Max(0f, (raw + noise) * (1f + machine.DriftPercent));
+            }
+
+            DepositStandardResidue(standard, machine);
+            machine.RegisterRun();
+
+            return result;
+        }
+
+        /// <summary>
         /// Everything that went through the machine leaves a fraction behind — including elements the
         /// instrument cannot measure, because physical residue does not care what the detector can see.
         /// </summary>
@@ -120,6 +168,24 @@ namespace Residue.Chemistry
         }
 
         /// <summary>
+        /// A standard is an oil too, so it leaves its own trace behind. Certified values are healthy
+        /// baselines, so this is a small deposit — but it is why a check run is followed by a flush.
+        /// </summary>
+        private static void DepositStandardResidue(ReferenceStandard standard, MachineRuntimeState machine)
+        {
+            float carryover = machine.Def.ContaminationCarryoverPercent;
+            if (carryover <= 0f) return;
+
+            foreach (var kv in standard.Certified)
+            {
+                float deposited = kv.Value * carryover;
+                if (deposited <= 0f) continue;
+                machine.Residue.TryGetValue(kv.Key, out float existing);
+                machine.Residue[kv.Key] = existing + deposited;
+            }
+        }
+
+        /// <summary>
         /// Mark every result a machine produced during its current drift episode as suspect.
         /// Called after a reference sample reveals drift, to build the "re-open these" list (§5.3).
         /// </summary>
@@ -127,7 +193,7 @@ namespace Residue.Chemistry
             IEnumerable<SampleState> samples,
             MachineRuntimeState machine,
             float revealedDrift,
-            float suspicionThreshold = 0.05f)
+            float suspicionThreshold = CalibrationCheck.Tolerance)
         {
             if (Mathf.Abs(revealedDrift) < suspicionThreshold) return 0;
 

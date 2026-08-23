@@ -208,7 +208,7 @@ namespace Residue.Gameplay.World
             statusLabel.text =
                 $"DAY {lab.Day}   {clock}\n" +
                 $"£{lab.Economy.Money:N0}   REP {lab.Economy.Reputation:F0}   " +
-                $"SOLVENT {lab.Economy.SolventUnits:F0}\n" +
+                $"SOLVENT {lab.Economy.SolventUnits:F0}   STD {lab.Economy.ReferenceStandards}\n" +
                 $"{open} sample{(open == 1 ? "" : "s")} open";
         }
 

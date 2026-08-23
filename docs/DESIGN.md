@@ -415,8 +415,13 @@ has actually been played — the point of a gate is that it can fail, and it can
 behind it has already shipped.
 
 ### M3 — Contamination + calibration
-Residue and blanks are implemented in the model. Remaining: the wash station as a physical action,
-solvent as a purchasable consumable, reference samples and the retroactive suspicion UI.
+**Delivered.** Residue and blanks in the model; flushing as a held action on the instrument, paid
+for in solvent you have to order; certified reference ampoules that reveal drift, recalibration that
+zeroes it, and the retroactive list of every verdict filed while the instrument was lying.
+
+The one open question is whether flushing should move to a distinct wash-station fixture rather than
+a button on the instrument. It is a §5.5 layout argument, not a §5.2 one — you flush an instrument's
+sample path in place, so the fixture would add walking distance rather than a decision (#14).
 
 ### M4 — Co-op
 NGO + Relay + Lobby, host-authoritative state, local-prop split, Vivox proximity voice, 4 players.

@@ -12,7 +12,13 @@ namespace Residue.Gameplay.Simulation
         Sample,
 
         /// <summary>A solvent blank. Reads residue directly and consumes no sample (§5.2).</summary>
-        Blank
+        Blank,
+
+        /// <summary>A certified reference standard. The values going in are known, so the error coming out is the drift (§5.3).</summary>
+        Reference,
+
+        /// <summary>A recalibration. Occupies the instrument and produces no reading — only a corrected machine (§5.3).</summary>
+        Calibration
     }
 
     /// <summary>Why a machine refused a sample. Surfaced to the player rather than failing silently.</summary>
@@ -73,6 +79,16 @@ namespace Residue.Gameplay.Simulation
 
         /// <summary>Day the last blank was run, so the terminal can say how stale it is.</summary>
         public int LastBlankDay = -1;
+
+        /// <summary>
+        /// The certificate against the readout from the most recent standard, held for the same
+        /// reason as <see cref="LastBlank"/>: it is the §5.3 tell, and a tell that cannot still be
+        /// read at the terminal is no tell at all. Cleared by a recalibration, which consumes it.
+        /// </summary>
+        public CalibrationCheck LastCheck;
+
+        /// <summary>What the last recalibration corrected, and how much filed work it put in doubt.</summary>
+        public CalibrationOutcome? LastCalibration;
 
         public MachineInstance(string instanceId, MachineDef def)
         {
@@ -148,6 +164,49 @@ namespace Residue.Gameplay.Simulation
             if (IsRunning || !IsEmpty) return false;
             ActiveRun = RunKind.Blank;
             runDuration = RunSeconds;
+            SecondsRemaining = runDuration;
+            return true;
+        }
+
+        /// <summary>
+        /// Push a certified standard through. Needs no vial and consumes no sample volume; the
+        /// ampoule is the consumable, and the caller is the one that spends it.
+        /// </summary>
+        public bool TryBeginReference()
+        {
+            if (IsRunning || !IsEmpty) return false;
+            ActiveRun = RunKind.Reference;
+            runDuration = RunSeconds;
+            SecondsRemaining = runDuration;
+            return true;
+        }
+
+        /// <summary>
+        /// A zero-and-span adjustment, which is roughly half a measurement cycle on any of these
+        /// instruments. Scaled off <see cref="RunSeconds"/> rather than given its own constant so the
+        /// §10 ratios survive — calibrating the cooling curve tester has to hurt like the cooling
+        /// curve tester, not like a titrator.
+        /// </summary>
+        public float CalibrationSeconds => Mathf.Max(0.1f, RunSeconds * 0.5f);
+
+        /// <summary>
+        /// True when a certificate from <paramref name="day"/> is on file.
+        /// <para>
+        /// An instrument cannot be calibrated against nothing, and a certificate from an earlier day
+        /// has had a whole day of drift walk over it — <see cref="MachineRuntimeState.BeginDay"/>
+        /// re-rolls the direction every morning. Letting one ampoule authorise every calibration for
+        /// the rest of the contract would make the standard a formality instead of the thing that
+        /// measures the error.
+        /// </para>
+        /// </summary>
+        public bool HasFreshCheck(int day) => LastCheck != null && LastCheck.Day == day;
+
+        /// <summary>Recalibrate against the standard already run today. Occupies the instrument.</summary>
+        public bool TryBeginCalibration(int day)
+        {
+            if (IsRunning || !IsEmpty || !HasFreshCheck(day)) return false;
+            ActiveRun = RunKind.Calibration;
+            runDuration = CalibrationSeconds;
             SecondsRemaining = runDuration;
             return true;
         }

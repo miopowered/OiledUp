@@ -303,10 +303,18 @@ namespace Residue.Editor.Build
                 so.FindProperty("display").objectReferenceValue = display;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
+                // Four housekeeping buttons in a row, ordered the way §5.2 and §5.3 are actually
+                // used: flush, then read what the flush left, then check the instrument against a
+                // certificate, then zero it. 0.08 m apart, which is wider than the 0.055 m button so
+                // the interaction ray cannot pick a neighbour by a millimetre.
                 AddActionButton(machineGo, "CleanButton", buttonMesh, palette,
                     new Vector3(-0.14f, 0.16f, front + 0.01f), station, MachineAction.Clean);
                 AddActionButton(machineGo, "BlankButton", buttonMesh, palette,
                     new Vector3(-0.06f, 0.16f, front + 0.01f), station, MachineAction.Blank);
+                AddActionButton(machineGo, "ReferenceButton", buttonMesh, palette,
+                    new Vector3(0.02f, 0.16f, front + 0.01f), station, MachineAction.Reference);
+                AddActionButton(machineGo, "CalibrateButton", buttonMesh, palette,
+                    new Vector3(0.10f, 0.16f, front + 0.01f), station, MachineAction.Calibrate);
 
                 // Its own manual, sitting beside it. §5.5: where you keep a reference matters.
                 //

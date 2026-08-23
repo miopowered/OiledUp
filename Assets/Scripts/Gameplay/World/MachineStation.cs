@@ -61,12 +61,16 @@ namespace Residue.Gameplay.World
 
             name = $"Machine_{machine.Def.Id}";
             lab.Lab.RunCompleted += OnRunCompleted;
+            lab.Lab.Calibrated += OnCalibrated;
         }
 
         private void OnDestroy()
         {
             var lab = LabRuntime.Instance;
-            if (lab?.Lab != null) lab.Lab.RunCompleted -= OnRunCompleted;
+            if (lab?.Lab == null) return;
+
+            lab.Lab.RunCompleted -= OnRunCompleted;
+            lab.Lab.Calibrated -= OnCalibrated;
         }
 
         private float nextDisplayRefresh;
@@ -221,6 +225,21 @@ namespace Residue.Gameplay.World
         }
 
         /// <summary>
+        /// Say at the machine what the recalibration cost in confidence (§5.3). The full list of
+        /// records it put in doubt lives at the terminal, but the player is standing here when it
+        /// happens, and a correction that produced no visible sign would look like nothing occurred.
+        /// </summary>
+        private void OnCalibrated(MachineInstance calibrated, CalibrationOutcome outcome)
+        {
+            if (calibrated != machine || display == null) return;
+
+            display.ShowNotice(
+                machine,
+                $"CAL {(outcome.CorrectedDrift >= 0f ? "+" : "-")}{Mathf.Abs(outcome.CorrectedDrift) * 100f:F1}%",
+                outcome.CastsDoubt ? $"{outcome.AffectedArchived} FILED SUSPECT" : "NOTHING IN DOUBT");
+        }
+
+        /// <summary>
         /// Drop a slip in the output tray. Only one fits: running again before collecting the last
         /// one loses it. The reading is still on the instrument's display, so nothing becomes
         /// unknowable — you just have to go and read it rather than carry it away.
@@ -236,7 +255,7 @@ namespace Residue.Gameplay.World
                 machine.LoadedSample,
                 result,
                 machine.Def.DisplayName,
-                sample != null ? sample.EquipmentTag : "BLANK",
+                sample != null ? sample.EquipmentTag : result.IsReference ? "CERT STANDARD" : "BLANK",
                 printoutSocket != null ? printoutSocket : transform);
         }
 

@@ -40,6 +40,10 @@ namespace Residue.Tests.EditMode
             (SampleStage.Measured, SampleStage.Measured),
             (SampleStage.Measured, SampleStage.Archived),
 
+            // §5.3 re-opens an archived record when a certified standard proves the instrument was
+            // drifting when its numbers were taken. Only SampleLifecycle.TryReopen may use this edge.
+            (SampleStage.Archived, SampleStage.Measured),
+
             (SampleStage.Archived, SampleStage.Resolved)
         };
 

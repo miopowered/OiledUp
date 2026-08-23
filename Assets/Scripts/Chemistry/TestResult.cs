@@ -36,6 +36,12 @@ namespace Residue.Chemistry
         /// <summary>True if this was a solvent blank rather than a real sample — it reads residue directly (§5.2).</summary>
         public bool IsBlank;
 
+        /// <summary>
+        /// True if this run measured a certified reference standard rather than a customer's oil.
+        /// The values are known in advance, so the difference is the instrument's error (§5.3).
+        /// </summary>
+        public bool IsReference;
+
         public bool TryGet(string elementId, out float value) => Values.TryGetValue(elementId, out value);
     }
 }

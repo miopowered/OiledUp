@@ -29,12 +29,22 @@ namespace Residue.Gameplay.Simulation
         public ContractPlan Plan { get; }
         public ContentCatalog Content { get; }
 
+        /// <summary>
+        /// The house certified reference material (§5.3). One blend serves every instrument, and its
+        /// values are derived from the same published baselines the manual prints — the player can
+        /// look up every figure on the certificate.
+        /// </summary>
+        public ReferenceStandard Standard { get; }
+
         /// <summary>Reports from the most recent day end, for the summary screen.</summary>
         public IReadOnlyList<ConsequenceReport> LastReports => lastReports;
 
         public event Action<MachineInstance, TestResult> RunCompleted;
         public event Action<int> DayStarted;
         public event Action<IReadOnlyList<ConsequenceReport>> DayEnded;
+
+        /// <summary>An instrument has been recalibrated and the archive behind it re-scored (§5.3).</summary>
+        public event Action<MachineInstance, CalibrationOutcome> Calibrated;
 
         private Rng rng;
         private readonly SampleGenerator generator;
@@ -50,6 +60,7 @@ namespace Residue.Gameplay.Simulation
 
             rng = new Rng(seed);
             generator = new SampleGenerator(content.Faults);
+            Standard = ReferenceStandard.FromProfiles(content.Profiles);
 
             foreach (var p in content.Profiles)
             {
@@ -139,9 +150,14 @@ namespace Residue.Gameplay.Simulation
                 var finished = machine.Tick(deltaSeconds);
                 if (finished == RunKind.None) continue;
 
-                TestResult result = finished == RunKind.Blank
-                    ? MeasurementPipeline.RunBlank(machine.Runtime, Day, ref rng)
-                    : Samples.RunMachine(machine.LoadedSample, machine, Day, ref rng);
+                if (finished == RunKind.Calibration) { CompleteCalibration(machine); continue; }
+
+                TestResult result = finished switch
+                {
+                    RunKind.Blank => MeasurementPipeline.RunBlank(machine.Runtime, Day, ref rng),
+                    RunKind.Reference => MeasurementPipeline.RunReference(Standard, machine.Runtime, Day, ref rng),
+                    _ => Samples.RunMachine(machine.LoadedSample, machine, Day, ref rng)
+                };
 
                 if (result == null) continue;
 
@@ -151,10 +167,142 @@ namespace Residue.Gameplay.Simulation
                     machine.LastBlank = result;
                     machine.LastBlankDay = Day;
                 }
+                else if (finished == RunKind.Reference)
+                {
+                    machine.LastCheck = CalibrationCheck.From(Standard, result, machine.Def, Day);
+                }
 
                 Economy.Charge(result.Cost);
                 RunCompleted?.Invoke(machine, result);
             }
+        }
+
+        // -- Calibration (§5.3) -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Push a certified standard through an instrument. Spends an ampoule up front, then behaves
+        /// like any other run — including leaving residue, which is why a check is followed by a flush.
+        /// </summary>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool TryStartReferenceRun(MachineInstance machine, out string refusal)
+        {
+            refusal = null;
+            if (machine == null) { refusal = "No such instrument."; return false; }
+
+            if (machine.IsRunning) { refusal = $"{machine.Def.DisplayName} is busy."; return false; }
+            if (!machine.IsEmpty) { refusal = "Take the vial out before running a standard."; return false; }
+            if (ShiftOver) { refusal = "Shift over — no new runs."; return false; }
+
+            if (Economy.ReferenceStandards < 1)
+            {
+                refusal = "No certified standards left. Order more at the terminal.";
+                return false;
+            }
+
+            if (!machine.TryBeginReference())
+            {
+                refusal = $"{machine.Def.DisplayName} will not take a standard right now.";
+                return false;
+            }
+
+            Economy.TryConsumeReferenceStandard();
+            return true;
+        }
+
+        /// <summary>
+        /// Recalibrate against today's certificate.
+        /// <para>
+        /// Housekeeping rather than analysis, so it is still allowed after the shift ends — same rule
+        /// as the flush. It occupies the instrument either way, which is the "costs time" half of
+        /// §5.3; <see cref="EconomyTuning.CalibrationCost"/> is the other half.
+        /// </para>
+        /// </summary>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool TryStartCalibration(MachineInstance machine, out string refusal)
+        {
+            refusal = null;
+            if (machine == null) { refusal = "No such instrument."; return false; }
+
+            if (machine.IsRunning) { refusal = $"{machine.Def.DisplayName} is busy."; return false; }
+            if (!machine.IsEmpty) { refusal = "Take the vial out before calibrating."; return false; }
+
+            if (!machine.HasFreshCheck(Day))
+            {
+                refusal = "Run today's certified standard first — there is nothing to calibrate against.";
+                return false;
+            }
+
+            if (Economy.Money < Tuning.CalibrationCost)
+            {
+                refusal = $"A calibration costs £{Tuning.CalibrationCost:N0}, and the account will not cover it.";
+                return false;
+            }
+
+            if (!machine.TryBeginCalibration(Day))
+            {
+                refusal = $"{machine.Def.DisplayName} will not start a calibration right now.";
+                return false;
+            }
+
+            Economy.Charge(Tuning.CalibrationCost);
+            return true;
+        }
+
+        /// <summary>
+        /// Finish a recalibration. The order is load-bearing: the suspicion window is read off the
+        /// machine <i>before</i> <see cref="MachineRuntimeState.Calibrate"/> moves its start to now,
+        /// which would otherwise leave the retroactive list permanently empty.
+        /// </summary>
+        private void CompleteCalibration(MachineInstance machine)
+        {
+            var outcome = Samples.FlagDriftSuspects(machine.Runtime, machine.Runtime.DriftPercent, Day);
+
+            machine.Runtime.Calibrate(Day);
+            machine.LastCheck = null;   // consumed — the next calibration needs a fresh standard
+            machine.LastCalibration = outcome;
+
+            Calibrated?.Invoke(machine, outcome);
+        }
+
+        /// <summary>
+        /// Re-open a record filed on suspect numbers, if there is enough oil left to repeat one of the
+        /// tests now in doubt (§5.3).
+        /// </summary>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool TryReopenSuspect(SampleId id, out string refusal)
+        {
+            refusal = null;
+            if (!Samples.TryGet(id, out var sample)) { refusal = "No such sample."; return false; }
+
+            return Samples.ReopenForRetest(id, SmallestSuspectDraw(sample), out refusal);
+        }
+
+        /// <summary>
+        /// The least oil that could repeat one of this record's suspect tests, or
+        /// <see cref="float.PositiveInfinity"/> if nothing on the bench can repeat any of them.
+        /// <para>
+        /// The terminal reads this to tell the player how short they are <i>before</i> they press the
+        /// button, because "you cannot check this any more" is information they are owed, not a
+        /// punchline.
+        /// </para>
+        /// </summary>
+        public float SmallestSuspectDraw(SampleState sample)
+        {
+            float smallest = float.PositiveInfinity;
+            if (sample == null) return smallest;
+
+            foreach (var result in sample.Results)
+            {
+                if (!result.Suspect) continue;
+
+                foreach (var machine in Machines)
+                {
+                    if (machine.Def == null || machine.Def.Id != result.MachineId) continue;
+                    if (machine.Def.SampleVolumeMl < smallest) smallest = machine.Def.SampleVolumeMl;
+                }
+            }
+
+            return smallest;
         }
 
         /// <summary>

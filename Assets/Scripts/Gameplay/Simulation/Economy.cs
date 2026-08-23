@@ -20,17 +20,26 @@ namespace Residue.Gameplay.Simulation
         /// </summary>
         public float SolventUnits { get; private set; }
 
+        /// <summary>
+        /// Certified reference ampoules (§5.3). These are the only way to find out whether an
+        /// instrument has been quietly scaling every reading, so running out must be a purchasing
+        /// decision the player makes rather than a wall they hit — hard rule 3 turns on the tell
+        /// staying available.
+        /// </summary>
+        public int ReferenceStandards { get; private set; }
+
         public float TotalEarned { get; private set; }
         public float TotalLost { get; private set; }
 
         public event Action Changed;
 
-        public Economy(EconomyTuning tuning, float startingSolvent = 12f)
+        public Economy(EconomyTuning tuning, float startingSolvent = 12f, int startingStandards = 2)
         {
             this.tuning = tuning;
             Money = tuning.StartingMoney;
             Reputation = tuning.StartingReputation;
             SolventUnits = startingSolvent;
+            ReferenceStandards = startingStandards;
         }
 
         public bool IsBankrupt => Money < 0f;
@@ -97,6 +106,42 @@ namespace Residue.Gameplay.Simulation
             if (!TrySpend(SolventCost(units))) return false;
 
             AddSolvent(units);
+            return true;
+        }
+
+        public bool TryConsumeReferenceStandard()
+        {
+            if (ReferenceStandards < 1) return false;
+            ReferenceStandards--;
+            Changed?.Invoke();
+            return true;
+        }
+
+        public void AddReferenceStandards(int count)
+        {
+            if (count <= 0) return;
+            ReferenceStandards += count;
+            Changed?.Invoke();
+        }
+
+        /// <summary>Price of ordering <paramref name="count"/> certified ampoules.</summary>
+        public float ReferenceStandardCost(int count) =>
+            tuning.ReferenceStandardCost * Mathf.Max(0, count);
+
+        /// <summary>
+        /// Order certified standards. Returns false and changes nothing if unaffordable.
+        /// <para>
+        /// Same argument as solvent: an instrument whose calibration cannot be checked punishes the
+        /// player for hidden state they had no way to see, which hard rule 3 forbids. The cost is
+        /// what makes checking every instrument every morning a choice rather than a routine.
+        /// </para>
+        /// </summary>
+        public bool TryBuyReferenceStandards(int count)
+        {
+            if (count <= 0) return false;
+            if (!TrySpend(ReferenceStandardCost(count))) return false;
+
+            AddReferenceStandards(count);
             return true;
         }
     }

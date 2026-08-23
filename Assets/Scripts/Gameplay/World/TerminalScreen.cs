@@ -87,6 +87,7 @@ namespace Residue.Gameplay.World
             body.style.marginTop = 12;
             body.Add(SampleList(lab));
             body.Add(Detail(lab));
+            body.Add(CalibrationPanel(lab));
             root.Add(body);
         }
 
@@ -339,6 +340,187 @@ namespace Residue.Gameplay.World
 
             return row;
         }
+
+        /// <summary>
+        /// The §5.3 column: certified standards to order, what the last one said about each
+        /// instrument, and the archive a revealed drift has put in doubt.
+        /// <para>
+        /// Both halves have to be here or neither works. An instrument that silently scales every
+        /// reading is a fair mechanic only because a standard measures it (hard rule 3), and the
+        /// retroactive list is escalating pressure rather than an arbitrary punishment only because
+        /// the records it names can be re-opened — while there is still oil in the bottle to re-open
+        /// them with.
+        /// </para>
+        /// </summary>
+        private VisualElement CalibrationPanel(LabState lab)
+        {
+            const int packSize = 3;
+
+            var panel = Panel();
+            panel.style.width = 340;
+            panel.style.marginLeft = 12;
+            panel.Add(SectionTitle("CALIBRATION"));
+
+            var order = Row();
+            order.style.alignItems = Align.Center;
+            order.style.marginBottom = 6;
+
+            float cost = lab.Economy.ReferenceStandardCost(packSize);
+
+            var stock = new Label($"STANDARDS  {lab.Economy.ReferenceStandards} ampoule(s)");
+            stock.style.fontSize = 12;
+            stock.style.flexGrow = 1f;
+
+            // Caution only when the tell is actually unavailable. A low stock is information, and
+            // hard rule 4 keeps the signal colours meaning verdict state.
+            stock.style.color = new StyleColor(
+                lab.Economy.ReferenceStandards < 1 ? SignalPalette.Caution : SignalPalette.Ink);
+            order.Add(stock);
+
+            var buy = new Button(() =>
+            {
+                if (lab.Economy.TryBuyReferenceStandards(packSize)) Rebuild();
+            })
+            { text = $"ORDER {packSize}  (£{cost:N0})" };
+
+            StyleButton(buy, SignalPalette.PanelSoft);
+            buy.SetEnabled(lab.Economy.Money >= cost);
+            order.Add(buy);
+            panel.Add(order);
+
+            // Where the certificate comes from, so the numbers are checkable before one is ever run.
+            panel.Add(Tiny(
+                $"{lab.Standard.Id} — certified at the healthy baselines the manual publishes.",
+                SignalPalette.Dim));
+
+            var scroll = new ScrollView();
+            scroll.style.flexGrow = 1f;
+
+            foreach (var machine in lab.Machines) scroll.Add(InstrumentCheck(machine));
+
+            scroll.Add(SuspectArchive(lab));
+            panel.Add(scroll);
+            return panel;
+        }
+
+        /// <summary>
+        /// One instrument's certificate against its readout. The per-element rows are printed rather
+        /// than summarised away, because the average error underneath them is only trustworthy if the
+        /// numbers it came from are on the same screen.
+        /// </summary>
+        private static VisualElement InstrumentCheck(MachineInstance machine)
+        {
+            var box = new VisualElement();
+            box.style.marginBottom = 8;
+
+            var header = new Label(machine.Def.DisplayName);
+            header.style.fontSize = 11;
+            header.style.color = new StyleColor(SignalPalette.Ink);
+            box.Add(header);
+
+            var check = machine.LastCheck;
+            if (check == null)
+            {
+                box.Add(Tiny("no standard run today — drift unknown", SignalPalette.Caution));
+            }
+            else
+            {
+                box.Add(Tiny(
+                    $"{check.StandardId} day {check.Day}: reads {Signed(check.ErrorFraction)}" +
+                    (check.IsOutOfTolerance ? "  OUT OF TOLERANCE" : "  in tolerance"),
+                    check.IsOutOfTolerance ? SignalPalette.Caution : SignalPalette.Dim));
+
+                foreach (var line in check.Lines)
+                {
+                    var row = Row();
+                    row.Add(Cell(line.Element.DisplayName, 130, SignalPalette.Dim));
+                    row.Add(Cell($"cert {line.Certified:0.###}", 90, SignalPalette.Dim));
+                    row.Add(Cell($"read {line.Measured:0.###}", 90, SignalPalette.Ink));
+                    row.Add(Cell(Signed(line.ErrorFraction), 60, SignalPalette.Dim));
+                    box.Add(row);
+                }
+            }
+
+            if (machine.LastCalibration.HasValue)
+            {
+                var last = machine.LastCalibration.Value;
+                box.Add(Tiny(
+                    $"calibrated day {last.Day}: corrected {Signed(last.CorrectedDrift)}, " +
+                    $"{last.FlaggedResults} run(s) now suspect across {last.AffectedArchived} filed record(s)",
+                    SignalPalette.Dim));
+            }
+
+            return box;
+        }
+
+        /// <summary>
+        /// §5.3's retroactive list: every closed record whose numbers came off a drifting instrument.
+        /// <para>
+        /// The refusal is the sharp end of this and is therefore rendered in full rather than hidden
+        /// behind a disabled button. A record with no oil left cannot be checked by anyone, ever, and
+        /// being told exactly that — with the millilitres you have and the millilitres you needed — is
+        /// what turns a bad reading into a decision the player remembers making.
+        /// </para>
+        /// </summary>
+        private VisualElement SuspectArchive(LabState lab)
+        {
+            var box = new VisualElement();
+            box.style.marginTop = 8;
+            box.style.paddingTop = 8;
+            box.style.borderTopWidth = 1;
+            box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+            box.Add(SectionTitle("RECORDS IN DOUBT"));
+
+            var suspect = lab.Samples.SuspectArchive();
+            if (suspect.Count == 0)
+            {
+                box.Add(Dim("No filed record rests on a drifting instrument."));
+                return box;
+            }
+
+            foreach (var sample in suspect)
+            {
+                float need = lab.SmallestSuspectDraw(sample);
+
+                var card = new VisualElement();
+                card.style.marginBottom = 6;
+
+                var title = new Label(
+                    $"{sample.RecordTag} — filed {sample.FiledVerdict.Value.ToString().ToUpperInvariant()} " +
+                    $"day {sample.FiledOnDay}");
+                title.style.fontSize = 12;
+                title.style.whiteSpace = WhiteSpace.Normal;
+                title.style.color = new StyleColor(SignalPalette.For(sample.FiledVerdict.Value));
+                card.Add(title);
+
+                card.Add(Tiny(
+                    float.IsInfinity(need)
+                        ? $"{sample.VolumeMl:F1} ml left · no instrument here can repeat those tests"
+                        : $"{sample.VolumeMl:F1} ml left · a re-test needs {need:F0} ml",
+                    SignalPalette.Dim));
+
+                var refusal = Tiny("", SignalPalette.Caution);
+
+                var reopen = new Button(() =>
+                {
+                    if (lab.TryReopenSuspect(sample.Id, out string why)) Rebuild();
+                    else refusal.text = why;   // already player-facing; do not reword it
+                })
+                { text = "RE-OPEN FOR RE-TEST" };
+
+                StyleButton(reopen, SignalPalette.PanelSoft);
+                reopen.style.marginLeft = 0;
+                card.Add(reopen);
+                card.Add(refusal);
+
+                box.Add(card);
+            }
+
+            return box;
+        }
+
+        private static string Signed(float fraction) =>
+            $"{(fraction >= 0f ? "+" : "−")}{Mathf.Abs(fraction) * 100f:0.#}%";
 
         private static Label Tiny(string text, Color colour)
         {

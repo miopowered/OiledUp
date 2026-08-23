@@ -99,6 +99,20 @@ namespace Residue.Gameplay.World
             Apply();
         }
 
+        /// <summary>
+        /// A short notice for something that happened to the instrument rather than to a sample.
+        /// A recalibration has no reading to draw, and a screen still showing the previous result
+        /// would leave the player with no sign at the machine that anything happened at all.
+        /// </summary>
+        public void ShowNotice(MachineInstance machine, string headline, string detail)
+        {
+            Clear();
+            DrawText(2, 2, Shorten(machine?.Def != null ? machine.Def.DisplayName : "INSTRUMENT", Columns), dim);
+            DrawText(2, 2 + LineHeight, Shorten(headline ?? "", Columns), ink);
+            DrawText(2, 2 + LineHeight * 2, Shorten(detail ?? "", Columns), dim);
+            Apply();
+        }
+
         public void Show(MachineInstance machine, TestResult result, SampleState sample)
         {
             if (result == null) { ShowIdle(machine); return; }
@@ -116,7 +130,7 @@ namespace Residue.Gameplay.World
         private void DrawNumeric(MachineInstance machine, TestResult result, SampleState sample)
         {
             int y = 2;
-            DrawText(2, y, result.IsBlank ? "SOLVENT BLANK" : Shorten(sample?.EquipmentTag ?? "-", Columns), dim);
+            DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);
             y += LineHeight;
 
             // A small readout shows the values large rather than many. Two lines at double size.
@@ -142,7 +156,7 @@ namespace Residue.Gameplay.World
             DrawText(2, y, Shorten(machine.Def.DisplayName, Columns), ink);
             y += LineHeight;
 
-            DrawText(2, y, result.IsBlank ? "SOLVENT BLANK" : Shorten(sample?.EquipmentTag ?? "-", Columns), dim);
+            DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);
             y += LineHeight;
 
             DrawRule(2, y + 1, Columns * PixelFont.Advance * scale - 4);
@@ -172,9 +186,19 @@ namespace Residue.Gameplay.World
 
         private void RecordHistory(TestResult result, SampleState sample)
         {
-            string label = result.IsBlank ? "BLANK" : Shorten(sample?.EquipmentTag ?? "-", 14);
-            history.Insert(0, $"D{result.DayRun} {label}");
+            history.Insert(0, $"D{result.DayRun} {Shorten(Caption(result, sample), 14)}");
             while (history.Count > 6) history.RemoveAt(history.Count - 1);
+        }
+
+        /// <summary>
+        /// What the run was of. A standard has to name itself: an instrument screen showing a full
+        /// panel of plausible numbers with no sample tag beside it reads as somebody else's sample.
+        /// </summary>
+        private static string Caption(TestResult result, SampleState sample)
+        {
+            if (result.IsBlank) return "SOLVENT BLANK";
+            if (result.IsReference) return "CERT STANDARD";
+            return sample?.EquipmentTag ?? "-";
         }
 
         // -- Raster ----------------------------------------------------------------------------------

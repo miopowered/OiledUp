@@ -60,6 +60,27 @@ namespace Residue.Gameplay.Simulation
         /// </summary>
         public float SolventUnitCost = 45f;
 
+        /// <summary>
+        /// Price of one certified reference ampoule (§5.3).
+        /// <para>
+        /// Deliberately several times a flush and well under a base payout. Checking a specific
+        /// instrument you have started to distrust must be comfortably affordable; checking all five
+        /// every morning must be a bill you notice. The decision §5.3 wants is <i>which</i>
+        /// instrument you suspect, not whether you can afford to ask at all.
+        /// </para>
+        /// </summary>
+        public float ReferenceStandardCost = 160f;
+
+        /// <summary>
+        /// Charged for a recalibration, on top of the instrument time it occupies.
+        /// <para>
+        /// §5.3 makes recalibration cost time and money so that "calibrate everything every morning"
+        /// is a real bill rather than a free ritual. If it were free, drift would never reach the
+        /// player as a discovery — which is the entire mechanic.
+        /// </para>
+        /// </summary>
+        public float CalibrationCost = 140f;
+
         public float FalsePositiveReputation = -3f;
         public float MonitorOnImminentReputation = -8f;
         public float MissedFaultReputation = -12f;

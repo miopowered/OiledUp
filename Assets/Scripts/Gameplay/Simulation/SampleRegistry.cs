@@ -150,6 +150,123 @@ namespace Residue.Gameplay.Simulation
             return reports;
         }
 
+        // -- Calibration drift (§5.3) ------------------------------------------------------------------
+
+        /// <summary>
+        /// Mark every run this instrument produced inside the drift episode that has just been
+        /// revealed, and count what it reaches.
+        /// <para>
+        /// Lives here because the registry owns the records. Nothing about the suspicion needs ground
+        /// truth — it is entirely a statement about the instrument — but the write lands on filed,
+        /// player-facing results, and those have exactly one owner.
+        /// </para>
+        /// <b>Call this before <see cref="MachineRuntimeState.Calibrate"/>.</b> Calibrating moves the
+        /// start of the drift window to now, which would empty the very window this is built from.
+        /// </summary>
+        public CalibrationOutcome FlagDriftSuspects(MachineRuntimeState machine, float revealedDrift, int day)
+        {
+            int flagged = MeasurementPipeline.FlagSuspectResults(states.Values, machine, revealedDrift);
+
+            int touched = 0;
+            int archived = 0;
+
+            if (flagged > 0)
+            {
+                foreach (var state in states.Values)
+                {
+                    if (!RanInsideDriftWindow(state, machine)) continue;
+                    touched++;
+                    if (state.FiledVerdict.HasValue) archived++;
+                }
+            }
+
+            return new CalibrationOutcome(day, revealedDrift, flagged, touched, archived);
+        }
+
+        private static bool RanInsideDriftWindow(SampleState state, MachineRuntimeState machine)
+        {
+            foreach (var result in state.Results)
+            {
+                if (result.MachineId != machine.Def.Id) continue;
+                if (result.MachineRunIndex < machine.DriftStartedAtRunIndex) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Records with a verdict on file and at least one reading an instrument took while it was
+        /// drifting. This is §5.3's "show the affected archived samples" — the list the player has to
+        /// look at after finding out the machine was wrong.
+        /// </summary>
+        public List<SampleState> SuspectArchive()
+        {
+            var suspect = new List<SampleState>();
+
+            foreach (var state in states.Values)
+            {
+                if (state.Stage != SampleStage.Archived) continue;
+
+                foreach (var result in state.Results)
+                {
+                    if (!result.Suspect) continue;
+                    suspect.Add(state);
+                    break;
+                }
+            }
+
+            suspect.Sort((a, b) => a.Id.CompareTo(b.Id));
+            return suspect;
+        }
+
+        /// <summary>
+        /// Withdraw a verdict filed on numbers the instrument got wrong, so the sample can be run
+        /// again (§5.3).
+        /// <para>
+        /// <paramref name="requiredVolumeMl"/> is the smallest draw that could repeat one of the
+        /// suspect tests. Refusing when the vial cannot cover it is the mechanic rather than an edge
+        /// case: the oil is gone, the reading can never be checked, and the player is left holding a
+        /// verdict they now know was filed on a lie. §5.3 calls that escalating pressure. Softening
+        /// it into "re-open anyway" would make volume free, and volume is the resource the whole §4.5
+        /// test-ordering decision is about.
+        /// </para>
+        /// The queued consequence is cancelled along with the verdict. A record that could be re-filed
+        /// while its first call was still on the way to landing would pay out twice.
+        /// </summary>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool ReopenForRetest(SampleId id, float requiredVolumeMl, out string refusal)
+        {
+            refusal = null;
+            if (!states.TryGetValue(id, out var state)) { refusal = "No such sample."; return false; }
+
+            if (state.Stage == SampleStage.Archived)
+            {
+                if (float.IsInfinity(requiredVolumeMl))
+                {
+                    refusal = $"{state.RecordTag}: no instrument on the bench can repeat the suspect tests.";
+                    return false;
+                }
+
+                if (state.VolumeMl < requiredVolumeMl)
+                {
+                    refusal =
+                        $"{state.RecordTag} has {state.VolumeMl:F1} ml left and the cheapest suspect " +
+                        $"test needs {requiredVolumeMl:F0} ml. There is nothing left to check it with — " +
+                        "the verdict stands on numbers you now know were wrong.";
+                    return false;
+                }
+            }
+
+            if (!SampleLifecycle.TryReopen(state, out refusal)) return false;
+
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                if (pending[i].Sample == id) pending.RemoveAt(i);
+            }
+
+            return true;
+        }
+
         // -- Resampling -------------------------------------------------------------------------------
 
         private readonly List<SampleId> pendingRequeue = new();

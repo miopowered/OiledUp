@@ -28,7 +28,7 @@ namespace Residue.Chemistry
         /// Every legal transition, indexed by the stage being left. This is the only place the shape
         /// of the lifecycle is written down; call sites ask, they do not assume.
         /// <para>
-        /// Three entries deserve their reasons in the open:
+        /// Four entries deserve their reasons in the open:
         /// </para>
         /// <list type="bullet">
         /// <item><description>
@@ -47,6 +47,20 @@ namespace Residue.Chemistry
         /// <b><see cref="SampleStage.Prepped"/> and <see cref="SampleStage.Measured"/> repeat.</b>
         /// A sample is agitated more than once and runs on more than one instrument.
         /// </description></item>
+        /// <item><description>
+        /// <b><see cref="SampleStage.Archived"/> goes back to <see cref="SampleStage.Measured"/>.</b>
+        /// §5.3 puts a certified reference sample in the player's hands and then makes it say the
+        /// instrument was reading 18% high — which means every verdict filed since it started
+        /// drifting was filed on numbers the lab got wrong. The spec names the remedy in the same
+        /// breath: show the affected archived samples and let them be re-opened. Hard rule 3 cuts
+        /// both ways here. The player checked, found the fault, and has to be able to act on it, or
+        /// the check was theatre. The edge lands on Measured rather than Logged because a re-opening
+        /// withdraws the <i>verdict</i> and nothing else: the tag stays fixed, and the results stay
+        /// on file — suspect flags included — because the point is to run them again and compare.
+        /// <see cref="TryReopen"/> is the only gateway that uses it; <see cref="TryFileResult"/>
+        /// refuses it by hand, since appending a slip to a record that still carries a verdict would
+        /// quietly change what the player was looking at when they made the call.
+        /// </description></item>
         /// </list>
         /// </summary>
         private static readonly SampleStage[][] Table =
@@ -56,7 +70,7 @@ namespace Residue.Chemistry
             /* Logged   */ new[] { SampleStage.Logged, SampleStage.Prepped, SampleStage.Archived },
             /* Prepped  */ new[] { SampleStage.Prepped, SampleStage.Measured, SampleStage.Archived },
             /* Measured */ new[] { SampleStage.Measured, SampleStage.Archived },
-            /* Archived */ new[] { SampleStage.Resolved },
+            /* Archived */ new[] { SampleStage.Measured, SampleStage.Resolved },
             /* Resolved */ new SampleStage[0]
         };
 
@@ -128,7 +142,8 @@ namespace Residue.Chemistry
                 SampleStage.Measured when from < SampleStage.Prepped =>
                     "has not been prepped, so nothing can have measured it.",
                 SampleStage.Measured =>
-                    "has been filed. Results cannot be added to a closed record.",
+                    "has already been resolved — the consequence has landed, so there is nothing " +
+                    "left to re-test.",
 
                 SampleStage.Archived when from == SampleStage.Archived =>
                     "already has a verdict on file.",
@@ -247,6 +262,18 @@ namespace Residue.Chemistry
 
             if (result == null) { refusal = "That slip is blank."; return false; }
 
+            // Archived -> Measured is a legal edge, but it belongs to TryReopen. Filing a slip
+            // against a record that still carries a verdict would rewrite the evidence behind a call
+            // the player has already made, so this gateway refuses what the table allows.
+            var stage = StageOf(state);
+            if (stage >= SampleStage.Archived)
+            {
+                refusal = stage == SampleStage.Archived
+                    ? $"{state.RecordTag} has a verdict on file. Re-open the record before adding to it."
+                    : $"{state.RecordTag} has been resolved. Results cannot be added to a closed record.";
+                return false;
+            }
+
             if (!CanAdvance(state, SampleStage.Measured, out refusal)) return false;
 
             if (state.Results.Contains(result)) { refusal = "Already on file."; return false; }
@@ -268,6 +295,49 @@ namespace Residue.Chemistry
             state.FiledRootCause = rootCause;
             state.FiledOnDay = day;
             state.Location = SampleLocation.Archived();
+            return true;
+        }
+
+        /// <summary>
+        /// Withdraw a filed verdict and put the record back in play (§5.3).
+        /// <para>
+        /// Only ever reached because the player proved the instrument was lying: a certified
+        /// reference run revealed drift, and this record's numbers were taken inside that window.
+        /// Everything measured stays on file, suspect flags and all — re-opening is an invitation to
+        /// re-run and compare, not an eraser. What comes off is the verdict, the root cause and the
+        /// day it was filed, because those are the claims that were made on the bad numbers.
+        /// </para>
+        /// The vial goes back on the archive shelf as a bottle rather than a record, because the
+        /// whole point is that it can be carried to an instrument again.
+        /// <para>
+        /// Whether there is enough oil left to be worth re-testing is not asked here. The lifecycle
+        /// knows about records; volume is the caller's to weigh, and refusing on it is the sharper
+        /// half of the mechanic.
+        /// </para>
+        /// </summary>
+        public static bool TryReopen(SampleState state, out string refusal)
+        {
+            refusal = null;
+            if (state == null) { refusal = "No such sample."; return false; }
+
+            if (!CanAdvance(state, SampleStage.Measured, out refusal)) return false;
+
+            if (!state.FiledVerdict.HasValue)
+            {
+                refusal = $"{state.RecordTag} has no verdict on file to withdraw.";
+                return false;
+            }
+
+            if (state.Results.Count == 0)
+            {
+                refusal = $"{state.RecordTag} has nothing on file to re-test.";
+                return false;
+            }
+
+            state.FiledVerdict = null;
+            state.FiledRootCause = null;
+            state.FiledOnDay = -1;
+            state.Location = SampleLocation.OnSurface("archive", -1);
             return true;
         }
 
