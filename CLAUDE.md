@@ -1,6 +1,14 @@
-# RESIDUE — working notes for coding agents
+# OILED UP — working notes for coding agents
 
-Co-op first-person oil analysis simulator. Unity 6000.5.9f1, URP, Netcode for GameObjects.
+Co-op first-person heat-treatment oil analysis simulator. Unity 6000.5.9f1, URP, Netcode for
+GameObjects.
+
+The lab analyses **oil-based heat-treatment process fluids** for industrial customers: quench oils
+(cold, martempering, vacuum, accelerated), general hardening oils and corrosion-protection oils.
+Water-based polymer quenchants and aqueous cleaners are out of scope.
+
+> Assemblies and namespaces are still `Residue.*` from the working title. Renaming them is tracked
+> separately — it is ~30 files of mechanical churn and would bury any real change it travelled with.
 
 **Read [`docs/DESIGN.md`](docs/DESIGN.md) before doing design-adjacent work.** It is the source of
 truth for what the game is. This file covers only what the code and the spec do not already say.

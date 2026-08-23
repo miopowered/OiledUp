@@ -89,17 +89,28 @@ namespace Residue.Editor.Content
                     if (fault.RootCause == null)
                         problems.Add($"Fault '{fault.Id}' has no root cause, so it cannot pay the §5.4 bonus.");
 
+                    // A signature may legitimately move something a given profile does not score:
+                    // thermal ageing slows the cooling curve, and a corrosion-protection oil has no
+                    // cooling curve because it is not a quenchant. That is fine as long as SOMETHING
+                    // in the signature is scored. The real defect is a fault that, on some profile it
+                    // claims to be valid on, moves nothing that profile measures — an undetectable
+                    // fault the player is nonetheless punished for missing.
                     foreach (var profile in fault.ValidOn)
                     {
+                        bool anyScored = false;
                         foreach (var d in fault.Signature)
                         {
                             if (d?.Element == null) continue;
-                            if (!profile.TryGetThreshold(d.Element.Id, out _))
-                            {
-                                problems.Add(
-                                    $"Fault '{fault.Id}' moves '{d.Element.Id}' but profile '{profile.Id}' " +
-                                    $"has no threshold for it — the player could never score that reading.");
-                            }
+                            if (!profile.TryGetThreshold(d.Element.Id, out _)) continue;
+                            anyScored = true;
+                            break;
+                        }
+
+                        if (!anyScored)
+                        {
+                            problems.Add(
+                                $"Fault '{fault.Id}' is valid on '{profile.Id}' but moves nothing that " +
+                                $"profile scores — it would be undetectable and still punished.");
                         }
                     }
                 }

@@ -6,25 +6,25 @@ namespace Residue.Gameplay.Simulation
     /// <summary>How a filed verdict turned out once reality arrived.</summary>
     public enum ConsequenceOutcome
     {
-        /// <summary>CRITICAL, and the fault was real. The job done right.</summary>
+        /// <summary>CRITICAL, and the fault was real. The tank came out before it cost anything.</summary>
         CorrectCritical,
 
-        /// <summary>CRITICAL on a healthy unit. Somebody tore down a working machine.</summary>
+        /// <summary>CRITICAL on a good tank. Thousands of litres dumped and a line stopped for nothing.</summary>
         FalsePositive,
 
-        /// <summary>MONITOR on a developing fault. Reasonable call; sample comes back worse.</summary>
+        /// <summary>MONITOR on a developing fault. Reasonable call; the tank is resampled worse.</summary>
         MonitorDeveloping,
 
-        /// <summary>MONITOR on an imminent fault. The equipment failed anyway.</summary>
+        /// <summary>MONITOR on an imminent fault. The batch was quenched in it anyway.</summary>
         MonitorOnImminent,
 
-        /// <summary>MONITOR on a healthy unit. Wasted a re-draw, but nothing broke.</summary>
+        /// <summary>MONITOR on a good tank. Wasted a re-draw, but nothing was lost.</summary>
         MonitorUnnecessary,
 
-        /// <summary>NORMAL over a real fault. The catastrophic one.</summary>
+        /// <summary>NORMAL over a real fault. Cracked parts, a customer claim, or a tank fire.</summary>
         MissedFault,
 
-        /// <summary>NORMAL on a healthy unit. Routine.</summary>
+        /// <summary>NORMAL on a good tank. Routine.</summary>
         CorrectNormal
     }
 
@@ -88,15 +88,16 @@ namespace Residue.Gameplay.Simulation
                     if (report.RootCauseCorrect)
                     {
                         report.MoneyDelta += tuning.RootCauseBonus;
-                        report.Headline = $"{state.EquipmentTag}: pulled in time. Root cause confirmed as " +
-                                          $"{report.ActualRootCause}. Full payout plus diagnostic bonus.";
+                        report.Headline = $"{state.EquipmentTag}: taken out of service in time. Cause confirmed " +
+                                          $"as {report.ActualRootCause}. Full payout plus diagnostic bonus.";
                     }
                     else
                     {
-                        report.Headline = $"{state.EquipmentTag}: pulled in time — {fault.DisplayName}. " +
+                        report.Headline = $"{state.EquipmentTag}: taken out of service in time — " +
+                                          $"{fault.DisplayName}. " +
                                           (state.FiledRootCause != null
                                               ? $"Filed cause was wrong; it was {report.ActualRootCause}."
-                                              : "No root cause filed.");
+                                              : "No root cause filed, so no diagnostic bonus.");
                     }
                     break;
 
@@ -104,46 +105,49 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.FalsePositive;
                     report.MoneyDelta = -tuning.UnnecessaryTeardownCost;
                     report.ReputationDelta = tuning.FalsePositiveReputation;
-                    report.Headline = $"{state.EquipmentTag}: stripped on your call and found serviceable. " +
-                                      "The teardown is billed to us.";
+                    report.Headline = $"{state.EquipmentTag}: tank dumped and recharged on your call. " +
+                                      "The oil tested serviceable. Line downtime and the fresh charge are ours.";
                     break;
 
                 case Verdict.Monitor when hasFault && truth.WorstSeverity == FaultSeverity.Imminent:
                     report.Outcome = ConsequenceOutcome.MonitorOnImminent;
                     report.MoneyDelta = -fault.RepairCost * tuning.MonitorOnImminentMultiplier;
                     report.ReputationDelta = tuning.MonitorOnImminentReputation;
-                    report.Headline = $"{state.EquipmentTag}: FAILED IN SERVICE. You flagged it to watch; " +
-                                      $"it needed pulling. {fault.DisplayName}.";
+                    report.Headline = $"{state.EquipmentTag}: kept quenching on your advice and it should not " +
+                                      $"have been. {fault.DisplayName}. {fault.MissedConsequence}";
                     break;
 
                 case Verdict.Monitor when hasFault:
                     report.Outcome = ConsequenceOutcome.MonitorDeveloping;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.RequeueSample = true;
-                    report.Headline = $"{state.EquipmentTag}: kept in service and resampled. " +
-                                      "Numbers are worse this cycle.";
+                    report.Headline = $"{state.EquipmentTag}: kept in service and scheduled for another draw. " +
+                                      "The numbers are worse this cycle.";
                     break;
 
                 case Verdict.Monitor:
                     report.Outcome = ConsequenceOutcome.MonitorUnnecessary;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.ReputationDelta = -0.5f;
-                    report.Headline = $"{state.EquipmentTag}: resampled at your request, still clean.";
+                    report.Headline = $"{state.EquipmentTag}: redrawn at your request, still within spec.";
                     break;
 
                 case Verdict.Normal when hasFault:
                     report.Outcome = ConsequenceOutcome.MissedFault;
                     report.MoneyDelta = -fault.RepairCost * tuning.MissedFaultMultiplier(truth.WorstSeverity);
                     report.ReputationDelta = tuning.MissedFaultReputation;
-                    report.Headline = $"{state.EquipmentTag}: CATASTROPHIC FAILURE. Passed as normal on your " +
-                                      $"report. {fault.DisplayName}. Named in the incident file.";
+
+                    // The consequence text lives on the fault, so the worst outcome in the game is a
+                    // data value someone can find rather than a branch someone has to remember.
+                    report.Headline = $"{state.EquipmentTag}: PASSED AS FIT TO QUENCH. {fault.DisplayName}. " +
+                                      $"{fault.MissedConsequence} Named in the incident file.";
                     break;
 
                 default:
                     report.Outcome = ConsequenceOutcome.CorrectNormal;
                     report.MoneyDelta = tuning.BasePayout;
                     report.ReputationDelta = tuning.CorrectNormalReputation;
-                    report.Headline = $"{state.EquipmentTag}: cleared, ran clean. Routine payout.";
+                    report.Headline = $"{state.EquipmentTag}: cleared as fit for service. Routine payout.";
                     break;
             }
 

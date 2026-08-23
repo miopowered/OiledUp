@@ -109,7 +109,7 @@ namespace Residue.Tests.EditMode
                 ? (Verdict.Normal, (RootCauseDef)null)
                 : (Verdict.Critical, truth.PrimaryFault.RootCause));
 
-            var wrongCause = content.Cause("normal_wear");
+            var wrongCause = content.Cause("normal_service");
             float withWrongCause = RunStrategy(truth => truth.IsHealthy
                 ? (Verdict.Normal, (RootCauseDef)null)
                 : (Verdict.Critical, wrongCause));
@@ -119,23 +119,11 @@ namespace Residue.Tests.EditMode
                 "rewards understanding over table lookup (§5.4).");
         }
 
-        /// <summary>
-        /// The keystone trap from §4.3: dirt ingress's root cause is the air filter, not the worn
-        /// component. A player who files the component is diagnosing the symptom.
-        /// </summary>
-        [Test]
-        public void DirtIngress_RootCauseIsTheAirFilter_NotTheWornComponent()
-        {
-            var dirt = content.Fault("dirt_ingress");
-            Assert.IsNotNull(dirt.RootCause, "Dirt ingress must carry a root cause.");
-            Assert.AreEqual("air_filter_failure", dirt.RootCause.Id,
-                "Replacing the component that shows the wear does not fix dirt ingress; the filter does.");
-        }
 
         [Test]
         public void MissingAnImminentFault_HurtsMoreThanAFalsePositive()
         {
-            var profile = content.Profile("diesel_engine_heavy");
+            var profile = content.Profile("hardening_oil_general");
             var imminent = content.Faults.Values.First(f => f.Severity == FaultSeverity.Imminent && f.IsValidOn(profile));
 
             var rng = new Rng(11);
@@ -169,8 +157,8 @@ namespace Residue.Tests.EditMode
 
             var profiles = new[]
             {
-                content.Profile("diesel_engine_heavy"),
-                content.Profile("gearbox_industrial")
+                content.Profile("hardening_oil_general"),
+                content.Profile("quench_oil_cold")
             };
 
             for (int i = 0; i < Population; i++)

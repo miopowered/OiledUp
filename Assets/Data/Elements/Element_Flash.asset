@@ -16,4 +16,6 @@ MonoBehaviour:
   displayName: Flash Point
   unit: C
   category: 3
-  sourceHint: drops sharply with fuel dilution
+  sourceHint: the temperature at which vapour above the oil will ignite. Falls when
+    anything volatile gets in. A falling flash point is a safety finding first and
+    a quality finding second.

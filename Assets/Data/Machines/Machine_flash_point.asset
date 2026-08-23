@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d74db45e8252541999c6f96711868f, type: 3}
+  m_Name: Machine_flash_point
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.MachineDef
+  id: flash_point
+  displayName: Flash Point Tester
+  runTimeSeconds: 300
+  sampleVolumeMl: 15
+  costPerRun: 12
+  measures:
+  - {fileID: 11400000, guid: 03b02790fbdfdac42a29e36b07b8cbf2, type: 2}
+  cannotDetect:
+  - {fileID: 11400000, guid: 351d5ca771b303d45964564a77c1470e, type: 2}
+  - {fileID: 11400000, guid: d95ac2904315e654a8ad26216d19ce0a, type: 2}
+  - {fileID: 11400000, guid: d55e9a7d27b5802428c794c70ce571e0, type: 2}
+  - {fileID: 11400000, guid: 981d415ffb764b54a987d3216a5b6b78, type: 2}
+  baseNoisePercent: 0.02
+  calibrationDriftPerRun: 0.003
+  contaminationCarryoverPercent: 0.02
+  requiresFumeHood: 1
+  requiresPreheat: 0
+  preheatTargetC: 100
+  slots: 1
+  purchaseCost: 17000
+  footprint: {x: 1, y: 1}

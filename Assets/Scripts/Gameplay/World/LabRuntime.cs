@@ -29,13 +29,14 @@ namespace Residue.Gameplay.World
         [Header("Installed instruments")]
         [Tooltip("MachineDef ids, in the order the stations appear in the scene.")]
         [SerializeField]
-        private string[] installedMachineIds = { "icp", "ftir", "karl_fischer", "ferrography" };
+        private string[] installedMachineIds =
+            { "cooling_curve", "karl_fischer", "viscometer", "centrifuge", "elemental" };
 
         [Header("Testing")]
         [Tooltip("Multiplier on every instrument's run time and on the flush hold.\n\n" +
                  "1 = the real balance. Lower values make the loop testable without editing " +
                  "ContentTables, which would ship. The RATIOS between instruments are design " +
-                 "(§10: ferrography costs 15x an FTIR screen), so scaling preserves them.\n\n" +
+                 "(§10: a cooling curve costs 5x a centrifuge run), so scaling preserves them.\n\n" +
                  "Set back to 1 before judging whether the game is fun.")]
         [SerializeField, Range(0.01f, 1f)] private float machineTimeScale = 0.05f;
 

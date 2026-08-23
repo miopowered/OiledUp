@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d74db45e8252541999c6f96711868f, type: 3}
+  m_Name: Machine_elemental
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.MachineDef
+  id: elemental
+  displayName: Elemental Analyser
+  runTimeSeconds: 180
+  sampleVolumeMl: 5
+  costPerRun: 14
+  measures:
+  - {fileID: 11400000, guid: 1c7d6588759d94741bfcdb8ee927803b, type: 2}
+  - {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
+  - {fileID: 11400000, guid: cfd692c694bc0ba4dbe321347fecf0e4, type: 2}
+  - {fileID: 11400000, guid: 05dbc700f81ef234393c62ed96ef63ef, type: 2}
+  - {fileID: 11400000, guid: 809560b9ddd7edc45a33a55823bee4b1, type: 2}
+  cannotDetect:
+  - {fileID: 11400000, guid: 351d5ca771b303d45964564a77c1470e, type: 2}
+  - {fileID: 11400000, guid: d95ac2904315e654a8ad26216d19ce0a, type: 2}
+  - {fileID: 11400000, guid: d55e9a7d27b5802428c794c70ce571e0, type: 2}
+  - {fileID: 11400000, guid: 981d415ffb764b54a987d3216a5b6b78, type: 2}
+  baseNoisePercent: 0.03
+  calibrationDriftPerRun: 0.004
+  contaminationCarryoverPercent: 0.06
+  requiresFumeHood: 0
+  requiresPreheat: 0
+  preheatTargetC: 100
+  slots: 1
+  purchaseCost: 45000
+  footprint: {x: 1, y: 1}

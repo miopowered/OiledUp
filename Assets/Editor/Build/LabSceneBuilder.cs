@@ -44,7 +44,8 @@ namespace Residue.Editor.Build
         private const float RoomHeight = 3f;
         private const float BenchHeight = 0.9f;
 
-        private static readonly string[] MachineIds = { "icp", "ftir", "karl_fischer", "ferrography" };
+        private static readonly string[] MachineIds =
+            { "cooling_curve", "karl_fischer", "viscometer", "centrifuge", "elemental" };
 
         [MenuItem("Residue/Build/Rebuild Greybox Lab", priority = 40)]
         public static void Rebuild()
@@ -227,7 +228,7 @@ namespace Residue.Editor.Build
                 PaletteUv.Family.Brass, 8));
 
             float benchZ = -RoomDepth * 0.5f + 0.55f;
-            float[] xs = { -2.7f, -0.9f, 0.9f, 2.7f };
+            float[] xs = { -3.0f, -1.5f, 0f, 1.5f, 3.0f };
 
             for (int i = 0; i < MachineIds.Length; i++)
             {
@@ -299,7 +300,7 @@ namespace Residue.Editor.Build
 
             AddRack(root, scene, "rack_island_a", new Vector3(-0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
             AddRack(root, scene, "rack_island_b", new Vector3(0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
-            AddRack(root, scene, "rack_bench", new Vector3(-3.75f, BenchHeight, benchZ), palette, rackMesh, 4);
+            AddRack(root, scene, "rack_bench", new Vector3(-3.85f, BenchHeight, benchZ), palette, rackMesh, 4);
 
             // Intake crate
             var crateGo = new GameObject("IntakeCrate");
@@ -374,16 +375,18 @@ namespace Residue.Editor.Build
 
         private static MachineVisual VisualFor(string id) => id switch
         {
-            // Wide and low with a big panel: the spectrometer is the centrepiece instrument.
-            "icp" => new MachineVisual(new Vector3(0.78f, 0.46f, 0.52f), new Vector2(0.40f, 0.24f), 0.30f, true, 3, 6),
-
-            "ftir" => new MachineVisual(new Vector3(0.60f, 0.42f, 0.46f), new Vector2(0.30f, 0.19f), 0.28f, true, 2, 4),
+            // Tall, wide and busy. The cooling curve tester is the centrepiece and the expensive
+            // option, and should read that way from across the room.
+            "cooling_curve" => new MachineVisual(new Vector3(0.80f, 0.64f, 0.52f), new Vector2(0.42f, 0.26f), 0.44f, true, 3, 8),
 
             // A titrator is a small box with a two-line readout and a lot of knobs.
             "karl_fischer" => new MachineVisual(new Vector3(0.46f, 0.38f, 0.42f), new Vector2(0.22f, 0.10f), 0.28f, false, 3, 2),
 
-            // Ferrography is tall and slow-looking. It should read as the expensive option.
-            "ferrography" => new MachineVisual(new Vector3(0.52f, 0.66f, 0.46f), new Vector2(0.30f, 0.22f), 0.46f, true, 1, 8),
+            "viscometer" => new MachineVisual(new Vector3(0.44f, 0.52f, 0.40f), new Vector2(0.20f, 0.10f), 0.40f, false, 2, 5),
+
+            "centrifuge" => new MachineVisual(new Vector3(0.50f, 0.40f, 0.50f), new Vector2(0.20f, 0.09f), 0.28f, false, 2, 3),
+
+            "elemental" => new MachineVisual(new Vector3(0.64f, 0.44f, 0.48f), new Vector2(0.32f, 0.20f), 0.29f, true, 2, 4),
 
             _ => new MachineVisual(new Vector3(0.55f, 0.44f, 0.46f), new Vector2(0.26f, 0.14f), 0.30f, false, 2, 4)
         };

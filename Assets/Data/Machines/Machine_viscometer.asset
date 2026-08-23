@@ -16,14 +16,17 @@ MonoBehaviour:
   displayName: Viscometer
   runTimeSeconds: 300
   sampleVolumeMl: 10
-  costPerRun: 4
+  costPerRun: 6
   measures:
   - {fileID: 11400000, guid: c69da98c45d33534aab87743d413566d, type: 2}
-  - {fileID: 11400000, guid: d1748bf7b35a2954f8a3027da2ebf10b, type: 2}
-  cannotDetect: []
+  cannotDetect:
+  - {fileID: 11400000, guid: 351d5ca771b303d45964564a77c1470e, type: 2}
+  - {fileID: 11400000, guid: d95ac2904315e654a8ad26216d19ce0a, type: 2}
+  - {fileID: 11400000, guid: d55e9a7d27b5802428c794c70ce571e0, type: 2}
+  - {fileID: 11400000, guid: 981d415ffb764b54a987d3216a5b6b78, type: 2}
   baseNoisePercent: 0.02
   calibrationDriftPerRun: 0.005
-  contaminationCarryoverPercent: 0.04
+  contaminationCarryoverPercent: 0.05
   requiresFumeHood: 0
   requiresPreheat: 1
   preheatTargetC: 100

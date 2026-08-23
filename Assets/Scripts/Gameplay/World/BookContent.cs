@@ -134,14 +134,20 @@ namespace Residue.Gameplay.World
                      })
             {
                 var sb = new StringBuilder();
+                int count = 0;
+
                 foreach (var e in catalog.Elements)
                 {
                     if (e == null || e.Category != category) continue;
+                    count++;
                     sb.AppendLine($"{e.Id} — {e.DisplayName} ({e.Unit})");
                     if (!string.IsNullOrEmpty(e.SourceHint)) sb.AppendLine($"   {e.SourceHint}");
                     sb.AppendLine();
                 }
-                pages.Add(new BookPage { Title = Readable(category), Body = sb.ToString() });
+
+                // A category with nothing in it gets no page. WearMetal is empty in the
+                // heat-treatment domain, and a blank chapter in a reference book reads as a bug.
+                if (count > 0) pages.Add(new BookPage { Title = Readable(category), Body = sb.ToString() });
             }
         }
 

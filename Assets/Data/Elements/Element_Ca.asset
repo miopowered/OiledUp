@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Calcium
   unit: ppm
   category: 2
-  sourceHint: detergent. A mismatch means the wrong oil went in
+  sourceHint: detergent additive. Part of the fingerprint that identifies which product
+    is actually in the tank.

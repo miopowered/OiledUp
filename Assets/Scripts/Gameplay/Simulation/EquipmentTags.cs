@@ -3,58 +3,71 @@ using Residue.Chemistry;
 namespace Residue.Gameplay.Simulation
 {
     /// <summary>
-    /// Builds the labels printed on arriving vials, e.g. "RIG-7 COMPRESSOR B".
+    /// Builds the labels on arriving vials, e.g. "WERK-2 QUENCH 4".
     /// <para>
-    /// Tags matter more than flavour: the player types one into the terminal to log a vial, and
-    /// mis-logging is a real failure mode (§5.1). So tags need to be similar enough to each other
-    /// that transcribing one carelessly is plausible.
+    /// Tags identify a customer's plant and the specific tank the oil was drawn from. They matter
+    /// more than flavour: the player types one into the terminal to register a vial against a
+    /// delivery note, and mis-logging is a real failure mode (§5.1). So tags need to be similar
+    /// enough to each other that transcribing one carelessly is plausible.
     /// </para>
     /// </summary>
     public static class EquipmentTags
     {
-        private static readonly string[] Sites =
+        private static readonly string[] Plants =
         {
-            "RIG-7", "RIG-12", "HAUL-04", "HAUL-09", "PLANT-3", "PLANT-8", "PUMP-21", "YARD-2"
+            "WERK-1", "WERK-2", "WERK-4", "HALLE-3", "HALLE-6", "LINE-7", "LINE-9", "BAU-2"
         };
 
-        private static readonly string[] EngineUnits =
+        private static readonly string[] QuenchTanks =
         {
-            "ENGINE A", "ENGINE B", "GENSET 1", "GENSET 2", "COMPRESSOR B", "PRIME MOVER"
+            "QUENCH 1", "QUENCH 2", "QUENCH 4", "BATH A", "BATH B", "BATH C",
+            "SEALED QUENCH 1", "PRESS QUENCH", "AGITATED TANK 3"
         };
 
-        private static readonly string[] GearboxUnits =
+        private static readonly string[] HotTanks =
         {
-            "GEARBOX A", "GEARBOX C", "FINAL DRIVE L", "FINAL DRIVE R", "SWING DRIVE", "MILL DRIVE"
+            "MARTEMPER 1", "MARTEMPER 2", "HOT BATH A", "HOT BATH B", "ISOTHERM 1", "SALT-ADJ TANK"
         };
 
-        private static readonly string[] HydraulicUnits =
+        private static readonly string[] VacuumTanks =
         {
-            "HYD MAIN", "HYD AUX", "BOOM CIRCUIT", "TRACK MOTOR", "PRESS RAM"
+            "VAC FURNACE 1", "VAC FURNACE 2", "VAC QUENCH A", "VAC CHAMBER 3"
+        };
+
+        private static readonly string[] ProtectionTanks =
+        {
+            "DIP TANK 1", "DIP TANK 2", "PRESERVE LINE", "RUSTPROOF BATH"
         };
 
         public static string For(string profileId, ref Rng rng)
         {
-            string site = Sites[rng.Range(0, Sites.Length)];
-            var units = profileId switch
+            string plant = Plants[rng.Range(0, Plants.Length)];
+            var tanks = profileId switch
             {
-                "gearbox_industrial" => GearboxUnits,
-                "hydraulic_system" => HydraulicUnits,
-                _ => EngineUnits
+                "quench_oil_martempering" => HotTanks,
+                "quench_oil_vacuum" => VacuumTanks,
+                "corrosion_protection_oil" => ProtectionTanks,
+                _ => QuenchTanks
             };
-            return $"{site} {units[rng.Range(0, units.Length)]}";
+            return $"{plant} {tanks[rng.Range(0, tanks.Length)]}";
         }
 
-        /// <summary>Field notes are often vague, sometimes wrong, sometimes absent (§4.4).</summary>
+        /// <summary>
+        /// Notes from the customer's process engineer. Often vague, sometimes wrong, sometimes
+        /// absent (§4.4) — the note is a hint, never evidence.
+        /// </summary>
         private static readonly string[] Notes =
         {
-            "Operator reports intermittent noise under load.",
-            "Routine draw, nothing reported.",
-            "Ran hot last week, cooled off since.",
-            "Sample drawn after shutdown, may be settled.",
-            "Third draw this quarter. Previous two clean.",
-            "Filter changed at last service.",
-            "Unit topped up with whatever was on the truck.",
-            "Tech notes 'sounds fine to me'.",
+            "Operator reports parts coming out soft on the night shift.",
+            "Routine quarterly draw, nothing reported.",
+            "Bath ran above setpoint for two shifts last week.",
+            "Drawn cold before start-up, may not be representative.",
+            "Third draw this quarter. Previous two passed.",
+            "Filters changed at last service.",
+            "Tank topped up last month, drum was already open.",
+            "Some staining seen on finished parts.",
+            "Agitator was down for a day. Back in service now.",
+            "Process engineer says it 'looks fine to me'.",
             null,
             null
         };

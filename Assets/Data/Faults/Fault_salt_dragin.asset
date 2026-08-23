@@ -1,0 +1,85 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef507327515a65144a10282711822bbd, type: 3}
+  m_Name: Fault_salt_dragin
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.FaultDef
+  id: salt_dragin
+  displayName: Salt Bath Drag-in
+  severity: 1
+  signature:
+  - element: {fileID: 11400000, guid: 1c7d6588759d94741bfcdb8ee927803b, type: 2}
+    multiplier: 6
+    flatAdd: 95
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
+    multiplier: 1.8
+    flatAdd: 30
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  canCause: []
+  validOn:
+  - {fileID: 11400000, guid: 5e01bc96f92abde439b9ef54bcf1f516, type: 2}
+  - {fileID: 11400000, guid: 04b525cc34a7ece44bcac84ae37dafdb, type: 2}
+  - {fileID: 11400000, guid: 4d428588bd3218942bcad06c2ca5ceaa, type: 2}
+  - {fileID: 11400000, guid: e40e0bf63f3d0fa4297d058d32dfe17b, type: 2}
+  - {fileID: 11400000, guid: a498f24c352662841848d8dd9de96510, type: 2}
+  daysToFailure: 14
+  repairCost: 2100
+  teardownCostIfWrong: 4600
+  rootCause: {fileID: 11400000, guid: 11b91edc89de2cd47b05f4c3631fb4eb, type: 2}
+  missedConsequence: Salt kept accumulating. The customer's finished parts corroded
+    in storage and came back as a claim.

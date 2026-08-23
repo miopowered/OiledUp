@@ -171,6 +171,7 @@ namespace Residue.Editor.Content
             so.FindProperty("repairCost").floatValue = row.RepairCost;
             so.FindProperty("teardownCostIfWrong").floatValue = row.TeardownCostIfWrong;
             so.FindProperty("rootCause").objectReferenceValue = set.Cause(row.RootCauseId);
+            so.FindProperty("missedConsequence").stringValue = row.MissedConsequence ?? string.Empty;
 
             var sig = so.FindProperty("signature");
             sig.arraySize = row.Signature.Length;

@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Zinc
   unit: ppm
   category: 2
-  sourceHint: anti-wear additive (ZDDP). Falls as the oil is consumed
+  sourceHint: anti-wear and antioxidant additive. A sharp change means the tank was
+    topped up with something that is not what the paperwork says.

@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Sodium
   unit: ppm
   category: 1
-  sourceHint: coolant inhibitor, seawater, some detergent additives
+  sourceHint: salt dragged in from a neighbouring salt-bath line on parts or fixtures.
+    Causes corrosion and staining and shows up in nothing but an elemental scan.
