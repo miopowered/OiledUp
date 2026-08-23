@@ -1,0 +1,106 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef507327515a65144a10282711822bbd, type: 3}
+  m_Name: Fault_ring_wear
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.FaultDef
+  id: ring_wear
+  displayName: Piston Ring Wear
+  severity: 1
+  signature:
+  - element: {fileID: 11400000, guid: 9c9ded8397d1b9343a5f39d9c9382172, type: 2}
+    multiplier: 5
+    flatAdd: 16
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
+    multiplier: 2.2
+    flatAdd: 28
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: 73f4bfa9d71e6ec478ea51e017669b02, type: 2}
+    multiplier: 1.8
+    flatAdd: 0.5
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  canCause: []
+  validOn:
+  - {fileID: 11400000, guid: ac4fbca440a422947adb55ab4d1bcdb8, type: 2}
+  daysToFailure: 11
+  repairCost: 5200
+  teardownCostIfWrong: 4200
+  rootCause: {fileID: 11400000, guid: 9c8d63db54e851b4f87ed1ddbca3ca92, type: 2}

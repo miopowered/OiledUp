@@ -1,0 +1,133 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d837feb733db4ab41b4a479b189e6a2c, type: 3}
+  m_Name: Profile_gearbox_industrial
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.EquipmentProfileDef
+  id: gearbox_industrial
+  displayName: Industrial Gearbox
+  thresholds:
+  - element: {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
+    mode: 0
+    baseline: 45
+    baselineVariance: 0.3
+    normalLimit: 100
+    cautionLimit: 250
+  - element: {fileID: 11400000, guid: bf71441c22cc0da41a2b472eec960b4b, type: 2}
+    mode: 0
+    baseline: 6
+    baselineVariance: 0.3
+    normalLimit: 15
+    cautionLimit: 30
+  - element: {fileID: 11400000, guid: 9c9ded8397d1b9343a5f39d9c9382172, type: 2}
+    mode: 0
+    baseline: 2
+    baselineVariance: 0.35
+    normalLimit: 8
+    cautionLimit: 15
+  - element: {fileID: 11400000, guid: c842c1988fc55fd40ac5b95656116679, type: 2}
+    mode: 0
+    baseline: 4
+    baselineVariance: 0.35
+    normalLimit: 20
+    cautionLimit: 40
+  - element: {fileID: 11400000, guid: 0bb1df1c2008037458d35c01d1162f8c, type: 2}
+    mode: 0
+    baseline: 2
+    baselineVariance: 0.35
+    normalLimit: 10
+    cautionLimit: 20
+  - element: {fileID: 11400000, guid: 9f167d815ba4caf4f923482f9145409e, type: 2}
+    mode: 0
+    baseline: 4
+    baselineVariance: 0.3
+    normalLimit: 15
+    cautionLimit: 25
+  - element: {fileID: 11400000, guid: 2aa241b82ed4df44dbe6121c660e1369, type: 2}
+    mode: 0
+    baseline: 1
+    baselineVariance: 0.4
+    normalLimit: 5
+    cautionLimit: 10
+  - element: {fileID: 11400000, guid: 61f32dba6e52e8547b287b99dd84bf32, type: 2}
+    mode: 0
+    baseline: 7
+    baselineVariance: 0.3
+    normalLimit: 15
+    cautionLimit: 25
+  - element: {fileID: 11400000, guid: 1c7d6588759d94741bfcdb8ee927803b, type: 2}
+    mode: 0
+    baseline: 4
+    baselineVariance: 0.4
+    normalLimit: 25
+    cautionLimit: 50
+  - element: {fileID: 11400000, guid: 058b14cb20fc7374f839a3c40017e064, type: 2}
+    mode: 0
+    baseline: 3
+    baselineVariance: 0.4
+    normalLimit: 25
+    cautionLimit: 50
+  - element: {fileID: 11400000, guid: 4ac0f9246b3141041be106c07692a337, type: 2}
+    mode: 0
+    baseline: 0.005
+    baselineVariance: 0.5
+    normalLimit: 0.02
+    cautionLimit: 0.05
+  - element: {fileID: 11400000, guid: 090460751b717c047b30b6f7df5eff4b, type: 2}
+    mode: 0
+    baseline: 0
+    baselineVariance: 0
+    normalLimit: 0.01
+    cautionLimit: 0.05
+  - element: {fileID: 11400000, guid: 30561147d51d4db4aa121f3d1f022417, type: 2}
+    mode: 0
+    baseline: 2
+    baselineVariance: 0.5
+    normalLimit: 15
+    cautionLimit: 35
+  - element: {fileID: 11400000, guid: 9d8166c933ac4e341ba2611c063a6256, type: 2}
+    mode: 0
+    baseline: 6
+    baselineVariance: 0.25
+    normalLimit: 20
+    cautionLimit: 30
+  - element: {fileID: 11400000, guid: 9e1a54c2c2699c84cb0b406570c2f541, type: 2}
+    mode: 0
+    baseline: 0.8
+    baselineVariance: 0.3
+    normalLimit: 2
+    cautionLimit: 4
+  - element: {fileID: 11400000, guid: 05dbc700f81ef234393c62ed96ef63ef, type: 2}
+    mode: 1
+    baseline: 400
+    baselineVariance: 0.12
+    normalLimit: 250
+    cautionLimit: 150
+  - element: {fileID: 11400000, guid: 809560b9ddd7edc45a33a55823bee4b1, type: 2}
+    mode: 1
+    baseline: 380
+    baselineVariance: 0.12
+    normalLimit: 240
+    cautionLimit: 140
+  - element: {fileID: 11400000, guid: c69da98c45d33534aab87743d413566d, type: 2}
+    mode: 2
+    baseline: 320
+    baselineVariance: 0.04
+    normalLimit: 0.05
+    cautionLimit: 0.12
+  - element: {fileID: 11400000, guid: d1748bf7b35a2954f8a3027da2ebf10b, type: 2}
+    mode: 2
+    baseline: 24
+    baselineVariance: 0.04
+    normalLimit: 0.05
+    cautionLimit: 0.12
+  defaultOilChangeHours: 8000
+  baseOilGrade: ISO VG 320

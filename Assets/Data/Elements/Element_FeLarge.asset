@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 041dc963f989d7844bfbbf3cd9c65225, type: 3}
+  m_Name: Element_FeLarge
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.ElementDef
+  id: FeLarge
+  displayName: Large Ferrous Debris
+  unit: ppm
+  category: 0
+  sourceHint: particles above 8 um. Spectrometers CANNOT see these - the plasma does
+    not fully atomise them. Only ferrography or particle counting will find this.
