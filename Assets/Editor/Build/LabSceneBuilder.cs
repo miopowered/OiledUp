@@ -4,6 +4,11 @@ using Residue.Data;
 using Residue.Editor.Art;
 using Residue.Editor.Content;
 using Residue.Gameplay.World;
+using Residue.Net;
+using Residue.Net.Connect;
+using Residue.Net.UI;
+using Unity.Netcode;
+using Unity.Netcode.Transports.UTP;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -32,6 +37,8 @@ namespace Residue.Editor.Build
     public static class LabSceneBuilder
     {
         private const string ScenePath = "Assets/Scenes/Lab.unity";
+        private const string BootScenePath = "Assets/Scenes/Boot.unity";
+        private const string PlayerPrefabPath = "Assets/Prefabs/Player.prefab";
         private const string MeshFolder = "Assets/Art/Generated";
         private const string PrefabFolder = "Assets/Prefabs";
         private const string UiFolder = "Assets/UI";
@@ -118,8 +125,18 @@ namespace Residue.Editor.Build
             WireTerminal(stations.terminal, player.terminalScreen);
             foreach (var book in books) WireBook(book, player.bookScreen);
 
+            // Scene-placed rather than spawned: the host loads this scene over the network and NGO
+            // brings scene NetworkObjects up on every client as part of that load, so the lab's
+            // window onto itself exists before anybody asks it anything.
+            var netGo = NewRoot(scene, "LabNetwork");
+            netGo.AddComponent<NetworkObject>();
+            netGo.AddComponent<LabNetwork>();
+
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
+
+            BuildBootScene(panelSettings);
+            RegisterScenesInBuildSettings();
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -633,9 +650,12 @@ namespace Residue.Editor.Build
             debugSo.FindProperty("interactor").objectReferenceValue = interactor;
             debugSo.ApplyModifiedPropertiesWithoutUndo();
 
-            // HUD
+            // The three screens hang off the player, not off the scene. At M4 there are up to four
+            // players and each needs their own: a station opens the screen belonging to whoever
+            // walked up to it, and a replica's screens are switched off with the rest of that avatar.
+            // Parented here so they travel into the prefab and need no wiring after a spawn.
             var hudGo = new GameObject("HUD");
-            SceneManager.MoveGameObjectToScene(hudGo, scene);
+            hudGo.transform.SetParent(go.transform, false);
             var hudDoc = hudGo.AddComponent<UIDocument>();
             SetPanelSettings(hudDoc, panelSettings, 0);
             var hud = hudGo.AddComponent<LabHud>();
@@ -646,7 +666,7 @@ namespace Residue.Editor.Build
 
             // Terminal screen, on its own document so it can sit above the HUD.
             var screenGo = new GameObject("TerminalUI");
-            SceneManager.MoveGameObjectToScene(screenGo, scene);
+            screenGo.transform.SetParent(go.transform, false);
             var screenDoc = screenGo.AddComponent<UIDocument>();
             SetPanelSettings(screenDoc, panelSettings, 10);
             var screen = screenGo.AddComponent<TerminalScreen>();
@@ -658,7 +678,7 @@ namespace Residue.Editor.Build
 
             // Reading view, above the terminal so an open manual covers it.
             var bookGo = new GameObject("BookUI");
-            SceneManager.MoveGameObjectToScene(bookGo, scene);
+            bookGo.transform.SetParent(go.transform, false);
             var bookDoc = bookGo.AddComponent<UIDocument>();
             SetPanelSettings(bookDoc, panelSettings, 20);
             var bookScreen = bookGo.AddComponent<BookScreen>();
@@ -668,7 +688,147 @@ namespace Residue.Editor.Build
             bookSo.FindProperty("interactor").objectReferenceValue = interactor;
             bookSo.ApplyModifiedPropertiesWithoutUndo();
 
+            AddNetworking(go, player, interactor, headMotion, hands, thirdPerson, interactionDebug,
+                camera, controllerComponent);
+
+            // One character, saved once and used twice: netcode spawns this prefab per client, and
+            // the scene keeps an instance so single player is still "open Lab.unity and press Play".
+            // Built from the same object rather than authored twice, so the two cannot drift.
+            SavePlayerPrefab(go);
+            go.AddComponent<SceneOnlyPlayer>();
+
             return (player, screen, bookScreen);
+        }
+
+        /// <summary>
+        /// Attach the netcode half of a player: identity on the wire, an owner-driven transform, and
+        /// the switch that decides which components belong on this machine.
+        /// </summary>
+        private static void AddNetworking(GameObject go, PlayerController player,
+                                          PlayerInteractor interactor, PlayerHeadMotion headMotion,
+                                          GameObject hands, ThirdPersonView thirdPerson,
+                                          InteractionDebug interactionDebug, Camera camera,
+                                          CharacterController motor)
+        {
+            go.AddComponent<NetworkObject>();
+            go.AddComponent<OwnerNetworkTransform>();
+
+            var avatar = go.AddComponent<PlayerAvatar>();
+            var so = new SerializedObject(avatar);
+            so.FindProperty("controller").objectReferenceValue = player;
+            so.FindProperty("interactor").objectReferenceValue = interactor;
+            so.FindProperty("headMotion").objectReferenceValue = headMotion;
+            so.FindProperty("hands").objectReferenceValue = hands.GetComponent<PlayerHands>();
+            so.FindProperty("thirdPerson").objectReferenceValue = thirdPerson;
+            so.FindProperty("interactionDebug").objectReferenceValue = interactionDebug;
+            so.FindProperty("eyeCamera").objectReferenceValue = camera;
+            so.FindProperty("earsOfTheOwner").objectReferenceValue = camera.GetComponent<AudioListener>();
+            so.FindProperty("motor").objectReferenceValue = motor;
+            so.FindProperty("body").objectReferenceValue = go.GetComponentInChildren<CharacterBody>(true);
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        // -- Boot scene ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The scene the game starts in: a NetworkManager, and a menu offering single player, host,
+        /// or a join code.
+        /// <para>
+        /// Separate from the lab because the transport has to be configured <i>before</i> the lab
+        /// loads — a client must know it is a client in time for <see cref="LabRuntime"/> not to
+        /// build a lab of its own. Deciding that inside the scene it applies to is too late.
+        /// </para>
+        /// </summary>
+        private static void BuildBootScene(PanelSettings panelSettings)
+        {
+            var boot = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+
+            var managerGo = NewRoot(boot, "NetworkManager");
+            var manager = managerGo.AddComponent<NetworkManager>();
+            var transport = managerGo.AddComponent<UnityTransport>();
+
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PlayerPrefabPath);
+            var so = new SerializedObject(manager);
+
+            // Approval is what carries the stable id: LabNetwork reads it out of the connection
+            // payload, and rejoin is keyed on it. Off, every reconnection looks like a stranger.
+            SetBool(so, "NetworkConfig.ConnectionApproval", true);
+            SetBool(so, "NetworkConfig.EnableSceneManagement", true);
+            SetRef(so, "NetworkConfig.NetworkTransport", transport);
+            SetRef(so, "NetworkConfig.PlayerPrefab", prefab);
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            if (prefab == null)
+                Debug.LogError($"[LabSceneBuilder] {PlayerPrefabPath} is missing, so NetworkManager " +
+                               "has no player to spawn and a client would join a lab with no body.");
+
+            var connectGo = NewRoot(boot, "Connect");
+            var connection = connectGo.AddComponent<LabConnection>();
+
+            var doc = connectGo.AddComponent<UIDocument>();
+
+            // Above the book screen (20), which is the highest thing the lab draws. The connect menu
+            // is the only screen allowed to cover everything.
+            SetPanelSettings(doc, panelSettings, 30);
+
+            var screen = connectGo.AddComponent<ConnectScreen>();
+            var screenSo = new SerializedObject(screen);
+            screenSo.FindProperty("document").objectReferenceValue = doc;
+            screenSo.FindProperty("connection").objectReferenceValue = connection;
+            screenSo.ApplyModifiedPropertiesWithoutUndo();
+
+            EditorSceneManager.MarkSceneDirty(boot);
+            EditorSceneManager.SaveScene(boot, BootScenePath);
+            EditorSceneManager.CloseScene(boot, removeScene: true);
+        }
+
+        /// <summary>
+        /// Serialized-property paths into a third-party component are resolved by string, so a rename
+        /// in a package upgrade turns into a silent no-op — a NetworkManager quietly missing its
+        /// approval flag looks exactly like a rejoin bug. Say so instead.
+        /// </summary>
+        private static SerializedProperty Required(SerializedObject so, string path)
+        {
+            var property = so.FindProperty(path);
+            if (property == null)
+                Debug.LogError($"[LabSceneBuilder] '{path}' no longer exists on " +
+                               $"{so.targetObject.GetType().Name}. The netcode setup is incomplete.");
+            return property;
+        }
+
+        private static void SetBool(SerializedObject so, string path, bool value)
+        {
+            var p = Required(so, path);
+            if (p != null) p.boolValue = value;
+        }
+
+        private static void SetRef(SerializedObject so, string path, Object value)
+        {
+            var p = Required(so, path);
+            if (p != null) p.objectReferenceValue = value;
+        }
+
+        /// <summary>
+        /// Boot first, then the lab. Netcode loads the lab by name over the network, and a scene that
+        /// is not in this list simply does not load in a build — which surfaces as a client that
+        /// connects and then sits on a black screen.
+        /// </summary>
+        private static void RegisterScenesInBuildSettings()
+        {
+            EditorBuildSettings.scenes = new[]
+            {
+                new EditorBuildSettingsScene(BootScenePath, true),
+                new EditorBuildSettingsScene(ScenePath, true)
+            };
+        }
+
+        private static void SavePlayerPrefab(GameObject go)
+        {
+            PrefabUtility.SaveAsPrefabAsset(go, PlayerPrefabPath, out bool saved);
+
+            if (!saved)
+                Debug.LogError($"[LabSceneBuilder] Could not save {PlayerPrefabPath}. Netcode has no " +
+                               "player to spawn, so a client would connect to a lab with no body.");
         }
 
         // -- Character ---------------------------------------------------------------------------------

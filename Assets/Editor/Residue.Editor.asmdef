@@ -5,7 +5,11 @@
         "Residue.Data",
         "Residue.Chemistry",
         "Residue.Gameplay",
-        "Unity.InputSystem"
+        "Residue.Net",
+        "Unity.InputSystem",
+        "Unity.Netcode.Runtime",
+        "Unity.Netcode.Components",
+        "Unity.Networking.Transport"
     ],
     "includePlatforms": [
         "Editor"
