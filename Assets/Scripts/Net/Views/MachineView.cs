@@ -38,7 +38,25 @@ namespace Residue.Net.Views
         /// <summary><see cref="MachineInstance.InstanceId"/>, not the <c>MachineDef</c> id — a lab may hold two of a kind.</summary>
         public FixedString64Bytes InstanceId;
 
+        /// <summary>
+        /// The <c>MachineDef</c> id, so a client can look the definition up in its own catalog.
+        /// <para>
+        /// Definitions are immutable content both sides already ship — run time, sample volume,
+        /// display name, what it can and cannot detect. Sending the id rather than the values keeps
+        /// the wire small and, more importantly, keeps one source of truth: a client reading a
+        /// replicated <i>copy</i> of a threshold would drift from the host the moment the tables were
+        /// retuned and only one side rebuilt.
+        /// </para>
+        /// </summary>
+        public FixedString64Bytes DefId;
+
         public bool IsRunning;
+
+        /// <summary>
+        /// Whether a vial is sitting in the instrument. Not <i>which</i> vial: a client asks "is this
+        /// free" to draw its prompt, and the sample it would load is the one in its own hands.
+        /// </summary>
+        public bool IsLoaded;
 
         /// <summary>Seconds left on whatever is running. Zero when idle.</summary>
         public float SecondsRemaining;
@@ -61,7 +79,15 @@ namespace Residue.Net.Views
         /// <summary>Whether that error clears <see cref="CalibrationCheck.Tolerance"/>.</summary>
         public bool CalibrationOutOfTolerance;
 
+        /// <summary>
+        /// Day the certificate on file was run, or -1 for none. §5.3 only lets a recalibration
+        /// proceed on a check from <i>today</i>, so a client needs the day to grey the button rather
+        /// than offer an action the host is about to refuse.
+        /// </summary>
+        public int CalibrationCheckDay;
+
         public bool IsIdle => !IsRunning;
+        public bool IsEmpty => !IsLoaded;
 
         /// <summary>True once a blank has ever been run here. Below that, residue is simply unknown.</summary>
         public bool HasBlank => LastBlankDay >= 0;
@@ -78,14 +104,17 @@ namespace Residue.Net.Views
             return new MachineView
             {
                 InstanceId = ViewText.Fixed64(machine.InstanceId),
+                DefId = ViewText.Fixed64(machine.Def != null ? machine.Def.Id : null),
                 IsRunning = machine.IsRunning,
+                IsLoaded = !machine.IsEmpty,
                 SecondsRemaining = machine.IsRunning ? machine.SecondsRemaining : 0f,
                 RunsSinceFlush = machine.Runtime != null ? machine.Runtime.RunsSinceClean : 0,
                 LastBlankDay = machine.LastBlankDay,
                 LastBlankFoundResidue = FoundResidue(machine.LastBlank),
                 HasCalibrationCheck = check != null,
                 CalibrationErrorFraction = check?.ErrorFraction ?? 0f,
-                CalibrationOutOfTolerance = check != null && check.IsOutOfTolerance
+                CalibrationOutOfTolerance = check != null && check.IsOutOfTolerance,
+                CalibrationCheckDay = check?.Day ?? -1
             };
         }
 
@@ -107,7 +136,9 @@ namespace Residue.Net.Views
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
             serializer.SerializeValue(ref InstanceId);
+            serializer.SerializeValue(ref DefId);
             serializer.SerializeValue(ref IsRunning);
+            serializer.SerializeValue(ref IsLoaded);
             serializer.SerializeValue(ref SecondsRemaining);
             serializer.SerializeValue(ref RunsSinceFlush);
             serializer.SerializeValue(ref LastBlankDay);
@@ -115,18 +146,22 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref HasCalibrationCheck);
             serializer.SerializeValue(ref CalibrationErrorFraction);
             serializer.SerializeValue(ref CalibrationOutOfTolerance);
+            serializer.SerializeValue(ref CalibrationCheckDay);
         }
 
         public bool Equals(MachineView other) =>
             InstanceId.Equals(other.InstanceId) &&
+            DefId.Equals(other.DefId) &&
             IsRunning == other.IsRunning &&
+            IsLoaded == other.IsLoaded &&
             SecondsRemaining.Equals(other.SecondsRemaining) &&
             RunsSinceFlush == other.RunsSinceFlush &&
             LastBlankDay == other.LastBlankDay &&
             LastBlankFoundResidue == other.LastBlankFoundResidue &&
             HasCalibrationCheck == other.HasCalibrationCheck &&
             CalibrationErrorFraction.Equals(other.CalibrationErrorFraction) &&
-            CalibrationOutOfTolerance == other.CalibrationOutOfTolerance;
+            CalibrationOutOfTolerance == other.CalibrationOutOfTolerance &&
+            CalibrationCheckDay == other.CalibrationCheckDay;
 
         public override bool Equals(object obj) => obj is MachineView o && Equals(o);
 

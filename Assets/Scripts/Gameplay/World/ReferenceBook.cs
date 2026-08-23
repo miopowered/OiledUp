@@ -20,6 +20,7 @@ namespace Residue.Gameplay.World
         [Tooltip("MachineDef id, for a per-instrument manual. Ignored by the other kinds.")]
         [SerializeField] private string machineId;
 
+        [Tooltip("Only a fallback. The reading player's own view always wins.")]
         [SerializeField] private BookScreen screen;
 
         private MachineDef machine;
@@ -51,11 +52,38 @@ namespace Residue.Gameplay.World
 
         public override string UseHint => "read";
 
+        /// <summary>
+        /// Which reading view this book should open in.
+        /// <para>
+        /// A book is passed around, so the view cannot be a property of the book — two players
+        /// carrying two volumes to two corners of the room each need their own pages. The serialized
+        /// field survives only as a fallback for a scene that still keeps a single shared view at the
+        /// root; the reader wins whenever they have one.
+        /// </para>
+        /// <para>
+        /// Public because the precedence is otherwise only observable through a live
+        /// <c>UIDocument</c>, which no edit-mode test has.
+        /// </para>
+        /// </summary>
+        public BookScreen ReaderFor(PlayerInteractor player)
+        {
+            var mine = player != null ? player.Manual : null;
+            return mine != null ? mine : screen;
+        }
+
         public override void UseInHand(PlayerInteractor player)
         {
-            if (screen == null) return;
+            var reader = ReaderFor(player);
+            if (reader == null)
+            {
+                // §9: an object that refuses without saying why reads as broken. Rare enough to be a
+                // build fault rather than a rule, but silence would send the player looking for one.
+                if (player != null) player.Say("Nowhere to read that.");
+                return;
+            }
+
             var catalog = LabRuntime.Instance?.Catalog;
-            screen.Open(DisplayName, BookContent.Build(kind, Machine, catalog));
+            reader.Open(DisplayName, BookContent.Build(kind, Machine, catalog));
         }
     }
 }

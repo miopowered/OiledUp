@@ -10,12 +10,20 @@ namespace Residue.Gameplay.World
     /// The crosshair changes shape on a valid target rather than drawing an outline on the object
     /// (§2.6) — outlines read as a rendering fault on untextured hard-normal geometry.
     /// </para>
+    /// <para>
+    /// One of these belongs to each player rather than to the scene. It reads only from the
+    /// <see cref="PlayerInteractor"/> it was given, so four of them in one process show four
+    /// different crosshairs over the same lab — and a replica's copy, switched off with the rest of
+    /// that avatar, simply never builds.
+    /// </para>
     /// </summary>
     [RequireComponent(typeof(UIDocument))]
     public sealed class LabHud : MonoBehaviour
     {
         [SerializeField] private PlayerInteractor interactor;
         [SerializeField] private InteractionDebug interactionDebug;
+
+        private UIDocument document;
 
         private VisualElement crosshair;
         private Label promptLabel;
@@ -27,11 +35,44 @@ namespace Residue.Gameplay.World
         private Label debugLabel;
         private VisualElement root;
 
-        private void OnEnable()
+        private void Awake()
         {
-            var document = GetComponent<UIDocument>();
-            root = document.rootVisualElement;
-            Build();
+            // Whoever this HUD hangs under is whose crosshair it draws. Wiring still wins if the
+            // scene set it, but a player prefab has no build step left to do the wiring at M4.
+            if (interactor == null) interactor = GetComponentInParent<PlayerInteractor>();
+            if (interactionDebug == null) interactionDebug = GetComponentInParent<InteractionDebug>();
+        }
+
+        private void OnEnable() => EnsureUi();
+
+        /// <summary>
+        /// Attach to the panel, building the tree the first time it appears.
+        /// <para>
+        /// A <see cref="UIDocument"/> only owns a <c>rootVisualElement</c> while it is enabled, and a
+        /// remote player's HUD is switched off with the rest of that avatar — so the panel may be
+        /// absent at <c>OnEnable</c> and may be a <i>different</i> element by the time it comes back.
+        /// Asking each frame rather than caching once is what makes both cases quiet instead of a
+        /// null reference, and is why every widget below is rebuilt against whatever root is current.
+        /// </para>
+        /// </summary>
+        private bool EnsureUi()
+        {
+            if (document == null) document = GetComponent<UIDocument>();
+
+            var current = document != null ? document.rootVisualElement : null;
+            if (current == null)
+            {
+                root = null;
+                crosshair = null;
+                return false;
+            }
+
+            if (!ReferenceEquals(current, root))
+            {
+                root = current;
+                Build();
+            }
+            return true;
         }
 
         private void Build()
@@ -134,6 +175,7 @@ namespace Residue.Gameplay.World
 
         private void Update()
         {
+            if (!EnsureUi()) return;
             if (interactor == null || crosshair == null) return;
 
             bool hasTarget = interactor.Target != null && !string.IsNullOrEmpty(interactor.Prompt);

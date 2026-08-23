@@ -14,6 +14,11 @@ namespace Residue.Gameplay.World
     /// </para>
     /// The day clock keeps running while this is open, which is the whole cost of looking something
     /// up (§6.1).
+    /// <para>
+    /// One per player, not one per book: a manual is a thing you hold, so the pages open in front of
+    /// whoever picked it up. The book itself carries no reading view — see
+    /// <see cref="ReferenceBook.UseInHand"/>.
+    /// </para>
     /// </summary>
     public sealed class BookScreen : MonoBehaviour
     {
@@ -30,7 +35,6 @@ namespace Residue.Gameplay.World
         private static readonly Color Ink = new(0.13f, 0.12f, 0.11f);
         private static readonly Color InkSoft = new(0.38f, 0.36f, 0.33f);
 
-        private VisualElement root;
         private VisualElement bookPanel;
         private ScrollView contentsList;
         private VisualElement pageHost;
@@ -42,11 +46,42 @@ namespace Residue.Gameplay.World
 
         public bool IsOpen { get; private set; }
 
+        /// <summary>
+        /// The panel to draw into, or null when there is none.
+        /// <para>
+        /// A <see cref="UIDocument"/> only owns a <c>rootVisualElement</c> while it is enabled, and a
+        /// remote player's reading view is switched off with the rest of that avatar. Caching one in
+        /// <c>Awake</c> therefore throws on a replica and goes stale if the document is ever
+        /// re-enabled, because the panel that comes back is a new element.
+        /// </para>
+        /// </summary>
+        private VisualElement Root
+        {
+            get
+            {
+                if (document == null) document = GetComponent<UIDocument>();
+                return document != null ? document.rootVisualElement : null;
+            }
+        }
+
         private void Awake()
         {
-            if (document == null) document = GetComponent<UIDocument>();
-            root = document.rootVisualElement;
-            root.style.display = DisplayStyle.None;
+            // Whoever this view hangs under is whose hands are busy while it is open. Wiring still
+            // wins if the scene set it; a player prefab has no build step left to do the wiring.
+            if (player == null) player = GetComponentInParent<PlayerController>();
+            if (interactor == null) interactor = GetComponentInParent<PlayerInteractor>();
+
+            var root = Root;
+            if (root != null) root.style.display = DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// Never leave a player locked out of their own body. If this view is switched off while
+        /// open, the walk-and-look controls it disabled have to come back.
+        /// </summary>
+        private void OnDisable()
+        {
+            if (IsOpen) Close();
         }
 
         private void Update()
@@ -70,6 +105,9 @@ namespace Residue.Gameplay.World
 
         public void Open(string bookTitle, List<BookPage> bookPages)
         {
+            var root = Root;
+            if (root == null) return;
+
             title = string.IsNullOrEmpty(bookTitle) ? "Reference" : bookTitle;
             pages = bookPages ?? new List<BookPage>();
             index = 0;
@@ -93,7 +131,10 @@ namespace Residue.Gameplay.World
         public void Close()
         {
             IsOpen = false;
-            root.style.display = DisplayStyle.None;
+
+            var root = Root;
+            if (root != null) root.style.display = DisplayStyle.None;
+
             PlayerController.SetCursorLocked(true);
             if (player != null) player.enabled = true;
             if (interactor != null) interactor.enabled = true;
@@ -103,6 +144,9 @@ namespace Residue.Gameplay.World
 
         private void BuildShell()
         {
+            var root = Root;
+            if (root == null) return;
+
             root.Clear();
             root.style.flexGrow = 1f;
             root.style.backgroundColor = new StyleColor(new Color(0.04f, 0.04f, 0.05f, 0.88f));

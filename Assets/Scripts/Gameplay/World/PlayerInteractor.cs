@@ -62,6 +62,46 @@ namespace Residue.Gameplay.World
         public bool PromptBlocked { get; private set; }
         public string Toast { get; private set; }
 
+        // -- This player's own screens ---------------------------------------------------------------
+        //
+        // Found inside this player rather than pointed at from the scene. With four players in the
+        // room there is no such thing as "the" terminal view any more: a station has to open the one
+        // belonging to whoever walked up to it, and a book has to open in the hands that are holding
+        // it. Resolving from the interacting player is what makes that true without any station
+        // knowing how many players exist.
+        //
+        // Cached because Interactable.Prompt runs every frame you are looking at a station, and a
+        // recursive component search per station per frame is a cost with nothing to show for it.
+        // Cached even when nothing was found, so a scene that keeps its screens at the root pays for
+        // exactly one failed search and then falls back to whatever it wired.
+
+        private TerminalScreen terminal;
+        private BookScreen manual;
+        private bool screensResolved;
+
+        /// <summary>This player's terminal view, or null if they carry none.</summary>
+        public TerminalScreen Terminal
+        {
+            get { ResolveScreens(); return terminal; }
+        }
+
+        /// <summary>This player's reading view for a <see cref="ReferenceBook"/>.</summary>
+        public BookScreen Manual
+        {
+            get { ResolveScreens(); return manual; }
+        }
+
+        private void ResolveScreens()
+        {
+            if (screensResolved) return;
+            screensResolved = true;
+
+            // Inactive included: a replica's screens are switched off, and the only thing that would
+            // do with the reference is a station this player can never reach anyway.
+            terminal = GetComponentInChildren<TerminalScreen>(includeInactive: true);
+            manual = GetComponentInChildren<BookScreen>(includeInactive: true);
+        }
+
         // -- Diagnostics -----------------------------------------------------------------------------
         //
         // Exposed so InteractionDebug can draw the EXACT query this component runs. A debug overlay

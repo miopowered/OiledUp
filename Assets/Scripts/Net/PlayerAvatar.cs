@@ -69,6 +69,11 @@ namespace Residue.Net
         {
             bool mine = IsOwner;
 
+            // Before anything is switched off. Disabling a controller frees the shared cursor, and a
+            // replica doing that would take the mouse away from the person actually playing — once
+            // per remote player at spawn, and again every time somebody new joins.
+            if (controller != null) controller.ManagesCursor = mine;
+
             SetActive(controller, mine);
             SetActive(interactor, mine);
             SetActive(headMotion, mine);

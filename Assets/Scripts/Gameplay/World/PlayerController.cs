@@ -150,9 +150,30 @@ namespace Residue.Gameplay.World
             map.Enable();
         }
 
-        private void OnEnable() => SetCursorLocked(true);
+        /// <summary>
+        /// Whether this controller may grab and release the shared cursor. True for the player at
+        /// this keyboard; false for every replica of somebody else.
+        /// <para>
+        /// The cursor is process-global, and enabling or disabling this component is how the terminal
+        /// hands it over — open the screen, controller off, cursor free. That coupling is deliberate
+        /// in single player and actively wrong in co-op: a replica is switched off the instant it
+        /// spawns, so on a four-player client three of them would fire <c>OnDisable</c> and free the
+        /// cursor the owner had just locked. Worse, it recurs — every later join unlocks the mouse of
+        /// everyone already in the lab, which reads as "multiplayer breaks the mouse".
+        /// </para>
+        /// Set by <c>PlayerAvatar</c> before it disables anything, so a replica never gets a vote.
+        /// </summary>
+        public bool ManagesCursor { get; set; } = true;
 
-        private void OnDisable() => SetCursorLocked(false);
+        private void OnEnable()
+        {
+            if (ManagesCursor) SetCursorLocked(true);
+        }
+
+        private void OnDisable()
+        {
+            if (ManagesCursor) SetCursorLocked(false);
+        }
 
         public static void SetCursorLocked(bool locked)
         {

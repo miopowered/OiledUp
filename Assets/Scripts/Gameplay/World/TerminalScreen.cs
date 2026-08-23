@@ -17,6 +17,13 @@ namespace Residue.Gameplay.World
     /// nothing from ground truth. The fault name appears exactly once: in the end-of-day report,
     /// after the consequence has already landed (§4.3).
     /// </para>
+    /// <para>
+    /// There is one of these <i>per player</i>, not one per terminal. Everything it shows is read
+    /// from this process's <see cref="LabRuntime"/> and everything it does is a §3.1 request from
+    /// <see cref="interactor"/>, so two players at the desk are two keyboards onto one host record
+    /// rather than two authorities — see <see cref="TerminalStation"/> for how a station finds the
+    /// one belonging to whoever walked up to it.
+    /// </para>
     /// </summary>
     public sealed class TerminalScreen : MonoBehaviour
     {
@@ -24,18 +31,49 @@ namespace Residue.Gameplay.World
         [SerializeField] private PlayerController player;
         [SerializeField] private PlayerInteractor interactor;
 
-        private VisualElement root;
         private SampleId selected = SampleId.None;
         private RootCauseDef pendingCause;
         private IReadOnlyList<ConsequenceReport> reportOverlay;
 
         public bool IsOpen { get; private set; }
 
+        /// <summary>
+        /// The panel to draw into, or null when there is none to draw into.
+        /// <para>
+        /// A <see cref="UIDocument"/> only owns a <c>rootVisualElement</c> while it is enabled, and a
+        /// remote player's screen is switched off with the rest of that avatar. Caching one in
+        /// <c>Awake</c> therefore throws on a replica and goes stale if the document is ever
+        /// re-enabled, because the panel that comes back is a new element.
+        /// </para>
+        /// </summary>
+        private VisualElement Root
+        {
+            get
+            {
+                if (document == null) document = GetComponent<UIDocument>();
+                return document != null ? document.rootVisualElement : null;
+            }
+        }
+
         private void Awake()
         {
-            if (document == null) document = GetComponent<UIDocument>();
-            root = document.rootVisualElement;
-            root.style.display = DisplayStyle.None;
+            // Whoever this screen hangs under is whose input it suspends while open. Wiring still
+            // wins if the scene set it; a player prefab has no build step left to do the wiring.
+            if (player == null) player = GetComponentInParent<PlayerController>();
+            if (interactor == null) interactor = GetComponentInParent<PlayerInteractor>();
+
+            var root = Root;
+            if (root != null) root.style.display = DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// Never leave a player locked out of their own body. If this screen is switched off while
+        /// open — the avatar going away, a scene teardown — the walk-and-look controls it disabled
+        /// have to come back, because nothing else will hand them over.
+        /// </summary>
+        private void OnDisable()
+        {
+            if (IsOpen) Close();
         }
 
         private void Update()
@@ -46,6 +84,9 @@ namespace Residue.Gameplay.World
 
         public void Open()
         {
+            var root = Root;
+            if (root == null) return;
+
             IsOpen = true;
             root.style.display = DisplayStyle.Flex;
             PlayerController.SetCursorLocked(false);
@@ -58,7 +99,10 @@ namespace Residue.Gameplay.World
         {
             IsOpen = false;
             reportOverlay = null;
-            root.style.display = DisplayStyle.None;
+
+            var root = Root;
+            if (root != null) root.style.display = DisplayStyle.None;
+
             PlayerController.SetCursorLocked(true);
             if (player != null) player.enabled = true;
             if (interactor != null) interactor.enabled = true;
@@ -103,6 +147,9 @@ namespace Residue.Gameplay.World
 
         private void Rebuild()
         {
+            var root = Root;
+            if (root == null) return;
+
             var lab = LabRuntime.Instance?.Lab;
             root.Clear();
             if (lab == null) return;

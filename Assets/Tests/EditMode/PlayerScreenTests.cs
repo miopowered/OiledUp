@@ -1,0 +1,232 @@
+using System.Collections.Generic;
+using NUnit.Framework;
+using Residue.Gameplay.World;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace Residue.Tests.EditMode
+{
+    /// <summary>
+    /// Guards that a player-facing screen belongs to a <i>player</i> and not to the scene.
+    /// <para>
+    /// Until M4 there was one HUD, one terminal view and one reading view, sitting at the scene root
+    /// and wired to the only player there was. A station that opens a fixed screen is correct exactly
+    /// once; with four players in the room it shows player A's terminal to player B, which is not a
+    /// cosmetic bug — the buttons on it file verdicts against the record.
+    /// </para>
+    /// <para>
+    /// These tests pin the resolution rule: the interacting player's own screen wins, a wired screen
+    /// is only a fallback, and nothing throws when a player has neither. What they cannot reach is
+    /// the drawing itself — a <c>UIDocument</c> only owns a panel while it is enabled and the test
+    /// runner has no panel settings to give it, so "the right screen was raised" is asserted on the
+    /// resolution and not on pixels.
+    /// </para>
+    /// </summary>
+    public sealed class PlayerScreenTests
+    {
+        private readonly List<GameObject> spawned = new();
+
+        [TearDown]
+        public void TearDown()
+        {
+            foreach (var go in spawned)
+            {
+                if (go != null) Object.DestroyImmediate(go);
+            }
+            spawned.Clear();
+        }
+
+        /// <summary>
+        /// A player object shaped the way M4 spawns one: screens parented underneath rather than
+        /// pointed at from the scene. Left inactive because none of this needs a running frame, and
+        /// because a replica's screens are inactive too — which is precisely the case the lookup has
+        /// to keep working for.
+        /// </summary>
+        private PlayerInteractor NewPlayer(bool withScreens)
+        {
+            var root = new GameObject("Player_UnderTest");
+            root.SetActive(false);
+            spawned.Add(root);
+
+            if (withScreens)
+            {
+                var terminal = new GameObject("TerminalUI");
+                terminal.transform.SetParent(root.transform);
+                terminal.AddComponent<TerminalScreen>();
+
+                var book = new GameObject("BookUI");
+                book.transform.SetParent(root.transform);
+                book.AddComponent<BookScreen>();
+            }
+
+            return root.AddComponent<PlayerInteractor>();
+        }
+
+        private T Loose<T>(string label) where T : Component
+        {
+            var go = new GameObject(label);
+            go.SetActive(false);
+            spawned.Add(go);
+            return go.AddComponent<T>();
+        }
+
+        private TerminalStation NewTerminal(TerminalScreen fallback)
+        {
+            var station = Loose<TerminalStation>("Terminal_UnderTest");
+            if (fallback == null) return station;
+
+            var so = new UnityEditor.SerializedObject(station);
+            so.FindProperty("screen").objectReferenceValue = fallback;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return station;
+        }
+
+        private ReferenceBook NewBook(BookScreen fallback)
+        {
+            var book = Loose<ReferenceBook>("Book_UnderTest");
+            if (fallback == null) return book;
+
+            var so = new UnityEditor.SerializedObject(book);
+            so.FindProperty("screen").objectReferenceValue = fallback;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return book;
+        }
+
+        // -- Resolution -------------------------------------------------------------------------------
+
+        [Test]
+        public void APlayer_FindsTheScreensItCarries()
+        {
+            var player = NewPlayer(withScreens: true);
+
+            Assert.IsNotNull(player.Terminal,
+                "A player carrying its own terminal view must find it without being wired to one. " +
+                "There is no scene build step left once the player is a spawned prefab.");
+            Assert.IsNotNull(player.Manual);
+        }
+
+        [Test]
+        public void APlayer_WithNoScreens_BorrowsNobodyElses()
+        {
+            NewPlayer(withScreens: true);
+            var bare = NewPlayer(withScreens: false);
+
+            Assert.IsNull(bare.Terminal,
+                "The lookup reached outside this player and found someone else's screen. That is the " +
+                "singleton coming back: whoever spawned first would own every terminal in the lab.");
+            Assert.IsNull(bare.Manual);
+        }
+
+        [Test]
+        public void TwoPlayers_EachResolveTheirOwn()
+        {
+            var a = NewPlayer(withScreens: true);
+            var b = NewPlayer(withScreens: true);
+
+            Assert.AreNotSame(a.Terminal, b.Terminal);
+            Assert.AreNotSame(a.Manual, b.Manual);
+        }
+
+        // -- Terminal ---------------------------------------------------------------------------------
+
+        [Test]
+        public void ATerminal_RaisesTheScreenOfWhoeverPressedIt()
+        {
+            var a = NewPlayer(withScreens: true);
+            var b = NewPlayer(withScreens: true);
+
+            // Wired to a third, shared screen on purpose: a scene that still has one must not be able
+            // to override the player who is actually standing there.
+            var shared = Loose<TerminalScreen>("SharedTerminalUI");
+            var station = NewTerminal(shared);
+
+            Assert.AreSame(a.Terminal, station.ScreenFor(a));
+            Assert.AreSame(b.Terminal, station.ScreenFor(b));
+        }
+
+        [Test]
+        public void ATerminal_FallsBackToItsWiredScreen_ForAPlayerCarryingNone()
+        {
+            var player = NewPlayer(withScreens: false);
+            var shared = Loose<TerminalScreen>("SharedTerminalUI");
+
+            Assert.AreSame(shared, NewTerminal(shared).ScreenFor(player));
+        }
+
+        [Test]
+        public void ATerminal_WithNoScreenAnywhere_SaysSoRatherThanGoingDead()
+        {
+            var player = NewPlayer(withScreens: false);
+            var station = NewTerminal(null);
+
+            Assert.IsFalse(station.CanInteract(player));
+            StringAssert.Contains("no display", station.Prompt(player),
+                "§9: an interactable that refuses in silence reads as a broken interaction. It has " +
+                "to name the reason even when the reason is a build fault.");
+        }
+
+        [Test]
+        public void ATerminal_TakesASlip_EvenWithNoScreen()
+        {
+            var player = NewPlayer(withScreens: false);
+            var station = NewTerminal(null);
+
+            var slip = Loose<PrintoutProp>("Printout_UnderTest");
+            Assert.IsTrue(player.TryCarry(slip));
+
+            Assert.IsTrue(station.CanInteract(player),
+                "Filing is a hand-over at the desk, not something you read. Gating it on a display " +
+                "would strand the slip in the player's hands with the day clock running.");
+        }
+
+        // -- Book -------------------------------------------------------------------------------------
+
+        [Test]
+        public void ABook_OpensInTheReadersOwnView()
+        {
+            var a = NewPlayer(withScreens: true);
+            var b = NewPlayer(withScreens: true);
+
+            var shared = Loose<BookScreen>("SharedBookUI");
+            var book = NewBook(shared);
+
+            Assert.AreSame(a.Manual, book.ReaderFor(a));
+            Assert.AreSame(b.Manual, book.ReaderFor(b));
+        }
+
+        [Test]
+        public void ABook_FallsBackToItsWiredView_ForAReaderCarryingNone()
+        {
+            var player = NewPlayer(withScreens: false);
+            var shared = Loose<BookScreen>("SharedBookUI");
+
+            Assert.AreSame(shared, NewBook(shared).ReaderFor(player));
+        }
+
+        // -- Screens with no panel --------------------------------------------------------------------
+        //
+        // A remote player's screens are switched off with the rest of that avatar, and a UIDocument
+        // owns no rootVisualElement while it is disabled. Both screens used to cache that element in
+        // Awake, which made a replica's copy throw on construction.
+
+        [Test]
+        public void ATerminalScreen_WithNoPanel_DeclinesToOpen()
+        {
+            var screen = Loose<TerminalScreen>("TerminalUI_NoPanel");
+
+            Assert.DoesNotThrow(() => screen.Open());
+            Assert.IsFalse(screen.IsOpen,
+                "A screen with nothing to draw into reported itself open. It would then hold the " +
+                "player's controls disabled with no visible way to close it.");
+        }
+
+        [Test]
+        public void ABookScreen_WithNoPanel_DeclinesToOpen()
+        {
+            var screen = Loose<BookScreen>("BookUI_NoPanel");
+
+            Assert.DoesNotThrow(() => screen.Open("Manual", new List<BookPage>()));
+            Assert.IsFalse(screen.IsOpen);
+        }
+    }
+}

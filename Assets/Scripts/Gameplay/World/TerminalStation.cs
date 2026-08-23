@@ -17,11 +17,37 @@ namespace Residue.Gameplay.World
         /// </summary>
         public const string FixtureId = "terminal";
 
+        [Tooltip("Only a fallback. The interacting player's own terminal view always wins.")]
         [SerializeField] private TerminalScreen screen;
 
         private void OnEnable() => LabRuntime.RegisterFixture(FixtureId, transform);
 
         private void OnDisable() => LabRuntime.ForgetFixture(FixtureId, transform);
+
+        /// <summary>
+        /// Which terminal view this press should raise.
+        /// <para>
+        /// There is one desk and up to four players, so the screen cannot belong to the fixture —
+        /// it belongs to whoever walked up to it, and each player carries their own. The serialized
+        /// field survives only as a fallback for a scene that still keeps a single shared view at the
+        /// root; the player wins whenever they have one, so a scene which has both cannot
+        /// accidentally show player A's samples to player B.
+        /// </para>
+        /// <para>
+        /// Two players opening this at once is fine and needs no arbitration: each is looking at
+        /// their own panel over the same replicated view of the lab, and neither can do anything to
+        /// the record except ask the host for it (§3.1).
+        /// </para>
+        /// <para>
+        /// Public because that precedence is otherwise only observable through a live
+        /// <c>UIDocument</c>, which no edit-mode test has.
+        /// </para>
+        /// </summary>
+        public TerminalScreen ScreenFor(PlayerInteractor player)
+        {
+            var mine = player != null ? player.Terminal : null;
+            return mine != null ? mine : screen;
+        }
 
         public override string Prompt(PlayerInteractor player)
         {
@@ -34,6 +60,11 @@ namespace Residue.Gameplay.World
             // exactly this, so name them rather than just refusing.
             if (player.Carried != null) return "Rack the vial before filing";
 
+            // A player with no view of their own and no shared one to borrow. Say so rather than
+            // going dead: §9 forbids an object that refuses without explaining itself, and a silent
+            // terminal reads as a broken interaction rather than as a missing screen.
+            if (ScreenFor(player) == null) return "Terminal — no display for you";
+
             var lab = LabRuntime.Instance?.Lab;
             if (lab == null) return "Terminal";
 
@@ -45,23 +76,34 @@ namespace Residue.Gameplay.World
             return open > 0 ? $"Open terminal ({open} open)" : "Open terminal";
         }
 
+        /// <summary>
+        /// Filing a slip is deliberately not gated on a screen. It is a hand-over at the desk, not
+        /// something you read — and refusing it because this player has no display would strand the
+        /// slip in their hands with the day clock running.
+        /// </summary>
         public override bool CanInteract(PlayerInteractor player)
         {
-            if (screen == null) return false;
-            return player.Carried == null || player.Carried is PrintoutProp;
+            if (player.Carried is PrintoutProp) return true;
+            if (player.Carried != null) return false;
+            return ScreenFor(player) != null;
         }
 
         public override void Interact(PlayerInteractor player)
         {
-            if (screen == null) return;
-
             if (player.Carried is PrintoutProp printout)
             {
                 FileResults(player, printout);
                 return;
             }
 
-            screen.Open();
+            var target = ScreenFor(player);
+            if (target == null)
+            {
+                player.Say("This terminal has no display for you.");
+                return;
+            }
+
+            target.Open();
         }
 
         /// <summary>
