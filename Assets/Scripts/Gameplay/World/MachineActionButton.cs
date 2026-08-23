@@ -136,43 +136,51 @@ namespace Residue.Gameplay.World
             return machine.IsEmpty && !ShiftOver;
         }
 
+        /// <summary>
+        /// Four requests. The affordability and occupancy checks above are the same ones the host
+        /// will make — <see cref="LabState.TryStartReferenceRun"/> and friends are the gateways at
+        /// both ends — but they are made here only so the button can grey itself out and say why
+        /// without asking anybody. Whatever this side concluded, the host decides.
+        /// </summary>
         public override void Interact(PlayerInteractor player)
         {
-            var machine = station != null ? station.Machine : null;
-            var lab = LabRuntime.Instance?.Lab;
-            if (machine == null || lab == null) return;
+            if (station == null) return;
+
+            string id = station.InstanceId;
+            string title = Title;
 
             switch (action)
             {
                 case MachineAction.Clean:
-                    if (!lab.Economy.TryConsumeSolvent()) return;
-                    machine.Clean();
-                    player.Say($"{machine.Def.DisplayName}: flushed. Residue cleared.");
+                    LabCommands.Attempt(player, LabCommand.FlushMachine(id),
+                        _ => player.Say($"{title}: flushed. Residue cleared."));
                     return;
 
                 case MachineAction.Reference:
-                    if (!lab.TryStartReferenceRun(machine, out string standardRefusal))
-                    {
-                        player.Say(standardRefusal);
-                        return;
-                    }
-                    player.Say($"{machine.Def.DisplayName}: certified standard running. " +
-                               "Compare it against the certificate at the terminal.");
+                    LabCommands.Attempt(player, LabCommand.RunReference(id),
+                        _ => player.Say($"{title}: certified standard running. " +
+                                        "Compare it against the certificate at the terminal."));
                     return;
 
                 case MachineAction.Calibrate:
-                    if (!lab.TryStartCalibration(machine, out string calibrationRefusal))
-                    {
-                        player.Say(calibrationRefusal);
-                        return;
-                    }
-                    player.Say($"{machine.Def.DisplayName}: recalibrating.");
+                    LabCommands.Attempt(player, LabCommand.Calibrate(id),
+                        _ => player.Say($"{title}: recalibrating."));
                     return;
 
                 default:
-                    if (machine.TryBeginBlank())
-                        player.Say($"{machine.Def.DisplayName}: blank running. Check the terminal for what it finds.");
+                    LabCommands.Attempt(player, LabCommand.RunBlank(id),
+                        _ => player.Say($"{title}: blank running. Check the terminal for what it finds."));
                     return;
+            }
+        }
+
+        /// <summary>The instrument's name, or a neutral stand-in where this process has no lab.</summary>
+        private string Title
+        {
+            get
+            {
+                var machine = station != null ? station.Machine : null;
+                return machine != null && machine.Def != null ? machine.Def.DisplayName : "Instrument";
             }
         }
     }

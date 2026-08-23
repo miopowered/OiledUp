@@ -37,6 +37,13 @@ namespace Residue.Gameplay.World
         public string InstanceId => machineInstanceId;
         public Transform VialSocket => vialSocket;
 
+        // Announced before anything else so the host can tell whether a player asking to run this
+        // instrument is standing at it. Independent of whether this process has a lab: on a client
+        // the station has no MachineInstance, and it still has a position.
+        private void OnEnable() => LabRuntime.RegisterFixture(machineInstanceId, transform);
+
+        private void OnDisable() => LabRuntime.ForgetFixture(machineInstanceId, transform);
+
         private void Start()
         {
             var lab = LabRuntime.Instance;
@@ -174,42 +181,54 @@ namespace Residue.Gameplay.World
             else StartRun(player);
         }
 
+        /// <summary>
+        /// Three requests, one shape. Nothing below writes lab state — the vial only leaves the hand,
+        /// and the tray light only changes, once the host has said yes. The prompt above already
+        /// decided the same thing locally so the player is not left guessing, but that decision is
+        /// advisory: <see cref="LabCommandExecutor"/> re-runs <see cref="MachineInstance.CanAccept"/>
+        /// on arrival, which is what makes a client asking to load a vial it is not carrying — or to
+        /// operate this instrument from across the room — a refusal rather than a result.
+        /// </summary>
         private void Load(PlayerInteractor player)
         {
-            var lab = LabRuntime.Instance;
-            var sample = lab?.SampleFor(player.CarriedVial.SampleId);
-            if (sample == null) return;
-
-            if (machine.TryLoad(sample) != LoadRefusal.Accepted) return;
-
-            var vial = player.ReleaseCarried();
-            vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
-            ranSinceLoad = false;
+            LabCommands.Attempt(player, LabCommand.LoadMachine(machineInstanceId), _ =>
+            {
+                var vial = player.ReleaseCarried();
+                if (vial != null) vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
+                ranSinceLoad = false;
+            });
         }
 
         private void StartRun(PlayerInteractor player)
         {
-            if (!machine.TryBeginRun()) return;
-            ranSinceLoad = true;
-            player.Say($"{machine.Def.DisplayName}: running. {machine.Def.RunTimeSeconds:F0}s.");
+            LabCommands.Attempt(player, LabCommand.StartRun(machineInstanceId), _ =>
+            {
+                ranSinceLoad = true;
+                player.Say($"{Title}: running. {(machine != null ? machine.RunSeconds : 0f):F0}s.");
+            });
         }
 
         private void TakeBack(PlayerInteractor player)
         {
-            var id = machine.Unload();
-            if (!id.IsValid) return;
-
-            var lab = LabRuntime.Instance;
-            var vial = lab?.PropFor(id);
-            var sample = lab?.SampleFor(id);
-
-            if (vial != null)
+            LabCommands.Attempt(player, LabCommand.TakeFromMachine(machineInstanceId), result =>
             {
+                ranSinceLoad = false;
+
+                var lab = LabRuntime.Instance;
+                var vial = lab != null ? lab.PropFor(result.Sample) : null;
+                if (vial == null) return;
+
                 player.TryCarry(vial);
+
+                var sample = lab.SampleFor(result.Sample);
                 if (sample != null) vial.SetFillFraction(sample.VolumeMl / 100f);
-            }
-            ranSinceLoad = false;
+            });
         }
+
+        /// <summary>The instrument's name, or a neutral stand-in on a process that has no lab yet.</summary>
+        private string Title => machine != null && machine.Def != null
+            ? machine.Def.DisplayName
+            : "Instrument";
 
         private void OnRunCompleted(MachineInstance completed, TestResult result)
         {
@@ -247,16 +266,30 @@ namespace Residue.Gameplay.World
         private void EmitPrintout(TestResult result, Chemistry.SampleState sample)
         {
             var lab = LabRuntime.Instance;
-            if (lab == null || result == null) return;
+            if (lab == null || lab.Lab == null || result == null) return;
 
-            if (currentPrintout != null) Destroy(currentPrintout.gameObject);
+            var tray = printoutSocket != null ? printoutSocket : transform;
+
+            // The tray holds one slip, and running again before collecting the last one loses it —
+            // the reading is still on the display, so nothing becomes unknowable. Only the slip still
+            // sitting in the tray, though: this used to destroy whatever prop the field pointed at,
+            // which after somebody picked it up meant tearing the paper out of their hands.
+            //
+            // The ticket goes with the paper. Retiring the prop without retiring the ticket would
+            // leave the old numbers filable by a stale request long after the slip was gone.
+            if (currentPrintout != null && currentPrintout.transform.parent == tray)
+            {
+                lab.Lab.Slips.Discard(currentPrintout.Ticket);
+                Destroy(currentPrintout.gameObject);
+            }
 
             currentPrintout = lab.SpawnPrintout(
                 machine.LoadedSample,
                 result,
+                machine.InstanceId,
                 machine.Def.DisplayName,
                 sample != null ? sample.EquipmentTag : result.IsReference ? "CERT STANDARD" : "BLANK",
-                printoutSocket != null ? printoutSocket : transform);
+                tray);
         }
 
         private PrintoutProp currentPrintout;

@@ -18,7 +18,14 @@ namespace Residue.Gameplay.World
     /// </summary>
     public sealed class SampleRack : Interactable
     {
-        [SerializeField] private string rackId = "rack";
+        /// <summary>
+        /// The rack a vial goes back to when nobody chose where to put it — a dropped player's, in
+        /// particular (see <c>PlayerSession</c>). Named rather than found, so the host and the world
+        /// agree on the destination without a scene lookup.
+        /// </summary>
+        public const string DefaultRackId = "rack";
+
+        [SerializeField] private string rackId = DefaultRackId;
         [SerializeField] private Transform slotRoot;
         [SerializeField] private int slotCount = 8;
         [SerializeField] private int columns = 4;
@@ -46,6 +53,12 @@ namespace Residue.Gameplay.World
                 occupants.Add(null);
             }
         }
+
+        // Announced so the host can tell whether a player is actually standing at this rack when they
+        // ask to put something down in it. See LabRuntime.RegisterFixture.
+        private void OnEnable() => LabRuntime.RegisterFixture(rackId, transform);
+
+        private void OnDisable() => LabRuntime.ForgetFixture(rackId, transform);
 
         /// <summary>
         /// Drop entries whose vial has been taken elsewhere. The player removes a vial by targeting
@@ -76,28 +89,38 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public bool TryPlace(Carryable item)
+        /// <summary>The first slot with nothing in it, or -1 when the rack is full.</summary>
+        public int NextFreeSlot()
+        {
+            Compact();
+            for (int i = 0; i < occupants.Count; i++)
+            {
+                if (occupants[i] == null) return i;
+            }
+            return -1;
+        }
+
+        /// <summary>
+        /// Park an item in a slot. Purely local: where a vial <i>is</i> belongs to the host and is
+        /// written by <see cref="LabCommandExecutor"/> when it accepts the put-down. This only moves
+        /// the prop, which is also what makes it the right thing to call when the host has already
+        /// decided — a dropped player's vial going back on the rack (§M4) takes the same route.
+        /// </summary>
+        public bool TryPlace(Carryable item, int slot)
         {
             if (item == null) return false;
             Compact();
 
-            for (int i = 0; i < occupants.Count; i++)
-            {
-                if (occupants[i] != null) continue;
+            if (slot < 0 || slot >= occupants.Count || occupants[slot] != null) slot = NextFreeSlot();
+            if (slot < 0) return false;
 
-                occupants[i] = item;
-                item.AttachTo(slots[i], interactable: true);
-
-                if (item is VialProp vial)
-                {
-                    var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
-                    if (sample != null)
-                        SampleLifecycle.TryMove(sample, SampleLocation.OnSurface(rackId, i), out _);
-                }
-                return true;
-            }
-            return false;
+            occupants[slot] = item;
+            item.AttachTo(slots[slot], interactable: true);
+            return true;
         }
+
+        /// <inheritdoc cref="TryPlace(Carryable,int)"/>
+        public bool TryPlace(Carryable item) => TryPlace(item, -1);
 
         public override string Prompt(PlayerInteractor player)
         {
@@ -119,10 +142,18 @@ namespace Residue.Gameplay.World
             if (player.Carried == null) return;
 
             var item = player.Carried;
-            if (!TryPlace(item)) return;
 
-            player.ReleaseCarried();
-            player.Say($"{item.DisplayName} set down.", 2f);
+            // The slot is chosen here because the rack is the thing that knows which of its holes are
+            // full, and it is sent along so the host records the same shelf the player is looking at.
+            int slot = NextFreeSlot();
+            if (slot < 0) return;
+
+            LabCommands.Attempt(player, LabCommand.PutDown(rackId, slot), _ =>
+            {
+                if (!TryPlace(item, slot)) return;
+                player.ReleaseCarried();
+                player.Say($"{item.DisplayName} set down.", 2f);
+            });
         }
     }
 }

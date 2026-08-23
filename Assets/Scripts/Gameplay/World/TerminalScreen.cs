@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Residue.Chemistry;
 using Residue.Data;
@@ -63,6 +64,41 @@ namespace Residue.Gameplay.World
             if (interactor != null) interactor.enabled = true;
         }
 
+        // -- Asking -----------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Send a terminal action and redraw once it has been answered.
+        /// <para>
+        /// Every button on this screen goes through here, including on a host. Booking a tag in,
+        /// filing a verdict, ordering stock and ending the day are all §3.1 requests the host
+        /// validates — the terminal is a keyboard, not an authority — and routing the local player
+        /// down the same path is what stops "works in single player" and "works in co-op" from
+        /// becoming two different code paths that drift.
+        /// </para>
+        /// <para>
+        /// A refusal goes into a label beside the button that refused rather than into a toast,
+        /// because on this screen there is somewhere to put it and the sentence belongs next to the
+        /// thing it is about. It is shown verbatim: these were written for the player by the gateway
+        /// that produced them (§9), and re-phrasing one here would put a second voice in front of the
+        /// rule.
+        /// </para>
+        /// </summary>
+        private void Ask(LabCommand command, Label refusal, Action onAccepted = null)
+        {
+            LabCommands.Send(interactor, command, result =>
+            {
+                if (!result.Accepted)
+                {
+                    if (refusal != null) refusal.text = result.Refusal;
+                    else if (interactor != null) interactor.Say(result.Refusal);
+                    return;
+                }
+
+                onAccepted?.Invoke();
+                Rebuild();
+            });
+        }
+
         // -- Build ------------------------------------------------------------------------------------
 
         private void Rebuild()
@@ -112,11 +148,14 @@ namespace Residue.Gameplay.World
             money.style.marginRight = 16;
             right.Add(money);
 
-            var endDay = new Button(() =>
+            var endDay = new Button(() => Ask(LabCommand.EndDay(), null, () =>
             {
-                reportOverlay = lab.EndDay();
-                Rebuild();
-            })
+                // The reports are read back off the lab rather than returned by the command: a
+                // client has no LabState to read them from and the day summary is replicated
+                // separately, so making the command carry them would put a list of consequences on
+                // the wire for the one process that already has it.
+                reportOverlay = lab.LastReports;
+            }))
             { text = "END DAY" };
             StyleButton(endDay, SignalPalette.Accent);
             right.Add(endDay);
@@ -269,11 +308,7 @@ namespace Residue.Gameplay.World
 
             var refusal = Tiny("", SignalPalette.Caution);
 
-            var book = new Button(() =>
-            {
-                if (lab.Samples.LogSample(sample.Id, field.value, out string why)) Rebuild();
-                else refusal.text = why;   // already player-facing; do not reword it
-            })
+            var book = new Button(() => Ask(LabCommand.BookIn(sample.Id, field.value), refusal))
             { text = sample.IsLogged ? "AMEND TAG" : "BOOK IN" };
 
             StyleButton(book, SignalPalette.Accent);
@@ -325,13 +360,14 @@ namespace Residue.Gameplay.World
             stock.style.color = new StyleColor(dry ? SignalPalette.Caution : SignalPalette.Ink);
             row.Add(stock);
 
-            var buy = new Button(() =>
-            {
-                if (lab.Economy.TryBuySolvent(packSize)) Rebuild();
-            })
+            var buy = new Button(() => Ask(LabCommand.OrderSolvent(packSize), null))
             { text = $"ORDER {packSize}  (£{cost:N0})" };
 
             StyleButton(buy, SignalPalette.PanelSoft);
+
+            // Greyed out from the balance this screen is already showing. No round trip: the same
+            // affordability check runs again on the host when the order lands, so the worst a stale
+            // balance can do is turn a press into a refusal.
             buy.SetEnabled(lab.Economy.Money >= cost);
             row.Add(buy);
 
@@ -377,10 +413,7 @@ namespace Residue.Gameplay.World
                 lab.Economy.ReferenceStandards < 1 ? SignalPalette.Caution : SignalPalette.Ink);
             order.Add(stock);
 
-            var buy = new Button(() =>
-            {
-                if (lab.Economy.TryBuyReferenceStandards(packSize)) Rebuild();
-            })
+            var buy = new Button(() => Ask(LabCommand.OrderStandards(packSize), null))
             { text = $"ORDER {packSize}  (£{cost:N0})" };
 
             StyleButton(buy, SignalPalette.PanelSoft);
@@ -501,11 +534,7 @@ namespace Residue.Gameplay.World
 
                 var refusal = Tiny("", SignalPalette.Caution);
 
-                var reopen = new Button(() =>
-                {
-                    if (lab.TryReopenSuspect(sample.Id, out string why)) Rebuild();
-                    else refusal.text = why;   // already player-facing; do not reword it
-                })
+                var reopen = new Button(() => Ask(LabCommand.ReopenSuspect(sample.Id), refusal))
                 { text = "RE-OPEN FOR RE-TEST" };
 
                 StyleButton(reopen, SignalPalette.PanelSoft);
@@ -747,14 +776,24 @@ namespace Residue.Gameplay.World
             return box;
         }
 
+        /// <summary>
+        /// File the call. The root cause travels as its id rather than as the definition, because a
+        /// <c>RootCauseDef</c> is a <c>ScriptableObject</c> living in this process and every client
+        /// already ships the same content — an id is the only part of it that means anything on the
+        /// other side of the wire.
+        /// </summary>
         private Button VerdictButton(LabState lab, SampleState sample, Verdict verdict, string text)
         {
             var button = new Button(() =>
             {
-                lab.Samples.FileVerdict(sample.Id, verdict, pendingCause, lab.Day);
-                selected = SampleId.None;
-                pendingCause = null;
-                Rebuild();
+                var command = LabCommand.FileVerdict(sample.Id, verdict,
+                    pendingCause != null ? pendingCause.Id : null);
+
+                Ask(command, null, () =>
+                {
+                    selected = SampleId.None;
+                    pendingCause = null;
+                });
             })
             { text = text };
 
@@ -849,12 +888,7 @@ namespace Residue.Gameplay.World
                 return panel;
             }
 
-            var next = new Button(() =>
-            {
-                reportOverlay = null;
-                lab.BeginDay();
-                Rebuild();
-            })
+            var next = new Button(() => Ask(LabCommand.StartNextDay(), null, () => reportOverlay = null))
             { text = "START NEXT DAY" };
             StyleButton(next, SignalPalette.Accent);
             next.style.marginTop = 8;

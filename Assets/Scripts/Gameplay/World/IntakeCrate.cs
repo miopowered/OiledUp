@@ -10,12 +10,22 @@ namespace Residue.Gameplay.World
     /// </summary>
     public sealed class IntakeCrate : Interactable
     {
+        /// <summary>
+        /// What <c>SampleLocation.InCrate</c> names this crate, and what the host locates when it
+        /// checks that a player is standing at it.
+        /// </summary>
+        public const string FixtureId = "intake";
+
         [SerializeField] private Transform slotRoot;
         [SerializeField] private int columns = 4;
         [SerializeField] private float slotSpacing = 0.11f;
 
         private readonly List<VialProp> waiting = new();
         private readonly List<Transform> slots = new();
+
+        private void OnEnable() => LabRuntime.RegisterFixture(FixtureId, transform);
+
+        private void OnDisable() => LabRuntime.ForgetFixture(FixtureId, transform);
 
         private void Start()
         {
@@ -88,6 +98,13 @@ namespace Residue.Gameplay.World
         public override bool CanInteract(PlayerInteractor player) =>
             player.Carried == null && Remaining > 0;
 
+        /// <summary>
+        /// Hand out the next vial. The crate picks which one — one pair of hands, one bottle at a
+        /// time — but taking it out is §5.1's unload step and belongs to the host, so this asks and
+        /// only empties its own slot when the answer comes back. With four players reaching into the
+        /// same crate, the host is also the only thing that can stop two of them leaving with the
+        /// same sample.
+        /// </summary>
         public override void Interact(PlayerInteractor player)
         {
             for (int i = 0; i < waiting.Count; i++)
@@ -95,23 +112,31 @@ namespace Residue.Gameplay.World
                 var vial = waiting[i];
                 if (vial == null) continue;
 
-                waiting.RemoveAt(i);
-                player.TryCarry(vial);
-
-                var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
-                if (sample != null)
+                LabCommands.Attempt(player, LabCommand.TakeVial(vial.SampleId), _ =>
                 {
-                    // Reads the paper label out loud, because the tag has to be transcribed at the
-                    // terminal from memory or from a second look at the vial. That transcription is
-                    // where §5.1's mis-logging comes from, so the tag is stated once, here.
-                    player.Say($"{sample.Id} — {sample.EquipmentTag} — {sample.Profile.DisplayName}, " +
-                               $"{sample.HoursSinceOilChange:F0} h on the oil." +
-                               (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\"") +
-                               " Book it in at the terminal.",
-                        5f);
-                }
+                    waiting.Remove(vial);
+                    player.TryCarry(vial);
+                    ReadLabelAloud(player, vial);
+                });
                 return;
             }
+        }
+
+        /// <summary>
+        /// Reads the paper label out loud, because the tag has to be transcribed at the terminal from
+        /// memory or from a second look at the vial. That transcription is where §5.1's mis-logging
+        /// comes from, so the tag is stated once, here.
+        /// </summary>
+        private static void ReadLabelAloud(PlayerInteractor player, VialProp vial)
+        {
+            var sample = LabRuntime.Instance != null ? LabRuntime.Instance.SampleFor(vial.SampleId) : null;
+            if (sample == null) return;
+
+            player.Say($"{sample.Id} — {sample.EquipmentTag} — {sample.Profile.DisplayName}, " +
+                       $"{sample.HoursSinceOilChange:F0} h on the oil." +
+                       (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\"") +
+                       " Book it in at the terminal.",
+                5f);
         }
     }
 }

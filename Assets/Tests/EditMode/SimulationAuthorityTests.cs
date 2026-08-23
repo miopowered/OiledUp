@@ -57,13 +57,13 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Build the runtime with its catalog already wired, by creating the object <b>inactive</b>.
+        /// Build the runtime with its catalog wired, then run the step <c>Awake</c> would have run.
         /// <para>
-        /// Awake runs on AddComponent when the GameObject is active, which would hit the missing-
-        /// catalog branch, disable the component and return — and Awake never runs a second time, so
-        /// toggling SetActive afterwards does not fix it. That leaves <c>Lab</c> null for a reason
-        /// that has nothing to do with authority, which makes the client test pass without testing
-        /// anything. Inactive until wired is the only ordering where both tests mean what they say.
+        /// Unity does not run MonoBehaviour lifecycle methods in edit mode. Creating the component
+        /// and activating the object does <b>not</b> fire <c>Awake</c> — so a test written that way
+        /// finds <c>Lab</c> null every time and "passes" the client case for a reason that has
+        /// nothing to do with authority. That is why <see cref="LabRuntime.BuildLabIfAuthoritative"/>
+        /// exists: <c>Awake</c> delegates to it, and calling it here exercises what actually runs.
         /// </para>
         /// </summary>
         private LabRuntime Spawn()
@@ -78,7 +78,7 @@ namespace Residue.Tests.EditMode
             so.FindProperty("seed").intValue = 20260823;
             so.ApplyModifiedPropertiesWithoutUndo();
 
-            host.SetActive(true);   // Awake runs here, with a catalog to find.
+            runtime.BuildLabIfAuthoritative();
             return runtime;
         }
 

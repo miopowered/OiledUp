@@ -9,7 +9,19 @@ namespace Residue.Gameplay.World
     /// </summary>
     public sealed class TerminalStation : Interactable
     {
+        /// <summary>
+        /// What the host locates when it checks that a player filing paperwork is actually at the
+        /// desk. A constant rather than a serialized field because there is one terminal and every
+        /// terminal command is aimed at it — nothing has to be wired for the check to work, which
+        /// matters because the scene is built by a generator this workstream does not own.
+        /// </summary>
+        public const string FixtureId = "terminal";
+
         [SerializeField] private TerminalScreen screen;
+
+        private void OnEnable() => LabRuntime.RegisterFixture(FixtureId, transform);
+
+        private void OnDisable() => LabRuntime.ForgetFixture(FixtureId, transform);
 
         public override string Prompt(PlayerInteractor player)
         {
@@ -55,41 +67,40 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// Transcribe a slip into the sample's record. This is the only path by which a measured
         /// value ever reaches the terminal — instruments do not file their own work.
+        /// <para>
+        /// <b>The request names the slip, never its numbers.</b> §3.1 forbids a client computing a
+        /// test result; a client permitted to <i>post</i> one instead would be the same hole with an
+        /// extra step, and the archive it wrote into is what every verdict is later scored against.
+        /// So the ticket goes over and the host files the values it produced itself — see
+        /// <see cref="Residue.Gameplay.Simulation.ResultSlips"/>.
+        /// </para>
+        /// The lifecycle still decides whether the slip may join the record; a sample that already
+        /// has a verdict on it is history, and quietly appending to a closed record would make the
+        /// §5.3 "which verdicts are suspect" list wrong.
         /// </summary>
         private void FileResults(PlayerInteractor player, PrintoutProp printout)
         {
-            var lab = LabRuntime.Instance;
-            var sample = lab?.SampleFor(printout.SampleId);
-
             if (printout.Result == null)
             {
                 player.Say("That slip is blank.");
                 return;
             }
 
-            // A solvent blank belongs to the instrument, not to a sample. It is already readable in
-            // the terminal's INSTRUMENTS panel, so filing one just discards the paper.
-            if (printout.Result.IsBlank || sample == null)
+            LabCommands.Attempt(player, LabCommand.FileSlip(printout.Ticket), result =>
             {
                 player.ReleaseCarried();
                 Destroy(printout.gameObject);
-                player.Say($"{printout.MachineName} blank slip filed.");
-                return;
-            }
 
-            // The lifecycle decides whether this slip may join the record — a sample that already has
-            // a verdict on it is history, and quietly appending to a closed record would make the
-            // §5.3 "which verdicts are suspect" list wrong.
-            if (!Chemistry.SampleLifecycle.TryFileResult(sample, printout.Result, out string refusal))
-            {
-                player.Say(refusal);
-                return;
-            }
+                // A solvent blank or a certified standard belongs to the instrument rather than to a
+                // sample, so it has no record to join and the host simply took the paper.
+                var sample = LabRuntime.Instance != null
+                    ? LabRuntime.Instance.SampleFor(result.Sample)
+                    : null;
 
-            player.ReleaseCarried();
-            Destroy(printout.gameObject);
-
-            player.Say($"{sample.RecordTag}: {printout.MachineName} results filed.");
+                player.Say(sample != null
+                    ? $"{sample.RecordTag}: {printout.MachineName} results filed."
+                    : $"{printout.MachineName} blank slip filed.");
+            });
         }
     }
 }

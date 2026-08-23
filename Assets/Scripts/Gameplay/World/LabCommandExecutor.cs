@@ -1,0 +1,485 @@
+using Residue.Chemistry;
+using Residue.Data;
+using Residue.Gameplay.Simulation;
+using UnityEngine;
+
+namespace Residue.Gameplay.World
+{
+    /// <summary>
+    /// The host's answer to every request. One method, one switch, one place where a player action
+    /// becomes a change to <see cref="LabState"/>.
+    /// <para>
+    /// <b>It re-implements no rules.</b> <see cref="SampleLifecycle"/>,
+    /// <see cref="MachineInstance.CanAccept"/>, <see cref="LabState.TryStartReferenceRun"/>,
+    /// <see cref="Economy.TryBuySolvent"/> and the rest already decide what is legal and already
+    /// phrase the refusal for the player. This type's job is to be the thing that calls them on the
+    /// server, having first established the two facts a gateway cannot check for itself: that the
+    /// player is holding what they claim to be holding, and that they are standing near the thing
+    /// they are operating. Everything after that is a delegation.
+    /// </para>
+    /// <para>
+    /// <b>It is the same code on every path.</b> Single player runs it directly, the host runs it for
+    /// its own player directly, and a client's request runs it after a hop — see
+    /// <see cref="LabCommands"/>. There is deliberately no faster route for the local player, because
+    /// a rule that only holds on one path is a rule that will eventually only hold on one path.
+    /// </para>
+    /// <para>
+    /// Hard rule 2 holds here structurally rather than by care: nothing below can reach a
+    /// <c>SampleGroundTruth</c>, because the only things that can are methods on
+    /// <see cref="SampleRegistry"/> that compute inside the vault and return player-facing results.
+    /// </para>
+    /// </summary>
+    public sealed class LabCommandExecutor
+    {
+        /// <summary>
+        /// How far from a fixture a player may still operate it. Generous against §2.6's 2.5 m
+        /// interaction ray on purpose: this exists to refuse an instrument across the room, not to
+        /// arbitrate a step backwards between the click and the packet.
+        /// </summary>
+        public const float DefaultReachMetres = 4f;
+
+        private readonly LabState lab;
+        private readonly ILabStations stations;
+
+        public float ReachMetres { get; set; } = DefaultReachMetres;
+
+        public LabCommandExecutor(LabState lab, ILabStations stations = null)
+        {
+            this.lab = lab;
+            this.stations = stations;
+        }
+
+        public LabState Lab => lab;
+
+        public LabCommandResult Execute(ILabActor actor, LabCommand command)
+        {
+            if (actor == null) return LabCommandResult.No("No such player.");
+            if (lab == null) return LabCommandResult.No("The lab is not running.");
+
+            return command.Kind switch
+            {
+                LabCommandKind.TakeVial => TakeVial(actor, command),
+                LabCommandKind.TakeSlip => TakeSlip(actor, command),
+                LabCommandKind.TakeBook => TakeBook(actor),
+                LabCommandKind.PutDown => PutDown(actor, command),
+                LabCommandKind.Agitate => Agitate(actor),
+
+                LabCommandKind.LoadMachine => LoadMachine(actor, command),
+                LabCommandKind.StartRun => StartRun(actor, command),
+                LabCommandKind.TakeFromMachine => TakeFromMachine(actor, command),
+                LabCommandKind.FlushMachine => FlushMachine(actor, command),
+                LabCommandKind.RunBlank => RunBlank(actor, command),
+                LabCommandKind.RunReference => RunReference(actor, command),
+                LabCommandKind.Calibrate => Calibrate(actor, command),
+
+                LabCommandKind.FileSlip => FileSlip(actor, command),
+                LabCommandKind.BookIn => BookIn(actor, command),
+                LabCommandKind.FileVerdict => FileVerdict(actor, command),
+                LabCommandKind.OrderSolvent => OrderSolvent(actor, command),
+                LabCommandKind.OrderStandards => OrderStandards(actor, command),
+                LabCommandKind.ReopenSuspect => ReopenSuspect(actor, command),
+                LabCommandKind.EndDay => EndDay(actor),
+                LabCommandKind.StartNextDay => StartNextDay(actor),
+
+                _ => LabCommandResult.No("The lab did not understand that.")
+            };
+        }
+
+        // -- Hands -----------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Pick a vial up. Deliberately checks the sample's <i>server-side</i> location rather than
+        /// reaching for geometry: a vial's prop is local (§3.2), so where it appears to be on the
+        /// asking client proves nothing, whereas <see cref="SampleState.Location"/> is the host's own
+        /// record of where it put it.
+        /// </summary>
+        private LabCommandResult TakeVial(ILabActor actor, LabCommand command)
+        {
+            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (!lab.Samples.TryGet(command.Sample, out var sample))
+                return LabCommandResult.No("No such sample.");
+
+            switch (sample.Location.Kind)
+            {
+                case SampleLocationKind.InMachine:
+                    return LabCommandResult.No(
+                        $"{sample.RecordTag} is inside {DisplayNameOf(sample.Location.ContainerId)}. " +
+                        "Take it out at the instrument.");
+
+                case SampleLocationKind.Held when sample.Location.HolderClientId != actor.ClientId:
+                    return LabCommandResult.No($"Someone else is holding {sample.RecordTag}.");
+
+                case SampleLocationKind.Consumed:
+                    return LabCommandResult.No($"{sample.RecordTag} is spent — there is nothing left to carry.");
+            }
+
+            if (!SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out string refusal))
+                return LabCommandResult.No(refusal);
+
+            actor.SetGrip(LabGrip.OnVial(sample.Id));
+            return LabCommandResult.Yes(sample.Id);
+        }
+
+        private LabCommandResult TakeSlip(ILabActor actor, LabCommand command)
+        {
+            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+
+            if (!lab.Slips.TryGet(command.Amount, out var slip))
+                return LabCommandResult.No("That slip has already been filed.");
+
+            if (OutOfReach(actor, slip.MachineInstanceId, DisplayNameOf(slip.MachineInstanceId), out var far))
+                return far;
+
+            if (!lab.Slips.TryClaim(slip.Ticket, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            actor.SetGrip(LabGrip.OnSlip(slip.Sample, slip.Ticket));
+            return LabCommandResult.Ok;
+        }
+
+        /// <summary>
+        /// Pick a manual up. Nothing in the lab changes; the host records it only so that a player
+        /// holding a book is known to have their hands full, and cannot also be holding a vial.
+        /// </summary>
+        private LabCommandResult TakeBook(ILabActor actor)
+        {
+            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            actor.SetGrip(LabGrip.OnBook);
+            return LabCommandResult.Ok;
+        }
+
+        private LabCommandResult PutDown(ILabActor actor, LabCommand command)
+        {
+            var grip = actor.Grip;
+            if (grip.IsEmpty) return LabCommandResult.No("You are not carrying anything.");
+
+            string surface = command.FixtureId;
+            if (string.IsNullOrEmpty(surface)) return LabCommandResult.No("Nowhere to put that down.");
+            if (OutOfReach(actor, surface, "that shelf", out var far)) return far;
+
+            switch (grip.Kind)
+            {
+                case GripKind.Vial:
+                {
+                    if (!lab.Samples.TryGet(grip.Sample, out var sample))
+                        return LabCommandResult.No("No such sample.");
+
+                    // Every move after the delivery crate is a shelf change rather than progress, so
+                    // this cannot refuse on stage — see SampleLifecycle.TryMove.
+                    if (!SampleLifecycle.TryMove(sample, SampleLocation.OnSurface(surface, command.Amount),
+                                                 out string refusal))
+                        return LabCommandResult.No(refusal);
+                    break;
+                }
+
+                case GripKind.Slip:
+                    lab.Slips.Release(grip.Ticket);
+                    break;
+            }
+
+            actor.SetGrip(LabGrip.Empty);
+            return LabCommandResult.Yes(grip.Sample);
+        }
+
+        private LabCommandResult Agitate(ILabActor actor)
+        {
+            var grip = actor.Grip;
+            if (grip.Kind != GripKind.Vial) return LabCommandResult.No("You are not holding a sample.");
+            if (!lab.Samples.TryGet(grip.Sample, out var sample))
+                return LabCommandResult.No("No such sample.");
+
+            return SampleLifecycle.TryPrep(sample, out string refusal)
+                ? LabCommandResult.Yes(sample.Id)
+                : LabCommandResult.No(refusal);
+        }
+
+        // -- Instruments -----------------------------------------------------------------------------
+
+        private LabCommandResult LoadMachine(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            var grip = actor.Grip;
+            if (grip.Kind != GripKind.Vial) return LabCommandResult.No("You are not holding a sample.");
+            if (!lab.Samples.TryGet(grip.Sample, out var sample))
+                return LabCommandResult.No("No such sample.");
+
+            // Named before the load refusal rather than left to fall out of it. §5.1 puts booking in
+            // ahead of everything, and "not settled" is the wrong sentence for a vial that was never
+            // registered — it sends the player off to shake a bottle that will refuse for a different
+            // reason entirely.
+            if (!sample.IsLogged)
+                return LabCommandResult.No(
+                    $"{sample.RecordTag} is not booked in — register the tank tag at the terminal first (§5.1).");
+
+            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+
+            var verdict = machine.TryLoad(sample);
+            if (verdict != LoadRefusal.Accepted)
+                return LabCommandResult.No(Describe(verdict, machine, sample));
+
+            actor.SetGrip(LabGrip.Empty);
+            return LabCommandResult.Yes(sample.Id);
+        }
+
+        private LabCommandResult StartRun(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
+            if (machine.IsEmpty) return LabCommandResult.No($"{Name(machine)} is empty.");
+            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+
+            if (!machine.TryBeginRun())
+                return LabCommandResult.No($"{Name(machine)} will not start a run right now.");
+
+            return LabCommandResult.Yes(machine.LoadedSample);
+        }
+
+        private LabCommandResult TakeFromMachine(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
+
+            var id = machine.Unload();
+            if (!id.IsValid) return LabCommandResult.No($"{Name(machine)} is empty.");
+
+            if (lab.Samples.TryGet(id, out var sample))
+                SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out _);
+
+            actor.SetGrip(LabGrip.OnVial(id));
+            return LabCommandResult.Yes(id);
+        }
+
+        /// <summary>
+        /// Flush. Housekeeping rather than analysis, so the shift clock does not gate it — the same
+        /// rule <see cref="LabState.TryStartCalibration"/> gives for recalibration.
+        /// </summary>
+        private LabCommandResult FlushMachine(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            if (machine.IsRunning)
+                return LabCommandResult.No($"Cannot flush {Name(machine)} while it is running.");
+
+            if (!lab.Economy.TryConsumeSolvent())
+                return LabCommandResult.No("Out of solvent. Order more at the terminal.");
+
+            machine.Clean();
+            return LabCommandResult.Ok;
+        }
+
+        private LabCommandResult RunBlank(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
+            if (!machine.IsEmpty) return LabCommandResult.No("Take the vial out before running a blank.");
+            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+
+            return machine.TryBeginBlank()
+                ? LabCommandResult.Ok
+                : LabCommandResult.No($"{Name(machine)} will not take a blank right now.");
+        }
+
+        private LabCommandResult RunReference(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            return lab.TryStartReferenceRun(machine, out string refusal)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(refusal);
+        }
+
+        private LabCommandResult Calibrate(ILabActor actor, LabCommand command)
+        {
+            if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
+
+            return lab.TryStartCalibration(machine, out string refusal)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(refusal);
+        }
+
+        // -- Terminal --------------------------------------------------------------------------------
+
+        private LabCommandResult FileSlip(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            var grip = actor.Grip;
+            if (grip.Kind != GripKind.Slip || grip.Ticket != command.Amount)
+                return LabCommandResult.No("You are not carrying that slip.");
+
+            if (!lab.Slips.TryGet(grip.Ticket, out var slip))
+                return LabCommandResult.No("That slip has already been filed.");
+
+            // A solvent blank or a certified standard belongs to the instrument, not to a sample. Both
+            // are already readable in the terminal's INSTRUMENTS panel, so filing one just discards
+            // the paper — it must not be refused, or the player is left holding something with nowhere
+            // to go.
+            SampleState sample = null;
+            bool belongsToNoSample = slip.Result == null || slip.Result.IsBlank ||
+                                     !lab.Samples.TryGet(slip.Sample, out sample);
+
+            if (belongsToNoSample)
+            {
+                lab.Slips.Discard(grip.Ticket);
+                actor.SetGrip(LabGrip.Empty);
+                return LabCommandResult.Ok;
+            }
+
+            if (!SampleLifecycle.TryFileResult(sample, slip.Result, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            lab.Slips.Discard(grip.Ticket);
+            actor.SetGrip(LabGrip.Empty);
+            return LabCommandResult.Yes(sample.Id);
+        }
+
+        private LabCommandResult BookIn(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            return lab.Samples.LogSample(command.Sample, command.Text, out string refusal)
+                ? LabCommandResult.Yes(command.Sample)
+                : LabCommandResult.No(refusal);
+        }
+
+        private LabCommandResult FileVerdict(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            // Cast from the wire, so it has to be checked rather than trusted. An out-of-range value
+            // would otherwise be scored by ConsequenceResolver as whichever verdict happened to share
+            // its number.
+            if (!System.Enum.IsDefined(typeof(Verdict), command.Amount))
+                return LabCommandResult.No("That is not a verdict.");
+
+            var cause = string.IsNullOrEmpty(command.Text) ? null : lab.Content?.Cause(command.Text);
+
+            return lab.Samples.FileVerdict(command.Sample, (Verdict)command.Amount, cause, lab.Day,
+                                           out string refusal)
+                ? LabCommandResult.Yes(command.Sample)
+                : LabCommandResult.No(refusal);
+        }
+
+        private LabCommandResult OrderSolvent(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (command.Amount <= 0) return LabCommandResult.No("Order at least one unit.");
+
+            return lab.Economy.TryBuySolvent(command.Amount)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(
+                    $"A {command.Amount}-unit restock costs " +
+                    $"£{lab.Economy.SolventCost(command.Amount):N0}, and the account will not cover it.");
+        }
+
+        private LabCommandResult OrderStandards(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (command.Amount <= 0) return LabCommandResult.No("Order at least one ampoule.");
+
+            return lab.Economy.TryBuyReferenceStandards(command.Amount)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(
+                    $"{command.Amount} certified ampoules cost " +
+                    $"£{lab.Economy.ReferenceStandardCost(command.Amount):N0}, and the account will " +
+                    "not cover it.");
+        }
+
+        private LabCommandResult ReopenSuspect(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            return lab.TryReopenSuspect(command.Sample, out string refusal)
+                ? LabCommandResult.Yes(command.Sample)
+                : LabCommandResult.No(refusal);
+        }
+
+        /// <summary>
+        /// Close the shift. Any player may do it, which is deliberate — §5.5 is a shared-room game and
+        /// the day is shared state — but it cannot be done twice, so a second click while the report
+        /// is on screen is refused rather than settling the queue again.
+        /// </summary>
+        private LabCommandResult EndDay(ILabActor actor)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (!lab.DayInProgress) return LabCommandResult.No("The day is already over.");
+
+            lab.EndDay();
+            return LabCommandResult.Ok;
+        }
+
+        private LabCommandResult StartNextDay(ILabActor actor)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (lab.DayInProgress) return LabCommandResult.No("The shift is still running.");
+
+            return lab.BeginDay()
+                ? LabCommandResult.Ok
+                : LabCommandResult.No("The run is over — there is no next day.");
+        }
+
+        // -- Shared checks ---------------------------------------------------------------------------
+
+        private bool TryReachMachine(ILabActor actor, string instanceId, out MachineInstance machine,
+                                     out LabCommandResult refused)
+        {
+            machine = string.IsNullOrEmpty(instanceId) ? null : lab.FindMachine(instanceId);
+
+            if (machine == null)
+            {
+                refused = LabCommandResult.No("No such instrument.");
+                return false;
+            }
+
+            if (OutOfReach(actor, instanceId, Name(machine), out refused)) return false;
+
+            refused = default;
+            return true;
+        }
+
+        private bool OutOfReach(ILabActor actor, string fixtureId, string what, out LabCommandResult refused)
+        {
+            refused = default;
+
+            if (stations == null || !actor.HasPosition || string.IsNullOrEmpty(fixtureId)) return false;
+            if (!stations.TryLocate(fixtureId, out var position)) return false;
+
+            if ((position - actor.Position).sqrMagnitude <= ReachMetres * ReachMetres) return false;
+
+            refused = LabCommandResult.No($"You are not standing at {what}.");
+            return true;
+        }
+
+        private static string Name(MachineInstance machine) =>
+            machine?.Def != null ? machine.Def.DisplayName : "the instrument";
+
+        private string DisplayNameOf(string machineInstanceId) =>
+            string.IsNullOrEmpty(machineInstanceId) ? "an instrument" : Name(lab.FindMachine(machineInstanceId));
+
+        /// <summary>
+        /// Turn a <see cref="LoadRefusal"/> into the sentence the station used to say in its prompt.
+        /// Kept here so the prompt and the refusal cannot drift apart: the player reads one before
+        /// pressing and the other after, and they had better agree.
+        /// </summary>
+        private static string Describe(LoadRefusal refusal, MachineInstance machine, SampleState sample) =>
+            refusal switch
+            {
+                LoadRefusal.MachineBusy => $"{Name(machine)} is busy.",
+                LoadRefusal.MachineOccupied => $"{Name(machine)} already has a vial in it.",
+                LoadRefusal.NotEnoughVolume =>
+                    $"{Name(machine)} needs {machine.Def.SampleVolumeMl:F0} ml and " +
+                    $"{sample.RecordTag} has {sample.VolumeMl:F1} ml left.",
+                LoadRefusal.NeedsPreheat =>
+                    $"{sample.RecordTag} is at {sample.TemperatureC:F0} °C — " +
+                    $"{Name(machine)} needs it near {machine.Def.PreheatTargetC:F0} °C.",
+                LoadRefusal.NotSettled =>
+                    $"{sample.RecordTag} has settled out. Agitate it before running it (§4.5).",
+                _ => $"{Name(machine)} will not take that."
+            };
+    }
+}

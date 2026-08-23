@@ -16,7 +16,7 @@ namespace Residue.Gameplay.World
     /// </para>
     /// </summary>
     [DefaultExecutionOrder(-100)]
-    public sealed class LabRuntime : MonoBehaviour
+    public sealed class LabRuntime : MonoBehaviour, ILabStations
     {
         public static LabRuntime Instance { get; private set; }
 
@@ -87,6 +87,21 @@ namespace Residue.Gameplay.World
             }
             Instance = this;
 
+            BuildLabIfAuthoritative();
+        }
+
+        /// <summary>
+        /// Build the lab, unless this process is a client and therefore has no business simulating.
+        /// <para>
+        /// Split out of <c>Awake</c> and made public so the §3.1 authority rule can be tested at all.
+        /// Unity does not run MonoBehaviour lifecycle methods in edit mode, so an edit-mode test can
+        /// create this component and activate it and <c>Awake</c> still never fires — which makes a
+        /// test written that way pass while asserting nothing. <c>Awake</c> is now one delegating
+        /// call, so a test of this method is a test of what actually runs.
+        /// </para>
+        /// </summary>
+        public void BuildLabIfAuthoritative()
+        {
             if (catalog == null || !catalog.IsComplete)
             {
                 Debug.LogError(
@@ -130,11 +145,53 @@ namespace Residue.Gameplay.World
                 }
                 Lab.Install(def, id);
             }
+
+            // This process simulates, so this process validates. On a client the executor stays null
+            // and LabCommands refuses locally rather than mutating a lab that is not there.
+            LabCommands.Executor = new LabCommandExecutor(Lab, this);
         }
 
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
+            if (LabCommands.Executor != null && LabCommands.Executor.Lab == Lab) LabCommands.Executor = null;
+        }
+
+        // -- Fixtures ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Where the placed things are, by id. Static because it is a fact about the scene rather than
+        /// about any one component's lifetime, which keeps it free of the ordering question that
+        /// self-registration otherwise raises — a fixture may register before or after the runtime
+        /// wakes and it makes no difference.
+        /// </summary>
+        private static readonly Dictionary<string, Transform> fixtures = new();
+
+        /// <summary>
+        /// Announce a fixture so the host can tell whether a player is standing at it. Called from
+        /// <c>OnEnable</c> by anything a command can be aimed at.
+        /// </summary>
+        public static void RegisterFixture(string fixtureId, Transform placed)
+        {
+            if (string.IsNullOrEmpty(fixtureId) || placed == null) return;
+            fixtures[fixtureId] = placed;
+        }
+
+        /// <summary>Withdraw a fixture. Ignores the call if something else has since claimed the id.</summary>
+        public static void ForgetFixture(string fixtureId, Transform placed)
+        {
+            if (string.IsNullOrEmpty(fixtureId)) return;
+            if (fixtures.TryGetValue(fixtureId, out var current) && current == placed) fixtures.Remove(fixtureId);
+        }
+
+        bool ILabStations.TryLocate(string fixtureId, out Vector3 position)
+        {
+            position = default;
+            if (string.IsNullOrEmpty(fixtureId)) return false;
+            if (!fixtures.TryGetValue(fixtureId, out var placed) || placed == null) return false;
+
+            position = placed.position;
+            return true;
         }
 
         private void Start()
@@ -172,14 +229,22 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// Drop a results slip into an instrument's output tray. Not pooled: a printout exists
         /// until someone files it or replaces it, and there are only ever a handful.
+        /// <para>
+        /// The slip is registered with <see cref="LabState.Slips"/> first and carries the ticket it
+        /// was given. That ticket is how it is named later — a client filing a slip says which one,
+        /// never what it says, so the numbers that reach a record are always the host's own.
+        /// </para>
         /// </summary>
-        public PrintoutProp SpawnPrintout(SampleId sampleId, TestResult result, string machineName,
-                                          string equipmentTag, Transform socket)
+        public PrintoutProp SpawnPrintout(SampleId sampleId, TestResult result, string machineInstanceId,
+                                          string machineName, string equipmentTag, Transform socket)
         {
             if (printoutPrefab == null || result == null || socket == null) return null;
+            if (Lab == null) return null;
+
+            int ticket = Lab.Slips.Issue(sampleId, machineInstanceId, result);
 
             var printout = Instantiate(printoutPrefab, socket);
-            printout.Bind(sampleId, result, machineName, equipmentTag);
+            printout.Bind(ticket, sampleId, result, machineName, equipmentTag);
             printout.AttachTo(socket);
             return printout;
         }

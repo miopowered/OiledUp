@@ -24,6 +24,13 @@ namespace Residue.Gameplay.Simulation
 
         public Economy Economy { get; }
         public SampleRegistry Samples { get; } = new();
+
+        /// <summary>
+        /// Slips printed and not yet filed. Lives on the lab rather than on the instrument that
+        /// printed it because a slip outlives the tray it landed in — see <see cref="ResultSlips"/>.
+        /// </summary>
+        public ResultSlips Slips { get; } = new();
+
         public List<MachineInstance> Machines { get; } = new();
         public EconomyTuning Tuning { get; }
         public ContractPlan Plan { get; }

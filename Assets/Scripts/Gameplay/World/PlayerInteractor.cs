@@ -13,8 +13,14 @@ namespace Residue.Gameplay.World
     /// machine. §9 lists "too much reading, not enough doing" as a live risk and requires prep to
     /// be hand-operated tasks rather than menu clicks, so those seconds are the design, not filler.
     /// </para>
+    /// <para>
+    /// It is also this player's <see cref="ILabActor"/>: the thing the host is answering when a
+    /// request arrives from this process. Aiming, hold timing and every prompt are decided here and
+    /// never asked of the host — they are advisory, and the executor re-checks whatever they thought
+    /// when the request lands (see <see cref="LabCommands"/>).
+    /// </para>
     /// </summary>
-    public sealed class PlayerInteractor : MonoBehaviour
+    public sealed class PlayerInteractor : MonoBehaviour, ILabActor
     {
         [SerializeField] private PlayerController player;
         [SerializeField] private Transform carrySocket;
@@ -124,9 +130,57 @@ namespace Residue.Gameplay.World
 
         public void Say(string message, float seconds = 3.5f)
         {
+            if (string.IsNullOrEmpty(message)) return;
             Toast = message;
             toastUntil = Time.time + seconds;
         }
+
+        // -- ILabActor ------------------------------------------------------------------------------
+        //
+        // What the host is answering when a request comes from this process.
+
+        /// <summary>
+        /// NGO gives the host client id 0, and single player is a host with nobody connected — so the
+        /// local player is client 0 on both. A remote player's requests are never answered through
+        /// this object; the host builds its own actor from that client's session.
+        /// </summary>
+        public ulong ClientId => 0;
+
+        public bool HasPosition => true;
+
+        public Vector3 Position => transform.position;
+
+        /// <summary>
+        /// Derived from what is actually in the hand rather than stored, for the same reason
+        /// <c>SampleLifecycle</c> derives a stage: a second copy is a second set of books, and the
+        /// prop is the one the player can see.
+        /// </summary>
+        public LabGrip Grip
+        {
+            get
+            {
+                // Unity's == rather than a null pattern, on purpose: a pattern match sees a destroyed
+                // prop as a live reference and would dereference it. A slip whose instrument has since
+                // reprinted is exactly that case.
+                if (Carried == null) return LabGrip.Empty;
+
+                return Carried switch
+                {
+                    VialProp vial => LabGrip.OnVial(vial.SampleId),
+                    PrintoutProp slip => LabGrip.OnSlip(slip.SampleId, slip.Ticket),
+                    _ => LabGrip.OnBook
+                };
+            }
+        }
+
+        /// <summary>
+        /// Ignored on purpose. This actor's hands <i>are</i> <see cref="Carried"/>, and that changes
+        /// in the callback the command came back through — so writing it here would either duplicate
+        /// that or race it.
+        /// </summary>
+        public void SetGrip(LabGrip grip) { }
+
+        string ILabActor.DisplayName => name;
 
         // -- Targeting -----------------------------------------------------------------------------
 
@@ -246,9 +300,14 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            var lab = LabRuntime.Instance;
-            if (lab == null || !lab.Lab.Samples.TryGet(vial.SampleId, out var sample)) return;
-            if (sample.IsSettled) { agitateElapsed = 0f; return; }
+            // A local read, asked every frame, never a request. On a client there is no lab to read
+            // and the gate simply opens — the hold still costs its seconds, and the host refuses on
+            // arrival if the vial was not shakeable after all.
+            var sample = LabRuntime.Instance != null
+                ? LabRuntime.Instance.SampleFor(vial.SampleId)
+                : null;
+
+            if (sample != null && sample.IsSettled) { agitateElapsed = 0f; return; }
 
             if (!agitateAction.IsPressed()) { agitateElapsed = 0f; return; }
 
@@ -256,13 +315,16 @@ namespace Residue.Gameplay.World
             // unlogged vial cannot be agitated — and spending 2.5 s shaking one only to be told it
             // was never booked in is precisely the kind of unannounced rule §9 forbids. Asked as a
             // pure query so a player leaning on the key does not fill the console.
-            var refusal = Chemistry.SampleLifecycle.Refusal(sample, Chemistry.SampleStage.Prepped);
-            if (refusal != null)
+            if (sample != null)
             {
-                agitateElapsed = 0f;
-                HoldProgress = 0f;
-                Say(refusal);
-                return;
+                var refusal = Chemistry.SampleLifecycle.Refusal(sample, Chemistry.SampleStage.Prepped);
+                if (refusal != null)
+                {
+                    agitateElapsed = 0f;
+                    HoldProgress = 0f;
+                    Say(refusal);
+                    return;
+                }
             }
 
             agitateElapsed += Time.deltaTime;
@@ -273,12 +335,44 @@ namespace Residue.Gameplay.World
             agitateElapsed = 0f;
             HoldProgress = 0f;
 
-            if (!Chemistry.SampleLifecycle.TryPrep(sample, out string denied)) { Say(denied); return; }
-            Say($"{sample.RecordTag}: agitated, ready to run.");
+            LabCommands.Attempt(this, LabCommand.Agitate(),
+                _ => Say($"{(sample != null ? sample.RecordTag : "Sample")}: agitated, ready to run."));
         }
 
         // -- Carrying ------------------------------------------------------------------------------
 
+        /// <summary>
+        /// Ask for something to end up in your hands.
+        /// <para>
+        /// Taking a vial out of the delivery crate is §5.1's unload step and changes where the host
+        /// thinks that sample is, so it is a request rather than a local grab — and with four players
+        /// in the room, two of them reaching for the same bottle is a race the host has to settle. The
+        /// prop only moves once the answer comes back; §3.1 is explicit that there is no fast-twitch
+        /// action here and that simplicity beats responsiveness, which is what makes waiting for the
+        /// answer preferable to predicting it and having to take it back.
+        /// </para>
+        /// A manual is a request too, for one reason: the host tracks whose hands are full, and a
+        /// player holding a book must not also be able to claim a vial.
+        /// </summary>
+        public void Take(Carryable item)
+        {
+            if (item == null || Carried != null) return;
+
+            var command = item switch
+            {
+                VialProp vial => LabCommand.TakeVial(vial.SampleId),
+                PrintoutProp slip => LabCommand.TakeSlip(slip.Ticket),
+                _ => LabCommand.TakeBook()
+            };
+
+            LabCommands.Attempt(this, command, _ => TryCarry(item));
+        }
+
+        /// <summary>
+        /// Put an item in the hand socket. Purely local: the host has already agreed, or has just
+        /// handed the item over itself (a vial coming out of an instrument). Nothing here writes lab
+        /// state — <see cref="Take"/> is the door that does.
+        /// </summary>
         public bool TryCarry(Carryable item)
         {
             if (item == null || Carried != null) return false;
@@ -288,14 +382,11 @@ namespace Residue.Gameplay.World
 
             if (item is VialProp vial)
             {
-                var lab = LabRuntime.Instance;
-                if (lab != null && lab.Lab.Samples.TryGet(vial.SampleId, out var sample))
-                {
-                    // Taking a vial out of the crate is §5.1's unload step, so the move goes through
-                    // the lifecycle rather than writing the location directly.
-                    Chemistry.SampleLifecycle.TryMove(sample, Chemistry.SampleLocation.Held(0), out _);
-                    vial.SetFillFraction(sample.VolumeMl / 100f);
-                }
+                var sample = LabRuntime.Instance != null
+                    ? LabRuntime.Instance.SampleFor(vial.SampleId)
+                    : null;
+
+                if (sample != null) vial.SetFillFraction(sample.VolumeMl / 100f);
             }
             return true;
         }

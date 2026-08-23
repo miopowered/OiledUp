@@ -19,6 +19,17 @@ namespace Residue.Gameplay.World
     {
         [SerializeField] private MeshRenderer paper;
 
+        /// <summary>
+        /// The host's handle for this slip (<see cref="Residue.Gameplay.Simulation.ResultSlips"/>).
+        /// <para>
+        /// Filing names the ticket and never the values. §3.1 forbids a client computing a test
+        /// result, and a client that could post one instead would be the same hole with an extra
+        /// step — so the numbers below are for reading at a glance, and the ticket is what the
+        /// terminal actually sends.
+        /// </para>
+        /// </summary>
+        public int Ticket { get; private set; }
+
         public SampleId SampleId { get; private set; }
         public TestResult Result { get; private set; }
         public string MachineName { get; private set; } = "instrument";
@@ -26,8 +37,10 @@ namespace Residue.Gameplay.World
 
         public override string DisplayName => $"{MachineName} printout — {EquipmentTag}";
 
-        public void Bind(SampleId sampleId, TestResult result, string machineName, string equipmentTag)
+        public void Bind(int ticket, SampleId sampleId, TestResult result, string machineName,
+                         string equipmentTag)
         {
+            Ticket = ticket;
             SampleId = sampleId;
             Result = result;
             MachineName = string.IsNullOrEmpty(machineName) ? "instrument" : machineName;

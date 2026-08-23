@@ -43,7 +43,11 @@ namespace Residue.Gameplay.World
 
         public override bool CanInteract(PlayerInteractor player) => player.Carried == null;
 
-        public override void Interact(PlayerInteractor player) => player.TryCarry(this);
+        /// <summary>
+        /// Picking something up is a request, not a grab — see <see cref="PlayerInteractor.Take"/>.
+        /// The prop stays where it is until the host agrees it is yours.
+        /// </summary>
+        public override void Interact(PlayerInteractor player) => player.Take(this);
 
         /// <summary>
         /// What the primary button does while this is in your hands: shake a vial, open a manual,

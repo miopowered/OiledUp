@@ -8,6 +8,7 @@
         "Unity.Netcode.Runtime",
         "Unity.Collections",
         "Unity.Services.Core",
+        "Unity.Services.Core.Environments",
         "Unity.Services.Authentication",
         "Unity.Services.Relay",
         "Unity.Services.Lobbies"
