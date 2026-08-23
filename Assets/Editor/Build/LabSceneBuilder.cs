@@ -141,16 +141,41 @@ namespace Residue.Editor.Build
             SceneManager.MoveGameObjectToScene(lightGo, scene);
             var light = lightGo.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1.05f;
+            light.intensity = 0.35f;
             light.color = new Color(0.95f, 0.96f, 1f);
             light.shadows = LightShadows.Soft;
             lightGo.transform.rotation = Quaternion.Euler(48f, 35f, 0f);
 
+            // Interior strip lighting. A sealed room with one exterior directional light is pitch
+            // dark, and until the ceiling was wound correctly it only looked lit because light was
+            // leaking through inverted faces. §2.4 wants baked lightmaps here eventually; realtime
+            // points are the greybox stand-in so the lab is playable in the meantime.
+            var lightRoot = NewRoot(scene, "Lighting");
+            float[] lampX = { -3f, 0f, 3f };
+            float[] lampZ = { -2.4f, 1.6f };
+
+            foreach (float x in lampX)
+            {
+                foreach (float z in lampZ)
+                {
+                    var lamp = new GameObject($"Lamp_{x:0}_{z:0}");
+                    lamp.transform.SetParent(lightRoot.transform, false);
+                    lamp.transform.position = new Vector3(x, RoomHeight - 0.35f, z);
+
+                    var point = lamp.AddComponent<Light>();
+                    point.type = LightType.Point;
+                    point.range = 7.5f;
+                    point.intensity = 2.6f;
+                    point.color = new Color(0.98f, 0.97f, 0.92f);
+                    point.shadows = LightShadows.None; // greybox: shadow cost is not worth it yet
+                }
+            }
+
             // Cold, dim ambient. §2.4's look is flat geometry plus soft fill, not dramatic lighting.
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.29f, 0.32f, 0.36f);
-            RenderSettings.ambientEquatorColor = new Color(0.21f, 0.22f, 0.25f);
-            RenderSettings.ambientGroundColor = new Color(0.12f, 0.12f, 0.13f);
+            RenderSettings.ambientSkyColor = new Color(0.42f, 0.45f, 0.50f);
+            RenderSettings.ambientEquatorColor = new Color(0.34f, 0.35f, 0.38f);
+            RenderSettings.ambientGroundColor = new Color(0.20f, 0.20f, 0.21f);
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor = new Color(0.16f, 0.18f, 0.21f);

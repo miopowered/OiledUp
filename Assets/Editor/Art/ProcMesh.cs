@@ -33,8 +33,11 @@ namespace Residue.Editor.Art
                 AddQuad(centre + Vector3.back * h.z, Vector3.back, Vector3.left * h.x, Vector3.up * h.y, uv);
                 AddQuad(centre + Vector3.right * h.x, Vector3.right, Vector3.back * h.z, Vector3.up * h.y, uv);
                 AddQuad(centre + Vector3.left * h.x, Vector3.left, Vector3.forward * h.z, Vector3.up * h.y, uv);
-                AddQuad(centre + Vector3.up * h.y, Vector3.up, Vector3.right * h.x, Vector3.forward * h.z, uv);
-                AddQuad(centre + Vector3.down * h.y, Vector3.down, Vector3.right * h.x, Vector3.back * h.z, uv);
+                // Invariant for every face: cross(right, up) must point ALONG the normal, or the
+                // quad comes out wound backwards. The top and bottom are the two that are easy to
+                // get wrong, because the in-plane "up" axis is a Z direction rather than +Y.
+                AddQuad(centre + Vector3.up * h.y, Vector3.up, Vector3.right * h.x, Vector3.back * h.z, uv);
+                AddQuad(centre + Vector3.down * h.y, Vector3.down, Vector3.right * h.x, Vector3.forward * h.z, uv);
                 return this;
             }
 
@@ -92,8 +95,12 @@ namespace Residue.Editor.Art
 
                 for (int i = 0; i < 4; i++) { normals.Add(normal); uvs.Add(uv); }
 
-                tris.Add(b); tris.Add(b + 2); tris.Add(b + 1);
-                tris.Add(b); tris.Add(b + 3); tris.Add(b + 2);
+                // Unity front-faces are CLOCKWISE viewed from the front. With verts ordered
+                // BL, BR, TR, TL that is (0,1,2) and (0,2,3). The reverse of this silently produces
+                // boxes whose near faces are culled, so the mesh looks hollow rather than broken —
+                // which is why it survived a screenshot review. Validate() below now catches it.
+                tris.Add(b); tris.Add(b + 1); tris.Add(b + 2);
+                tris.Add(b); tris.Add(b + 2); tris.Add(b + 3);
             }
 
             private void AddTri(Vector3 a, Vector3 b, Vector3 c, Vector3 normal, Vector2 uv)
@@ -104,8 +111,36 @@ namespace Residue.Editor.Art
                 tris.Add(i); tris.Add(i + 2); tris.Add(i + 1);
             }
 
+            /// <summary>
+            /// Triangles whose winding disagrees with their own vertex normal.
+            /// <para>
+            /// For a correctly wound face, <c>cross(b-a, c-a)</c> points along the normal. An
+            /// inverted face still renders — you just see through it — so this class of bug is
+            /// invisible in a still image of a closed shape and needs an actual check.
+            /// </para>
+            /// </summary>
+            public int CountInvertedFaces()
+            {
+                int bad = 0;
+                for (int t = 0; t < tris.Count; t += 3)
+                {
+                    Vector3 a = verts[tris[t]], b = verts[tris[t + 1]], c = verts[tris[t + 2]];
+                    Vector3 geometric = Vector3.Cross(b - a, c - a);
+                    if (Vector3.Dot(geometric, normals[tris[t]]) <= 0f) bad++;
+                }
+                return bad;
+            }
+
             public Mesh ToMesh(string name)
             {
+                int inverted = CountInvertedFaces();
+                if (inverted > 0)
+                {
+                    Debug.LogError(
+                        $"[ProcMesh] '{name}' has {inverted} of {TriangleCount} triangles wound against " +
+                        "their normal. Those faces will be culled and the shape will look hollow.");
+                }
+
                 var mesh = new Mesh { name = name };
                 if (verts.Count > 65000) mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
 
