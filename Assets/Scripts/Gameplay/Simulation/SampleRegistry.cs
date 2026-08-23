@@ -86,14 +86,19 @@ namespace Residue.Gameplay.Simulation
         /// Resolve everything due on or before <paramref name="day"/>. Truth is read here and
         /// discarded; callers get scored reports.
         /// </summary>
-        public List<ConsequenceReport> ResolveDue(int day, EconomyTuning tuning)
+        /// <param name="settleEverything">
+        /// Ignore the due dates and settle the whole queue. Only for the end of a run, where there
+        /// is no later day to resolve on and anything left pending would simply never be answered.
+        /// </param>
+        public List<ConsequenceReport> ResolveDue(int day, EconomyTuning tuning,
+                                                  bool settleEverything = false)
         {
             var reports = new List<ConsequenceReport>();
 
             for (int i = pending.Count - 1; i >= 0; i--)
             {
                 var p = pending[i];
-                if (p.ResolveOnDay > day) continue;
+                if (!settleEverything && p.ResolveOnDay > day) continue;
 
                 if (states.TryGetValue(p.Sample, out var state) &&
                     truths.TryGetValue(p.Sample, out var truth))

@@ -97,6 +97,50 @@ namespace Residue.Tests.EditMode
             Assert.IsFalse(lab.BeginDay(), "A bankrupt outpost cannot open for another day.");
         }
 
+        /// <summary>
+        /// Every verdict the player files must be settled before the run ends.
+        /// <para>
+        /// §5.4 makes the cost land days later on purpose — that is what turns a wrong call into
+        /// something you did rather than something the game told you. But a delay only reads as
+        /// suspense if it eventually pays out. A verdict that is still pending when the contract
+        /// closes is one the player did diagnostic work for and never got an answer to, which makes
+        /// the whole loop feel like it does nothing.
+        /// </para>
+        /// This is deliberately a structural check rather than an arithmetic one on contract length:
+        /// it holds whichever way the delay and the contract are balanced, and it keeps holding if
+        /// either is retuned later.
+        /// </summary>
+        [Test]
+        public void EveryFiledVerdict_IsSettledBeforeTheRunEnds()
+        {
+            var lab = new LabState(catalog, ContractPlan.Default(), 20260823);
+
+            int filed = 0;
+            int reported = 0;
+
+            while (lab.BeginDay())
+            {
+                foreach (var sample in lab.OpenSamples())
+                {
+                    // Verdict choice is irrelevant here: the delay comes from the unit's fault, not
+                    // from what the player called it. Monitor is avoided only because it requeues.
+                    if (lab.Samples.FileVerdict(sample.Id, Verdict.Normal, null, lab.Day)) filed++;
+                }
+
+                reported += lab.EndDay().Count;
+            }
+
+            Assert.Greater(filed, 0, "Test is vacuous unless verdicts were actually filed.");
+
+            Assert.IsEmpty(lab.Samples.Pending,
+                $"The run ended with {lab.Samples.Pending.Count} of {filed} filed verdicts never " +
+                "settled. Every fault's DaysToFailure is longer than the contract, so the player " +
+                "never learns whether a single diagnosis was right.");
+
+            Assert.AreEqual(filed, reported,
+                $"Filed {filed} verdicts but only {reported} ever produced a report.");
+        }
+
         // -----------------------------------------------------------------------------------------
         // §6.1 — the working day is a constraint, not a decoration.
         // -----------------------------------------------------------------------------------------

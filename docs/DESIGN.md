@@ -433,8 +433,11 @@ Hands and the character body landed early, during M2 — a first-person game wit
 unfinished long before the art pass, and the body had to exist before M4 rather than after it.
 
 ### M7 — Content & balance
-Six profiles, the full fault set, the 20-day contract arc, ambiguity tuning, meta-progression,
-audio.
+Six profiles, the full fault set, ambiguity tuning, meta-progression, audio.
+
+The 20-day arc landed early, at M2. It was not a content nicety: consequences settle
+`DaysToFailure` days after a verdict and those run 4–14 days, so on the old 3-day contract no
+verdict on a faulty unit could ever resolve and the loop never paid out at all.
 
 ### M8 — Weird layer, optional
 Contract modifier, anomalous value injection, versioned form schema.

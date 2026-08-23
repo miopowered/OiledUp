@@ -167,7 +167,25 @@ namespace Residue.Gameplay.Simulation
             DaySecondsRemaining = 0f;
 
             lastReports.Clear();
-            foreach (var report in Samples.ResolveDue(Day, Tuning))
+            Settle(Samples.ResolveDue(Day, Tuning));
+
+            // If that closed the run — the contract ran out, or the money did — everything still
+            // pending is about to be stranded, because no further day will ever resolve it. §5.4
+            // delays the cost; it does not cancel it. A verdict the player never hears back on is
+            // diagnostic work that silently did nothing, and with DaysToFailure running to 14 days
+            // that was most of them.
+            //
+            // Settled after the due pass rather than instead of it, so a player who tips into
+            // bankruptcy on this day's reports still gets the rest of their reckoning.
+            if (IsRunOver) Settle(Samples.ResolveDue(Day, Tuning, settleEverything: true));
+
+            DayEnded?.Invoke(lastReports);
+            return lastReports;
+        }
+
+        private void Settle(List<ConsequenceReport> reports)
+        {
+            foreach (var report in reports)
             {
                 Economy.Apply(report);
                 lastReports.Add(report);
@@ -177,9 +195,6 @@ namespace Residue.Gameplay.Simulation
                 // the next day generates it.
                 if (report.RequeueSample) Samples.QueueRequeue(report.Sample);
             }
-
-            DayEnded?.Invoke(lastReports);
-            return lastReports;
         }
 
         /// <summary>Re-send the units the player chose to keep watching, with the fault further along.</summary>
