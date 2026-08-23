@@ -57,8 +57,11 @@ namespace Residue.Chemistry
             }
 
             state.VolumeMl = Mathf.Max(0f, state.VolumeMl - def.SampleVolumeMl);
-            state.Results.Add(result);
 
+            // Deliberately NOT added to state.Results. The instrument produces a reading; it does not
+            // file it. A result reaches the sample's history only when the player carries the
+            // printout to the terminal, which is what stops the numbers teleporting across the room
+            // and makes the lab a place rather than a menu.
             DepositResidue(truth, machine);
             machine.RegisterRun();
 

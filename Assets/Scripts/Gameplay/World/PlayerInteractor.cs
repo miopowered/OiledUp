@@ -30,7 +30,12 @@ namespace Residue.Gameplay.World
         private float holdElapsed;
         private float agitateElapsed;
 
-        public VialProp Carried { get; private set; }
+        /// <summary>Whatever is in your hands — a vial, a printout, a manual. One at a time.</summary>
+        public Carryable Carried { get; private set; }
+
+        /// <summary>The carried item as a vial, or null if you are holding something else.</summary>
+        public VialProp CarriedVial => Carried as VialProp;
+
         public Interactable Target { get; private set; }
 
         /// <summary>0..1 while a hold interaction is in progress, for the HUD ring.</summary>
@@ -172,10 +177,11 @@ namespace Residue.Gameplay.World
         /// </summary>
         private void TickAgitate()
         {
-            if (Carried == null || agitateAction == null) { agitateElapsed = 0f; return; }
+            var vial = CarriedVial;
+            if (vial == null || agitateAction == null) { agitateElapsed = 0f; return; }
 
             var lab = LabRuntime.Instance;
-            if (lab == null || !lab.Lab.Samples.TryGet(Carried.SampleId, out var sample)) return;
+            if (lab == null || !lab.Lab.Samples.TryGet(vial.SampleId, out var sample)) return;
             if (sample.IsSettled) { agitateElapsed = 0f; return; }
 
             if (!agitateAction.IsPressed()) { agitateElapsed = 0f; return; }
@@ -193,28 +199,31 @@ namespace Residue.Gameplay.World
 
         // -- Carrying ------------------------------------------------------------------------------
 
-        public bool TryCarry(VialProp vial)
+        public bool TryCarry(Carryable item)
         {
-            if (vial == null || Carried != null) return false;
+            if (item == null || Carried != null) return false;
 
-            Carried = vial;
-            vial.AttachTo(carrySocket != null ? carrySocket : transform, interactable: false);
+            Carried = item;
+            item.AttachTo(carrySocket != null ? carrySocket : transform, interactable: false);
 
-            var lab = LabRuntime.Instance;
-            if (lab != null && lab.Lab.Samples.TryGet(vial.SampleId, out var sample))
+            if (item is VialProp vial)
             {
-                sample.Location = Chemistry.SampleLocation.Held(0);
-                vial.SetFillFraction(sample.VolumeMl / 100f);
+                var lab = LabRuntime.Instance;
+                if (lab != null && lab.Lab.Samples.TryGet(vial.SampleId, out var sample))
+                {
+                    sample.Location = Chemistry.SampleLocation.Held(0);
+                    vial.SetFillFraction(sample.VolumeMl / 100f);
+                }
             }
             return true;
         }
 
-        /// <summary>Hand the carried vial over. Caller is responsible for re-parenting it.</summary>
-        public VialProp ReleaseCarried()
+        /// <summary>Hand the carried item over. Caller is responsible for re-parenting or destroying it.</summary>
+        public Carryable ReleaseCarried()
         {
-            var vial = Carried;
+            var item = Carried;
             Carried = null;
-            return vial;
+            return item;
         }
     }
 }

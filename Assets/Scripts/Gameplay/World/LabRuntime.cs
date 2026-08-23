@@ -41,8 +41,12 @@ namespace Residue.Gameplay.World
 
         [Header("Props")]
         [SerializeField] private VialProp vialPrefab;
+        [SerializeField] private PrintoutProp printoutPrefab;
 
         public LabState Lab { get; private set; }
+
+        /// <summary>Definitions, for anything that needs to look up a unit or a source hint.</summary>
+        public ContentCatalog Catalog => catalog;
 
         private readonly Dictionary<SampleId, VialProp> props = new();
 
@@ -129,6 +133,21 @@ namespace Residue.Gameplay.World
 
             props[sample.Id] = vial;
             return vial;
+        }
+
+        /// <summary>
+        /// Drop a results slip into an instrument's output tray. Not pooled: a printout exists
+        /// until someone files it or replaces it, and there are only ever a handful.
+        /// </summary>
+        public PrintoutProp SpawnPrintout(SampleId sampleId, TestResult result, string machineName,
+                                          string equipmentTag, Transform socket)
+        {
+            if (printoutPrefab == null || result == null || socket == null) return null;
+
+            var printout = Instantiate(printoutPrefab, socket);
+            printout.Bind(sampleId, result, machineName, equipmentTag);
+            printout.AttachTo(socket);
+            return printout;
         }
 
         public VialProp PropFor(SampleId id) => props.TryGetValue(id, out var v) ? v : null;

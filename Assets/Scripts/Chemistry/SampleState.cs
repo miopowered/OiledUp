@@ -53,6 +53,14 @@ namespace Residue.Chemistry
 
         // ---- Player-facing ----
 
+        /// <summary>
+        /// Results the player has actually filed at the terminal, by carrying the printout there.
+        /// <para>
+        /// An instrument finishing a run does NOT put anything here. A reading exists physically on
+        /// the machine and on its slip; it becomes part of the record when someone walks it to the
+        /// desk. A slip left on a bench is a test you paid for and cannot use.
+        /// </para>
+        /// </summary>
         public readonly List<TestResult> Results = new();
 
         public Verdict? FiledVerdict;

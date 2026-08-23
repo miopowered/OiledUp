@@ -19,7 +19,12 @@ namespace Residue.Gameplay.World
         [SerializeField] private string machineInstanceId = "icp";
 
         [SerializeField] private Transform vialSocket;
+
+        [Tooltip("Where the results slip appears when a run finishes.")]
+        [SerializeField] private Transform printoutSocket;
+
         [SerializeField] private Renderer statusLight;
+        [SerializeField] private MachineDisplay display;
 
         private static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
         private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
@@ -54,7 +59,20 @@ namespace Residue.Gameplay.World
             if (lab?.Lab != null) lab.Lab.RunCompleted -= OnRunCompleted;
         }
 
-        private void Update() => UpdateStatusLight();
+        private float nextDisplayRefresh;
+
+        private void Update()
+        {
+            UpdateStatusLight();
+
+            // Redrawing the screen rasterises every pixel, so throttle it. A progress readout does
+            // not need 60 Hz.
+            if (display == null || machine == null || !machine.IsRunning) return;
+            if (Time.time < nextDisplayRefresh) return;
+
+            nextDisplayRefresh = Time.time + 0.2f;
+            display.ShowRunning(machine);
+        }
 
         // -- Interaction ----------------------------------------------------------------------------
 
@@ -66,9 +84,9 @@ namespace Residue.Gameplay.World
             if (machine.IsRunning)
                 return $"{title} — running, {machine.SecondsRemaining:F0}s left";
 
-            if (player.Carried != null && machine.IsEmpty)
+            if (player.CarriedVial != null && machine.IsEmpty)
             {
-                var sample = LabRuntime.Instance?.SampleFor(player.Carried.SampleId);
+                var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
                 return machine.CanAccept(sample) switch
                 {
                     LoadRefusal.Accepted => $"Load into {title}",
@@ -112,8 +130,9 @@ namespace Residue.Gameplay.World
 
             if (player.Carried != null)
             {
+                if (player.CarriedVial == null) return false; // holding a slip or a manual
                 if (ShiftOver || !machine.IsEmpty) return false;
-                var sample = LabRuntime.Instance?.SampleFor(player.Carried.SampleId);
+                var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
                 return machine.CanAccept(sample) == LoadRefusal.Accepted;
             }
 
@@ -125,7 +144,8 @@ namespace Residue.Gameplay.World
         {
             if (machine == null || machine.IsRunning) return;
 
-            if (player.Carried != null) { Load(player); return; }
+            if (player.CarriedVial != null) { Load(player); return; }
+            if (player.Carried != null) return;
             if (machine.IsEmpty) return;
 
             if (ranSinceLoad) TakeBack(player);
@@ -135,7 +155,7 @@ namespace Residue.Gameplay.World
         private void Load(PlayerInteractor player)
         {
             var lab = LabRuntime.Instance;
-            var sample = lab?.SampleFor(player.Carried.SampleId);
+            var sample = lab?.SampleFor(player.CarriedVial.SampleId);
             if (sample == null) return;
 
             if (machine.TryLoad(sample) != LoadRefusal.Accepted) return;
@@ -177,7 +197,32 @@ namespace Residue.Gameplay.World
             var sample = lab?.SampleFor(machine.LoadedSample);
             var vial = lab?.PropFor(machine.LoadedSample);
             if (sample != null && vial != null) vial.SetFillFraction(sample.VolumeMl / 100f);
+
+            if (display != null) display.Show(machine, result, sample);
+            EmitPrintout(result, sample);
         }
+
+        /// <summary>
+        /// Drop a slip in the output tray. Only one fits: running again before collecting the last
+        /// one loses it. The reading is still on the instrument's display, so nothing becomes
+        /// unknowable — you just have to go and read it rather than carry it away.
+        /// </summary>
+        private void EmitPrintout(TestResult result, Chemistry.SampleState sample)
+        {
+            var lab = LabRuntime.Instance;
+            if (lab == null || result == null) return;
+
+            if (currentPrintout != null) Destroy(currentPrintout.gameObject);
+
+            currentPrintout = lab.SpawnPrintout(
+                machine.LoadedSample,
+                result,
+                machine.Def.DisplayName,
+                sample != null ? sample.EquipmentTag : "BLANK",
+                printoutSocket != null ? printoutSocket : transform);
+        }
+
+        private PrintoutProp currentPrintout;
 
         // -- Status light ---------------------------------------------------------------------------
 

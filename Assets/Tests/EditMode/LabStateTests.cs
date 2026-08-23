@@ -151,6 +151,43 @@ namespace Residue.Tests.EditMode
             Assert.AreEqual(lab.Day, titrator.LastBlankDay);
         }
 
+        /// <summary>
+        /// Instruments produce readings; they do not file them. A result reaches the sample's record
+        /// only when the player carries the printout to the terminal. If this ever regresses, the
+        /// numbers teleport across the room again and the lab goes back to being a menu.
+        /// </summary>
+        [Test]
+        public void RunningAnInstrument_DoesNotFileTheResultItself()
+        {
+            var lab = new LabState(catalog, PlanOf(1), 606);
+            var icp = lab.Install(catalog.Machine("icp"), "icp");
+            lab.BeginDay();
+
+            var sample = lab.OpenSamples().First();
+            sample.IsSettled = true;
+
+            Assert.AreEqual(LoadRefusal.Accepted, icp.TryLoad(sample));
+            Assert.IsTrue(icp.TryBeginRun());
+
+            float volumeBefore = sample.VolumeMl;
+            lab.Tick(icp.RunSeconds + 1f);
+
+            Assert.IsNotNull(icp.LastResult, "The instrument must have produced a reading.");
+            Assert.Less(sample.VolumeMl, volumeBefore, "The run must still consume sample volume.");
+
+            Assert.IsEmpty(sample.Results,
+                "The instrument filed its own result. Results belong to the sample only once the " +
+                "player has walked the printout to the terminal.");
+            Assert.AreEqual(ReadingSeverity.Normal, sample.WorstReading(),
+                "With nothing filed, the terminal has nothing to score.");
+
+            // Filing is what the terminal does on receiving the slip.
+            sample.Results.Add(icp.LastResult);
+            Assert.AreEqual(1, sample.Results.Count);
+            Assert.IsTrue(sample.TryGetLatest("Fe", out _, out _),
+                "Once filed, the reading is part of the record and can be cross-referenced.");
+        }
+
         [Test]
         public void RunningASample_DoesNotOverwriteTheLastBlank()
         {

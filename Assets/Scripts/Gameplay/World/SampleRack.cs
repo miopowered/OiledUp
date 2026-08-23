@@ -25,7 +25,10 @@ namespace Residue.Gameplay.World
         [SerializeField] private float spacing = 0.12f;
 
         private readonly List<Transform> slots = new();
-        private readonly List<VialProp> occupants = new();
+
+        // Holds anything carryable, not just vials: a results slip you have not walked to the desk
+        // yet needs somewhere to live too, and it competes for the same shelf space.
+        private readonly List<Carryable> occupants = new();
 
         public string RackId => rackId;
 
@@ -73,20 +76,23 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public bool TryPlace(VialProp vial)
+        public bool TryPlace(Carryable item)
         {
-            if (vial == null) return false;
+            if (item == null) return false;
             Compact();
 
             for (int i = 0; i < occupants.Count; i++)
             {
                 if (occupants[i] != null) continue;
 
-                occupants[i] = vial;
-                vial.AttachTo(slots[i], interactable: true);
+                occupants[i] = item;
+                item.AttachTo(slots[i], interactable: true);
 
-                var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
-                if (sample != null) sample.Location = SampleLocation.OnSurface(rackId, i);
+                if (item is VialProp vial)
+                {
+                    var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
+                    if (sample != null) sample.Location = SampleLocation.OnSurface(rackId, i);
+                }
                 return true;
             }
             return false;
@@ -111,13 +117,11 @@ namespace Residue.Gameplay.World
         {
             if (player.Carried == null) return;
 
-            var vial = player.Carried;
-            if (!TryPlace(vial)) return;
+            var item = player.Carried;
+            if (!TryPlace(item)) return;
 
             player.ReleaseCarried();
-
-            var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
-            if (sample != null) player.Say($"{sample.EquipmentTag} set down.", 2f);
+            player.Say($"{item.DisplayName} set down.", 2f);
         }
     }
 }
