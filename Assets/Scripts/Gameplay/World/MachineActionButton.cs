@@ -28,10 +28,27 @@ namespace Residue.Gameplay.World
         [Tooltip("§5.2 specifies 20-40 s for a clean. Tune after playtesting, but do not make it free.")]
         [SerializeField] private float cleanSeconds = 20f;
 
+        /// <summary>
+        /// Even fully scaled down for testing, a flush stays a held action. At a tap it stops being
+        /// a cost, and the whole §5.2 temptation to skip it evaporates.
+        /// </summary>
+        private const float MinimumFlushSeconds = 2f;
+
         private void Awake()
         {
             if (station == null) station = GetComponentInParent<MachineStation>();
-            holdSeconds = action == MachineAction.Clean ? cleanSeconds : 0f;
+        }
+
+        public override float HoldSeconds
+        {
+            get
+            {
+                if (action != MachineAction.Clean) return 0f;
+
+                var runtime = LabRuntime.Instance;
+                float scale = runtime != null && runtime.Lab != null ? runtime.Lab.MachineTimeScale : 1f;
+                return Mathf.Max(MinimumFlushSeconds, cleanSeconds * scale);
+            }
         }
 
         public override string Prompt(PlayerInteractor player)
@@ -44,12 +61,12 @@ namespace Residue.Gameplay.World
                 var economy = LabRuntime.Instance?.Lab.Economy;
                 if (machine.IsRunning) return "Cannot flush while running";
                 if (economy != null && economy.SolventUnits < 1f) return "Out of solvent";
-                return $"Hold to flush {machine.Def.DisplayName} ({cleanSeconds:F0}s, 1 solvent)";
+                return $"Hold to flush {machine.Def.DisplayName} ({HoldSeconds:F0}s, 1 solvent)";
             }
 
             if (machine.IsRunning) return "Instrument busy";
             if (!machine.IsEmpty) return "Remove the vial before running a blank";
-            return $"Run solvent blank ({machine.Def.RunTimeSeconds:F0}s)";
+            return $"Run solvent blank ({machine.RunSeconds:F0}s)";
         }
 
         public override bool CanInteract(PlayerInteractor player)

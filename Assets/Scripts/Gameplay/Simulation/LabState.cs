@@ -57,11 +57,30 @@ namespace Residue.Gameplay.Simulation
             }
         }
 
+        /// <summary>
+        /// Multiplier applied to every instrument's run time. 1 is the shipping balance.
+        /// Anything else is a testing convenience — see <see cref="MachineInstance.TimeScale"/>.
+        /// </summary>
+        public float MachineTimeScale
+        {
+            get => machineTimeScale;
+            set
+            {
+                machineTimeScale = Mathf.Max(0.001f, value);
+                foreach (var m in Machines) m.TimeScale = machineTimeScale;
+            }
+        }
+
+        private float machineTimeScale = 1f;
+
         /// <summary>Install one instrument. The MVP lab is fixed; §5.5 layout mode replaces this at M5.</summary>
         public MachineInstance Install(MachineDef def, string instanceId = null)
         {
             if (def == null) return null;
-            var instance = new MachineInstance(instanceId ?? $"{def.Id}-{Machines.Count}", def);
+            var instance = new MachineInstance(instanceId ?? $"{def.Id}-{Machines.Count}", def)
+            {
+                TimeScale = machineTimeScale
+            };
             Machines.Add(instance);
             return instance;
         }

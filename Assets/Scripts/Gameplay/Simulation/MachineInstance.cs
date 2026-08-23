@@ -1,5 +1,6 @@
 using Residue.Chemistry;
 using Residue.Data;
+using UnityEngine;
 
 namespace Residue.Gameplay.Simulation
 {
@@ -44,6 +45,19 @@ namespace Residue.Gameplay.Simulation
         public RunKind ActiveRun = RunKind.None;
         public float SecondsRemaining;
 
+        /// <summary>
+        /// Multiplier on <see cref="MachineDef.RunTimeSeconds"/>. 1 is the real balance.
+        /// <para>
+        /// This exists so testing does not require editing <see cref="ContentTables"/>. The absolute
+        /// times are balance; the <i>ratios</i> between them are design — a ferrography run costing
+        /// 15 times an FTIR screen is the §10 decision. Scaling preserves those ratios; editing the
+        /// table would not, and would ship.
+        /// </para>
+        /// </summary>
+        public float TimeScale = 1f;
+
+        private float runDuration;
+
         /// <summary>Most recent output, kept so the player can walk away and come back to read it.</summary>
         public TestResult LastResult;
 
@@ -58,10 +72,15 @@ namespace Residue.Gameplay.Simulation
         public bool IsEmpty => !LoadedSample.IsValid;
         public bool IsIdle => !IsRunning;
 
-        /// <summary>Fraction complete, for a progress readout.</summary>
-        public float Progress => Def == null || Def.RunTimeSeconds <= 0f || !IsRunning
+        /// <summary>How long a run actually takes, after <see cref="TimeScale"/>.</summary>
+        public float RunSeconds => Def == null
             ? 0f
-            : 1f - (SecondsRemaining / Def.RunTimeSeconds);
+            : Mathf.Max(0.1f, Def.RunTimeSeconds * Mathf.Max(0.001f, TimeScale));
+
+        /// <summary>Fraction complete, for a progress readout.</summary>
+        public float Progress => !IsRunning || runDuration <= 0f
+            ? 0f
+            : 1f - (SecondsRemaining / runDuration);
 
         public LoadRefusal CanAccept(SampleState sample)
         {
@@ -102,7 +121,8 @@ namespace Residue.Gameplay.Simulation
         {
             if (IsRunning || IsEmpty) return false;
             ActiveRun = RunKind.Sample;
-            SecondsRemaining = Def.RunTimeSeconds;
+            runDuration = RunSeconds;
+            SecondsRemaining = runDuration;
             return true;
         }
 
@@ -114,7 +134,8 @@ namespace Residue.Gameplay.Simulation
         {
             if (IsRunning || !IsEmpty) return false;
             ActiveRun = RunKind.Blank;
-            SecondsRemaining = Def.RunTimeSeconds;
+            runDuration = RunSeconds;
+            SecondsRemaining = runDuration;
             return true;
         }
 

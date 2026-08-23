@@ -18,7 +18,8 @@ namespace Residue.Gameplay.World
         [Tooltip("Seconds the player must hold the key. 0 is a tap.")]
         [SerializeField] protected float holdSeconds;
 
-        public float HoldSeconds => holdSeconds;
+        /// <summary>Virtual so a station can scale it — see <see cref="MachineActionButton"/>.</summary>
+        public virtual float HoldSeconds => holdSeconds;
 
         /// <summary>Text shown next to the crosshair. Null or empty hides the prompt entirely.</summary>
         public abstract string Prompt(PlayerInteractor player);

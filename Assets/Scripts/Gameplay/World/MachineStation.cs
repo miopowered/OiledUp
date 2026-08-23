@@ -81,7 +81,7 @@ namespace Residue.Gameplay.World
             }
 
             if (!machine.IsEmpty && player.Carried == null)
-                return ranSinceLoad ? $"Take vial from {title}" : $"Run {title} ({machine.Def.RunTimeSeconds:F0}s)";
+                return ranSinceLoad ? $"Take vial from {title}" : $"Run {title} ({machine.RunSeconds:F0}s)";
 
             if (player.Carried != null) return "Hands full";
             return $"{title} — empty";

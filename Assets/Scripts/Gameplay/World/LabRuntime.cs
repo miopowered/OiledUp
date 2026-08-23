@@ -31,6 +31,14 @@ namespace Residue.Gameplay.World
         [SerializeField]
         private string[] installedMachineIds = { "icp", "ftir", "karl_fischer", "ferrography" };
 
+        [Header("Testing")]
+        [Tooltip("Multiplier on every instrument's run time and on the flush hold.\n\n" +
+                 "1 = the real balance. Lower values make the loop testable without editing " +
+                 "ContentTables, which would ship. The RATIOS between instruments are design " +
+                 "(§10: ferrography costs 15x an FTIR screen), so scaling preserves them.\n\n" +
+                 "Set back to 1 before judging whether the game is fun.")]
+        [SerializeField, Range(0.01f, 1f)] private float machineTimeScale = 0.05f;
+
         [Header("Props")]
         [SerializeField] private VialProp vialPrefab;
 
@@ -59,7 +67,20 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            Lab = new LabState(catalog, ContractPlan.Default(), seed == 0 ? Random.Range(1, int.MaxValue) : seed);
+            Lab = new LabState(catalog, ContractPlan.Default(), seed == 0 ? Random.Range(1, int.MaxValue) : seed)
+            {
+                MachineTimeScale = machineTimeScale
+            };
+
+            // Loud on purpose. A scaled lab tells you nothing about whether the queue pressure works,
+            // and this is exactly the kind of testing knob that ends up in a build.
+            if (!Mathf.Approximately(machineTimeScale, 1f))
+            {
+                Debug.LogWarning(
+                    $"[LabRuntime] Instrument times scaled to {machineTimeScale:P0} of the real balance " +
+                    "for testing. Machine occupancy and the volume economy will not behave realistically. " +
+                    "Set machineTimeScale back to 1 on the LabRuntime object before judging the loop.", this);
+            }
 
             foreach (var id in installedMachineIds)
             {
