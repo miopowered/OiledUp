@@ -20,7 +20,17 @@ namespace Residue.Gameplay.World
         [SerializeField] private Transform carrySocket;
 
         [SerializeField] private float range = 2.5f;
-        [SerializeField] private LayerMask mask = ~0;
+
+        [Tooltip("Must exclude the player's own layer.\n\n" +
+                 "The eye camera sits INSIDE the CharacterController capsule, so a ray cast from it " +
+                 "exits through the capsule's inner surface about 0.12 m out. Physics.Raycast returns " +
+                 "that nearest hit, it resolves to no Interactable, and every real target further " +
+                 "along the ray is discarded. The player is on the built-in Ignore Raycast layer and " +
+                 "this mask omits it.")]
+        [SerializeField] private LayerMask mask = ~(1 << IgnoreRaycastLayer);
+
+        /// <summary>Unity's built-in layer 2. Used for the player so it cannot occlude its own aim.</summary>
+        public const int IgnoreRaycastLayer = 2;
 
         [Tooltip("Seconds of shaking before a settled sample is homogeneous enough to test.")]
         [SerializeField] private float agitateSeconds = 2.5f;
@@ -130,7 +140,11 @@ namespace Residue.Gameplay.World
             var ray = new Ray(camera.transform.position, camera.transform.forward);
             LastRay = ray;
 
-            bool didHit = Physics.Raycast(ray, out var hit, range, mask, QueryTriggerInteraction.Collide);
+            // Belt and braces alongside the layer mask: if the player is ever moved back onto a
+            // raycast layer, ignoring self keeps aiming working instead of silently breaking all of it.
+            bool didHit = Physics.Raycast(ray, out var hit, range, mask, QueryTriggerInteraction.Collide)
+                          && !IsSelf(hit.collider);
+
             LastHadHit = didHit;
             LastHit = hit;
 
@@ -169,6 +183,9 @@ namespace Residue.Gameplay.World
             Prompt = Target.Prompt(this);
             PromptBlocked = !Target.CanInteract(this);
         }
+
+        /// <summary>True if the collider belongs to this player rather than to the world.</summary>
+        public bool IsSelf(Collider c) => c != null && c.transform.IsChildOf(transform);
 
         // -- Interact ------------------------------------------------------------------------------
 

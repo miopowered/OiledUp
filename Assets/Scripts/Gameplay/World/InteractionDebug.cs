@@ -31,6 +31,10 @@ namespace Residue.Gameplay.World
         [Tooltip("Skip wireframing MeshColliders above this triangle count.")]
         [SerializeField] private int meshWireframeLimit = 1200;
 
+        [Tooltip("Non-interactable colliders larger than this in any axis are treated as architecture " +
+                 "and left out of the outline pass. They still appear if they block a shot.")]
+        [SerializeField] private float architectureSize = 2.5f;
+
         // Debug colours deliberately outside the game palette. Magenta and cyan never appear in the
         // lab, so nothing here can be mistaken for a verdict, an instrument state or a real surface.
         private static readonly Color Idle = new(0.15f, 0.75f, 0.85f, 0.35f);
@@ -118,9 +122,19 @@ namespace Residue.Gameplay.World
             foreach (var c in Physics.OverlapSphere(transform.position, outlineRadius, interactor.Mask,
                          QueryTriggerInteraction.Collide))
             {
-                // The room shell would drown everything else in wireframe.
-                if (c is MeshCollider mc && mc.sharedMesh != null && mc.sharedMesh.triangles.Length / 3 > meshWireframeLimit)
+                if (interactor.IsSelf(c)) continue;
+
+                if (c is MeshCollider mc && mc.sharedMesh != null &&
+                    mc.sharedMesh.triangles.Length / 3 > meshWireframeLimit)
                     continue;
+
+                // Architecture — the room shell, benches, the island — is never an interaction
+                // target and its wireframe buries everything that is. Skipped here; if one of them
+                // is genuinely blocking a shot it still gets drawn by the blocker pass.
+                if (c.GetComponentInParent<Interactable>() == null &&
+                    Mathf.Max(c.bounds.size.x, c.bounds.size.y, c.bounds.size.z) > architectureSize)
+                    continue;
+
                 nearby.Add(c);
             }
         }

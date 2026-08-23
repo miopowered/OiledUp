@@ -558,7 +558,14 @@ namespace Residue.Editor.Build
             var interactorSo = new SerializedObject(interactor);
             interactorSo.FindProperty("player").objectReferenceValue = player;
             interactorSo.FindProperty("carrySocket").objectReferenceValue = carry.transform;
+            interactorSo.FindProperty("mask").intValue = ~(1 << PlayerInteractor.IgnoreRaycastLayer);
             interactorSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // The eye camera sits inside the CharacterController capsule, so without this the very
+            // first thing the interaction ray hits is the player's own body about 0.12 m out, and
+            // every real target beyond it is discarded. Nothing in the lab was ever selectable
+            // except by accident.
+            SetLayerRecursively(go, PlayerInteractor.IgnoreRaycastLayer);
 
             var interactionDebug = go.AddComponent<InteractionDebug>();
             var debugSo = new SerializedObject(interactionDebug);
@@ -796,6 +803,12 @@ namespace Residue.Editor.Build
         }
 
         // -- Helpers -----------------------------------------------------------------------------------
+
+        private static void SetLayerRecursively(GameObject go, int layer)
+        {
+            go.layer = layer;
+            foreach (Transform child in go.transform) SetLayerRecursively(child.gameObject, layer);
+        }
 
         private static GameObject NewRoot(Scene scene, string name)
         {
