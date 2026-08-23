@@ -271,7 +271,11 @@ namespace Residue.Editor.Content
         public static readonly FaultRow[] Faults =
         {
             new("bearing_overlay_wear", "Bearing Overlay Wear", FaultSeverity.Imminent,
-                new DeltaRow[] { new("Pb", 5f, 24f), new("Sn", 5f, 11f), new("Cu", 2.5f, 14f) },
+                // Lead must clear the CAUTION ceiling on every profile this runs on, and the gearbox
+                // tolerates far more lead than an engine (critical at 40 vs 30). §4.3 is explicit that
+                // Pb and Sn together mean the overlay is already breached, so this has to read
+                // Critical everywhere or the fault is one the player can never correctly call.
+                new DeltaRow[] { new("Pb", 5f, 38f), new("Sn", 5f, 11f), new("Cu", 2.5f, 14f) },
                 daysToFailure: 4, repairCost: 8500f, teardownCostIfWrong: 4200f,
                 rootCauseId: "bearing_failure", validOn: AllProfiles),
 
