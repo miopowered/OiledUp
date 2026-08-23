@@ -49,6 +49,23 @@
     <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll')"
                Private="false" />
+
+    <!--
+      Collections carries FixedString, which is how a name or an id travels over the wire without
+      allocating; NGO's serializer will not take a managed string.
+
+      The Services assemblies are the M4 connect path: Authentication issues the stable PlayerId that
+      rejoin is keyed on (#17), Relay carries the traffic, Lobbies turns a join code into a Relay
+      allocation. Globbed rather than listed one by one because Core alone is ~15 assemblies that
+      Unity splits and renames between versions, and an unconditional list of them goes stale on the
+      next package bump.
+    -->
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Collections.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Collections.dll')"
+               Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Services.*.dll"
+               Exclude="$(ProjectRoot)\Library\ScriptAssemblies\*.Editor.dll"
+               Private="false" />
   </ItemGroup>
 
   <Target Name="VerifyUnityPresent" BeforeTargets="BeforeBuild">
