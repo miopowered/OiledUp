@@ -1,0 +1,47 @@
+name: Design decision
+description: A call that blocks work and needs a human to make it.
+title: "[decision] short summary"
+labels: ["needs-decision"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        File this instead of guessing — then go work on something else. Do not stall a whole task
+        waiting for an answer.
+
+  - type: textarea
+    id: context
+    attributes:
+      label: What is blocked and why
+    validations:
+      required: true
+
+  - type: textarea
+    id: options
+    attributes:
+      label: Options
+      description: Real alternatives with their trade-offs. Not a survey — two or three.
+      value: |
+        **A.**
+        - Cost:
+        - Risk:
+
+        **B.**
+        - Cost:
+        - Risk:
+    validations:
+      required: true
+
+  - type: textarea
+    id: recommendation
+    attributes:
+      label: Recommendation
+      description: Pick one and say why. An issue with no recommendation is not finished.
+    validations:
+      required: true
+
+  - type: input
+    id: reversibility
+    attributes:
+      label: How hard is this to undo later?
+      placeholder: "cheap / moderate / one-way door"

@@ -1,0 +1,41 @@
+name: Bug
+description: Something behaves incorrectly.
+title: "[area] short summary"
+labels: ["type:bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should happen
+      description: If this contradicts a hard rule in CLAUDE.md or a pillar in §1.1, say which.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        For chemistry bugs include the RNG seed and the generation request — the sim is
+        deterministic, so a seed reproduces the exact sample.
+      value: |
+        Seed:
+        Profile:
+        Fault / severity:
+        Steps:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: From `Unity_GetConsoleLogs` or the Editor console.
+      render: text
