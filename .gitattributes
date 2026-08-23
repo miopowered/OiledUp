@@ -5,6 +5,11 @@
 # Auto-detect text files and normalize to LF in the repo, native on checkout.
 * text=auto
 
+# Shell scripts stay LF even on a Windows checkout. CRLF in a script with a
+# shebang makes the kernel look for an interpreter named "bash\r", which fails
+# as "bad interpreter: No such file or directory" and reads as a missing bash.
+*.sh text eol=lf
+
 ## Unity YAML — text, but must never be merged line-by-line by git.
 ## Requires the merge driver configured in .git/config (see README/CLAUDE.md).
 *.unity           merge=unityyamlmerge eol=lf
