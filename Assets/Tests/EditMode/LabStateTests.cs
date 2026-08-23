@@ -43,6 +43,22 @@ namespace Residue.Tests.EditMode
             content = null;
         }
 
+        /// <summary>
+        /// Walk a fresh arrival up to the point an instrument will take it: out of the crate, booked
+        /// in against its own label, agitated.
+        /// <para>
+        /// These tests used to just set <c>IsSettled</c>. That is no longer a shortcut but a
+        /// different scenario — an unlogged vial is not preppable, so poking the field skipped a
+        /// step the player cannot skip and the tests stopped describing a reachable situation.
+        /// </para>
+        /// </summary>
+        private static void Ready(LabState lab, SampleState sample)
+        {
+            Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out var move), move);
+            Assert.IsTrue(lab.Samples.LogSample(sample.Id, sample.EquipmentTag, out var log), log);
+            Assert.IsTrue(SampleLifecycle.TryPrep(sample, out var prep), prep);
+        }
+
         private static ContractPlan PlanOf(int days, int samplesPerDay = 4, float daySeconds = 600f,
                                            float healthyChance = 0.3f)
         {
@@ -177,7 +193,7 @@ namespace Residue.Tests.EditMode
             // Push real samples through so there is residue to find.
             foreach (var sample in lab.OpenSamples().Take(3))
             {
-                sample.IsSettled = true;
+                Ready(lab, sample);
                 if (titrator.TryLoad(sample) != LoadRefusal.Accepted) continue;
                 titrator.TryBeginRun();
                 lab.Tick(titrator.RunSeconds + 1f);
@@ -208,7 +224,7 @@ namespace Residue.Tests.EditMode
             lab.BeginDay();
 
             var sample = lab.OpenSamples().First();
-            sample.IsSettled = true;
+            Ready(lab, sample);
 
             Assert.AreEqual(LoadRefusal.Accepted, elemental.TryLoad(sample));
             Assert.IsTrue(elemental.TryBeginRun());
@@ -245,7 +261,7 @@ namespace Residue.Tests.EditMode
             Assert.IsNotNull(blank);
 
             var sample = lab.OpenSamples().First();
-            sample.IsSettled = true;
+            Ready(lab, sample);
             Assert.AreEqual(LoadRefusal.Accepted, titrator.TryLoad(sample));
             titrator.TryBeginRun();
             lab.Tick(titrator.RunSeconds + 1f);

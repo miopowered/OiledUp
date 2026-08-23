@@ -75,8 +75,33 @@ namespace Residue.Chemistry
 
         public bool IsLogged => !string.IsNullOrEmpty(LoggedTag);
 
-        /// <summary>True if the player logged this vial against the wrong equipment tag.</summary>
-        public bool IsMislogged => IsLogged && LoggedTag != EquipmentTag;
+        /// <summary>
+        /// True if the player logged this vial against the wrong equipment tag.
+        /// <para>
+        /// Both sides of this comparison are things the player can read — the paper label on the
+        /// vial and the record on the terminal — so it is not hidden state. It is here for systems
+        /// that need to act on the mismatch; the terminal must not simply print it, because a screen
+        /// that flags your own typo removes the reason to walk back and check.
+        /// </para>
+        /// </summary>
+        public bool IsMislogged =>
+            IsLogged && LoggedTag != SampleLifecycle.NormaliseTag(EquipmentTag);
+
+        /// <summary>
+        /// How far along the §5.1 chain this sample is. Derived from the fields above rather than
+        /// stored — see <see cref="SampleLifecycle"/> for why.
+        /// </summary>
+        public SampleStage Stage => SampleLifecycle.StageOf(this);
+
+        /// <summary>
+        /// What the terminal calls this sample: the tag the player typed, not the one on the label.
+        /// <para>
+        /// The distinction is the point. A mis-logged vial is filed, cross-referenced and reported
+        /// under the tank the player named, which is what makes §5.1's logging step something other
+        /// than a formality.
+        /// </para>
+        /// </summary>
+        public string RecordTag => IsLogged ? LoggedTag : $"UNLOGGED {Id}";
 
         public bool HasVolumeFor(MachineDef machine) => machine != null && VolumeMl >= machine.SampleVolumeMl;
 

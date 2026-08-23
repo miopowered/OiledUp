@@ -101,9 +101,13 @@ namespace Residue.Gameplay.World
                 var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
                 if (sample != null)
                 {
-                    player.Say($"{sample.EquipmentTag} — {sample.Profile.DisplayName}, " +
+                    // Reads the paper label out loud, because the tag has to be transcribed at the
+                    // terminal from memory or from a second look at the vial. That transcription is
+                    // where §5.1's mis-logging comes from, so the tag is stated once, here.
+                    player.Say($"{sample.Id} — {sample.EquipmentTag} — {sample.Profile.DisplayName}, " +
                                $"{sample.HoursSinceOilChange:F0} h on the oil." +
-                               (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\""),
+                               (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\"") +
+                               " Book it in at the terminal.",
                         5f);
                 }
                 return;

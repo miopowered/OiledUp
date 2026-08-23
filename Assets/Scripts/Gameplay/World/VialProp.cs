@@ -21,9 +21,16 @@ namespace Residue.Gameplay.World
         private MaterialPropertyBlock block;
 
         public SampleId SampleId { get; private set; }
+
+        /// <summary>The paper label, exactly as the customer wrote it. Never the logged tag (§5.1).</summary>
         public string Label { get; private set; } = "UNLABELLED";
 
-        public override string DisplayName => Label;
+        /// <summary>
+        /// Label and sample id together, because the terminal lists an unlogged vial by its id and
+        /// the player has to be able to tell which bottle a row is asking about. Reading a vial is
+        /// also how a mis-log is caught, so this is the tell the design leans on.
+        /// </summary>
+        public override string DisplayName => $"{Label} · {SampleId}";
 
         public void Bind(SampleId id, string label)
         {

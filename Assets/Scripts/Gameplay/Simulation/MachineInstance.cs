@@ -117,7 +117,7 @@ namespace Residue.Gameplay.Simulation
             if (verdict != LoadRefusal.Accepted) return verdict;
 
             LoadedSample = sample.Id;
-            sample.Location = SampleLocation.InMachine(InstanceId, 0);
+            SampleLifecycle.TryMove(sample, SampleLocation.InMachine(InstanceId, 0), out _);
             return LoadRefusal.Accepted;
         }
 

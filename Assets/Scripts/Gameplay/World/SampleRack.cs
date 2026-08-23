@@ -91,7 +91,8 @@ namespace Residue.Gameplay.World
                 if (item is VialProp vial)
                 {
                     var sample = LabRuntime.Instance?.SampleFor(vial.SampleId);
-                    if (sample != null) sample.Location = SampleLocation.OnSurface(rackId, i);
+                    if (sample != null)
+                        SampleLifecycle.TryMove(sample, SampleLocation.OnSurface(rackId, i), out _);
                 }
                 return true;
             }

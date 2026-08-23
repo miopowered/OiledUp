@@ -159,9 +159,13 @@ namespace Residue.Gameplay.World
                     sample.Results.Count == 0 ? SignalPalette.Off : SignalPalette.For(sample.WorstReading()));
                 LabHud.Round(row, 3);
 
-                var tag = new Label(sample.EquipmentTag);
+                // RecordTag, not EquipmentTag: the terminal shows what the player typed, never the
+                // paper label. Printing the true tag here would make a mis-log both impossible to
+                // commit and trivial to spot, which deletes the §5.1 logging step.
+                var tag = new Label(sample.RecordTag);
                 tag.style.fontSize = 14;
-                tag.style.color = new StyleColor(SignalPalette.Ink);
+                tag.style.color = new StyleColor(
+                    sample.IsLogged ? SignalPalette.Ink : SignalPalette.Dim);
                 row.Add(tag);
 
                 var meta = new Label(
@@ -222,7 +226,118 @@ namespace Residue.Gameplay.World
                     : Tiny($"blank day {machine.LastBlankDay}: {residue}", SignalPalette.Caution));
             }
 
+            box.Add(SolventRow(lab));
             return box;
+        }
+
+        /// <summary>
+        /// The §5.1 book-in step: type the tank tag off the vial's paper label.
+        /// <para>
+        /// Nothing is prefilled and nothing is checked against
+        /// <see cref="SampleState.EquipmentTag"/>. A wrong tag is accepted exactly as readily as a
+        /// right one — that is the mechanic, not an oversight. The tell is physical: the label is on
+        /// the bottle, so catching your own mistake means walking back and reading it.
+        /// </para>
+        /// Amendable while the sample is only logged, fixed once work starts. Hard rule 3 punishes
+        /// never checking, not the typo itself.
+        /// </summary>
+        private VisualElement BookInRow(LabState lab, SampleState sample)
+        {
+            var box = new VisualElement();
+            box.style.marginTop = 4;
+            box.style.marginBottom = 6;
+
+            bool amendable = sample.Stage <= SampleStage.Logged;
+
+            if (!amendable)
+            {
+                if (sample.IsLogged) return box;
+
+                box.Add(Tiny("Not booked in, and work has already started — the record is closed.",
+                    SignalPalette.Caution));
+                return box;
+            }
+
+            var row = Row();
+            row.style.alignItems = Align.Center;
+
+            var field = new TextField { value = sample.IsLogged ? sample.RecordTag : "" };
+            field.style.width = 220;
+            field.style.marginRight = 6;
+            row.Add(field);
+
+            var refusal = Tiny("", SignalPalette.Caution);
+
+            var book = new Button(() =>
+            {
+                if (lab.Samples.LogSample(sample.Id, field.value, out string why)) Rebuild();
+                else refusal.text = why;   // already player-facing; do not reword it
+            })
+            { text = sample.IsLogged ? "AMEND TAG" : "BOOK IN" };
+
+            StyleButton(book, SignalPalette.Accent);
+            row.Add(book);
+
+            box.Add(row);
+            box.Add(sample.IsLogged
+                ? Tiny("Amendable until the first run. Check it against the label on the bottle.",
+                    SignalPalette.Dim)
+                : Tiny("Type the tank tag from the vial's label. Nothing will run until it is booked in.",
+                    SignalPalette.Dim));
+            box.Add(refusal);
+
+            return box;
+        }
+
+        /// <summary>
+        /// Solvent stock and a way to restock it.
+        /// <para>
+        /// §5.2 wants skipping the flush to be tempting; it must never be <i>compulsory</i>. A run
+        /// starts with twelve units and spends one per flush, so without a way to buy more, a
+        /// twenty-day contract across five instruments runs dry within days and residue then
+        /// accumulates with nothing the player can do about it.
+        /// </para>
+        /// Ordering is paperwork, so it lives here rather than being a physical action. The time
+        /// cost that makes §9 work sits on the flush itself, which is the part you are tempted to
+        /// skip — not on buying the bottle.
+        /// </summary>
+        private VisualElement SolventRow(LabState lab)
+        {
+            const int packSize = 10;
+
+            var row = Row();
+            row.style.marginTop = 8;
+            row.style.paddingTop = 8;
+            row.style.alignItems = Align.Center;
+            row.style.borderTopWidth = 1;
+            row.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
+
+            float cost = lab.Economy.SolventCost(packSize);
+            bool dry = lab.Economy.SolventUnits < 1f;
+
+            var stock = new Label($"SOLVENT  {lab.Economy.SolventUnits:F0} unit(s)");
+            stock.style.fontSize = 12;
+            stock.style.width = 220;
+
+            // Caution only when actually out. A low-but-usable stock is information, not an alarm,
+            // and hard rule 4 keeps signal colours meaning verdict state.
+            stock.style.color = new StyleColor(dry ? SignalPalette.Caution : SignalPalette.Ink);
+            row.Add(stock);
+
+            var buy = new Button(() =>
+            {
+                if (lab.Economy.TryBuySolvent(packSize)) Rebuild();
+            })
+            { text = $"ORDER {packSize}  (£{cost:N0})" };
+
+            StyleButton(buy, SignalPalette.PanelSoft);
+            buy.SetEnabled(lab.Economy.Money >= cost);
+            row.Add(buy);
+
+            if (lab.Economy.Money < cost)
+                row.Add(Tiny("  cannot afford a restock", SignalPalette.Dim));
+
+            return row;
         }
 
         private static Label Tiny(string text, Color colour)
@@ -246,7 +361,8 @@ namespace Residue.Gameplay.World
                 return panel;
             }
 
-            panel.Add(SectionTitle(sample.EquipmentTag));
+            panel.Add(SectionTitle(sample.RecordTag));
+            panel.Add(BookInRow(lab, sample));
 
             var sub = new Label(
                 $"{sample.Profile.DisplayName} · {sample.Profile.BaseOilGrade} · " +

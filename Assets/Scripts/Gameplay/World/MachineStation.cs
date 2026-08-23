@@ -97,6 +97,13 @@ namespace Residue.Gameplay.World
             if (player.CarriedVial != null && machine.IsEmpty)
             {
                 var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
+
+                // Named separately rather than left to fall out as "not settled". An unlogged vial
+                // cannot be agitated either (§5.1), so without this the player is sent to shake a
+                // bottle that will refuse for a completely different reason.
+                if (sample != null && !sample.IsLogged)
+                    return $"{title}: {sample.Id} is not booked in — register it at the terminal";
+
                 return machine.CanAccept(sample) switch
                 {
                     LoadRefusal.Accepted => $"Load into {title}",
@@ -143,6 +150,7 @@ namespace Residue.Gameplay.World
                 if (player.CarriedVial == null) return false; // holding a slip or a manual
                 if (ShiftOver || !machine.IsEmpty) return false;
                 var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
+                if (sample == null || !sample.IsLogged) return false;
                 return machine.CanAccept(sample) == LoadRefusal.Accepted;
             }
 

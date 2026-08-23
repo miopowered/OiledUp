@@ -40,6 +40,39 @@ namespace Residue.Gameplay.Simulation
 
         public SampleState Get(SampleId id) => states.TryGetValue(id, out var s) ? s : null;
 
+        // -- Lifecycle ---------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Register a vial against the tank tag the player typed at the terminal (§5.1).
+        /// <para>
+        /// Deliberately does not compare the tag to the label. Mis-logging is a failure mode the
+        /// design wants reachable, so a wrong tag is accepted exactly as readily as a right one;
+        /// <see cref="SampleState.IsMislogged"/> is how a later system notices.
+        /// </para>
+        /// </summary>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool LogSample(SampleId id, string typedTag, out string refusal)
+        {
+            if (!states.TryGetValue(id, out var state))
+            {
+                refusal = "No such sample.";
+                return false;
+            }
+            return SampleLifecycle.TryLog(state, typedTag, out refusal);
+        }
+
+        /// <summary>Samples out of the crate with nothing on file against them yet — the book-in queue.</summary>
+        public List<SampleState> AwaitingLog()
+        {
+            var waiting = new List<SampleState>();
+            foreach (var s in states.Values)
+            {
+                if (s.Stage == SampleStage.Unpacked) waiting.Add(s);
+            }
+            waiting.Sort((a, b) => a.Id.CompareTo(b.Id));
+            return waiting;
+        }
+
         // -- Operations that need the truth, and therefore live here ---------------------------------
 
         /// <summary>
@@ -59,16 +92,19 @@ namespace Residue.Gameplay.Simulation
         /// resolved now — §5.4 is explicit that the cost lands days later, which is what makes a
         /// wrong call feel like something you did rather than something the game told you.
         /// </summary>
-        public bool FileVerdict(SampleId id, Verdict verdict, RootCauseDef rootCause, int day)
-        {
-            if (!states.TryGetValue(id, out var state)) return false;
-            if (state.FiledVerdict.HasValue) return false;
-            if (!truths.TryGetValue(id, out var truth)) return false;
+        public bool FileVerdict(SampleId id, Verdict verdict, RootCauseDef rootCause, int day) =>
+            FileVerdict(id, verdict, rootCause, day, out _);
 
-            state.FiledVerdict = verdict;
-            state.FiledRootCause = rootCause;
-            state.FiledOnDay = day;
-            state.Location = SampleLocation.Archived();
+        /// <inheritdoc cref="FileVerdict(SampleId,Verdict,RootCauseDef,int)"/>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool FileVerdict(SampleId id, Verdict verdict, RootCauseDef rootCause, int day,
+                                out string refusal)
+        {
+            refusal = null;
+            if (!states.TryGetValue(id, out var state)) { refusal = "No such sample."; return false; }
+            if (!truths.TryGetValue(id, out var truth)) { refusal = "No such sample."; return false; }
+
+            if (!SampleLifecycle.TryArchive(state, verdict, rootCause, day, out refusal)) return false;
 
             // A healthy unit has no failure clock, so its verdict settles on the next day's paperwork.
             int delay = truth.PrimaryFault != null ? truth.PrimaryFault.DaysToFailure : 1;
@@ -101,10 +137,10 @@ namespace Residue.Gameplay.Simulation
                 if (!settleEverything && p.ResolveOnDay > day) continue;
 
                 if (states.TryGetValue(p.Sample, out var state) &&
-                    truths.TryGetValue(p.Sample, out var truth))
+                    truths.TryGetValue(p.Sample, out var truth) &&
+                    SampleLifecycle.TryResolve(state, out _))
                 {
                     reports.Add(ConsequenceResolver.Resolve(state, truth, tuning));
-                    state.ConsequenceResolved = true;
                 }
 
                 pending.RemoveAt(i);

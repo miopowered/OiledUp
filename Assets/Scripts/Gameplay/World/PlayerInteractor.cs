@@ -252,6 +252,19 @@ namespace Residue.Gameplay.World
 
             if (!agitateAction.IsPressed()) { agitateElapsed = 0f; return; }
 
+            // Refuse before the hold rather than after it. §5.1 puts logging ahead of prep, so an
+            // unlogged vial cannot be agitated — and spending 2.5 s shaking one only to be told it
+            // was never booked in is precisely the kind of unannounced rule §9 forbids. Asked as a
+            // pure query so a player leaning on the key does not fill the console.
+            var refusal = Chemistry.SampleLifecycle.Refusal(sample, Chemistry.SampleStage.Prepped);
+            if (refusal != null)
+            {
+                agitateElapsed = 0f;
+                HoldProgress = 0f;
+                Say(refusal);
+                return;
+            }
+
             agitateElapsed += Time.deltaTime;
             HoldProgress = Mathf.Clamp01(agitateElapsed / agitateSeconds);
 
@@ -259,8 +272,9 @@ namespace Residue.Gameplay.World
 
             agitateElapsed = 0f;
             HoldProgress = 0f;
-            sample.IsSettled = true;
-            Say($"{sample.EquipmentTag}: agitated, ready to run.");
+
+            if (!Chemistry.SampleLifecycle.TryPrep(sample, out string denied)) { Say(denied); return; }
+            Say($"{sample.RecordTag}: agitated, ready to run.");
         }
 
         // -- Carrying ------------------------------------------------------------------------------
@@ -277,7 +291,9 @@ namespace Residue.Gameplay.World
                 var lab = LabRuntime.Instance;
                 if (lab != null && lab.Lab.Samples.TryGet(vial.SampleId, out var sample))
                 {
-                    sample.Location = Chemistry.SampleLocation.Held(0);
+                    // Taking a vial out of the crate is §5.1's unload step, so the move goes through
+                    // the lifecycle rather than writing the location directly.
+                    Chemistry.SampleLifecycle.TryMove(sample, Chemistry.SampleLocation.Held(0), out _);
                     vial.SetFillFraction(sample.VolumeMl / 100f);
                 }
             }

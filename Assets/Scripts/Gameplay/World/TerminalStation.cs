@@ -77,17 +77,19 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            if (sample.Results.Contains(printout.Result))
+            // The lifecycle decides whether this slip may join the record — a sample that already has
+            // a verdict on it is history, and quietly appending to a closed record would make the
+            // §5.3 "which verdicts are suspect" list wrong.
+            if (!Chemistry.SampleLifecycle.TryFileResult(sample, printout.Result, out string refusal))
             {
-                player.Say("Already on file.");
+                player.Say(refusal);
                 return;
             }
 
-            sample.Results.Add(printout.Result);
             player.ReleaseCarried();
             Destroy(printout.gameObject);
 
-            player.Say($"{sample.EquipmentTag}: {printout.MachineName} results filed.");
+            player.Say($"{sample.RecordTag}: {printout.MachineName} results filed.");
         }
     }
 }
