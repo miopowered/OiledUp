@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Residue.Chemistry;
 using Residue.Data;
 using Residue.Editor.Content;
+using Residue.Gameplay.World;
 using UnityEngine;
 using Object = UnityEngine.Object;
 
@@ -304,6 +305,42 @@ namespace Residue.Tests.EditMode
                 Assert.IsFalse(string.IsNullOrWhiteSpace(fault.MissedConsequence),
                     $"Fault '{fault.Id}' has no missed-consequence text, so the incident report " +
                     "cannot tell the player what their verdict actually cost.");
+            }
+        }
+
+        /// <summary>
+        /// The terminal and the manual both group elements by <see cref="ElementCategory"/>, walking
+        /// <see cref="BookContent.CategoryOrder"/> rather than the enum. Anything whose category is
+        /// missing from that array is silently dropped from both — no error, no blank row, the
+        /// element simply stops existing as far as the player can tell.
+        /// <para>
+        /// That is a diagnosis the player could not have made, which hard rule 3 forbids. Adding a
+        /// category to the enum and forgetting the array is the obvious way to cause it.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void EveryScoredElement_BelongsToACategoryTheUiGroupsBy()
+        {
+            var grouped = new HashSet<ElementCategory>(BookContent.CategoryOrder);
+
+            foreach (ElementCategory category in Enum.GetValues(typeof(ElementCategory)))
+            {
+                Assert.IsTrue(grouped.Contains(category),
+                    $"ElementCategory.{category} is missing from BookContent.CategoryOrder, so every " +
+                    "element in it vanishes from the results table and the manual index.");
+            }
+
+            foreach (var profile in content.Profiles.Values)
+            {
+                foreach (var threshold in profile.Thresholds)
+                {
+                    if (threshold?.Element == null) continue;
+
+                    Assert.IsTrue(grouped.Contains(threshold.Element.Category),
+                        $"Profile '{profile.Id}' scores element '{threshold.Element.Id}', whose " +
+                        $"category {threshold.Element.Category} the results table does not group by. " +
+                        "The player would be judged on a value they were never shown.");
+                }
             }
         }
 

@@ -285,6 +285,18 @@ namespace Residue.Gameplay.World
             return panel;
         }
 
+        /// <summary>
+        /// Results grouped by <see cref="ElementCategory"/>, in the same order the manual indexes
+        /// them (<see cref="BookContent.CategoryOrder"/>).
+        /// <para>
+        /// A flat list in profile-declaration order makes the fastest strategy "find the coloured
+        /// row, look up that element" — which is table lookup, and hard rule 1 says understanding
+        /// has to beat memorisation. Faults are patterns across a subsystem: additive depletion plus
+        /// a rising TAN plus a falling flash point is a different story from any one of them alone.
+        /// Grouping is what makes that pattern visible, and the per-group summary is what lets you
+        /// see which subsystem is unhappy without adding rows up yourself.
+        /// </para>
+        /// </summary>
         private VisualElement ResultsTable(SampleState sample)
         {
             var box = new VisualElement();
@@ -298,29 +310,82 @@ namespace Residue.Gameplay.World
 
             box.Add(ColumnHeader());
 
+            int rows = 0;
+            foreach (var category in BookContent.CategoryOrder)
+                rows += AddCategory(box, sample, category);
+
+            // Results exist but none of them measure anything this profile scores. Rare, but a bare
+            // column header with nothing under it reads as a broken screen rather than an empty one.
+            if (rows == 0) box.Add(Dim("Nothing measured yet that this profile scores."));
+
+            return box;
+        }
+
+        private static int AddCategory(VisualElement box, SampleState sample, ElementCategory category)
+        {
+            var rows = new List<VisualElement>();
+            var worst = ReadingSeverity.Normal;
+            int flagged = 0;
+
             foreach (var threshold in sample.Profile.Thresholds)
             {
-                if (threshold?.Element == null) continue;
+                if (threshold?.Element == null || threshold.Element.Category != category) continue;
                 if (!sample.TryGetLatest(threshold.Element.Id, out float value, out var source)) continue;
 
                 var severity = threshold.Evaluate(value);
+                if (severity > worst) worst = severity;
+                if (severity != ReadingSeverity.Normal) flagged++;
 
-                var row = Row();
-                row.style.paddingTop = 3;
-                row.style.paddingBottom = 3;
-                row.style.borderBottomWidth = 1;
-                row.style.borderBottomColor = new StyleColor(new Color(1f, 1f, 1f, 0.05f));
-
-                row.Add(Cell(threshold.Element.DisplayName, 190, SignalPalette.Ink));
-                row.Add(Cell($"{value:0.###} {threshold.Element.Unit}", 130, SignalPalette.Ink));
-                row.Add(Cell(LimitText(threshold), 150, SignalPalette.Dim));
-                row.Add(Cell(SignalPalette.Label(severity), 90, SignalPalette.For(severity)));
-                row.Add(Cell(source != null && source.Suspect ? "SUSPECT" : "", 80, SignalPalette.Caution));
-
-                box.Add(row);
+                rows.Add(ResultRow(threshold, value, severity, source));
             }
 
-            return box;
+            // Same rule the manual uses: a category with nothing in it gets no heading. WearMetal is
+            // empty in the heat-treatment domain, and a blank section reads as a bug.
+            if (rows.Count == 0) return 0;
+
+            box.Add(CategoryHeading(category, worst, flagged));
+            foreach (var row in rows) box.Add(row);
+            return rows.Count;
+        }
+
+        private static VisualElement CategoryHeading(ElementCategory category, ReadingSeverity worst, int flagged)
+        {
+            var row = Row();
+            row.style.marginTop = 10;
+            row.style.marginBottom = 3;
+
+            var title = new Label(BookContent.Readable(category).ToUpperInvariant());
+            title.style.fontSize = 12;
+            title.style.unityFontStyleAndWeight = FontStyle.Bold;
+            title.style.color = new StyleColor(SignalPalette.Accent);
+            title.style.width = 320;
+            row.Add(title);
+
+            // Dim rather than green when everything is in band: signal colours are for things that
+            // need attention, and four green "all normal" tags would drown the one that is not.
+            row.Add(flagged == 0
+                ? Cell("all normal", 240, SignalPalette.Dim)
+                : Cell($"{flagged} outside limit{(flagged == 1 ? "" : "s")}", 240, SignalPalette.For(worst)));
+
+            return row;
+        }
+
+        private static VisualElement ResultRow(Threshold threshold, float value,
+                                               ReadingSeverity severity, TestResult source)
+        {
+            var row = Row();
+            row.style.paddingTop = 3;
+            row.style.paddingBottom = 3;
+            row.style.borderBottomWidth = 1;
+            row.style.borderBottomColor = new StyleColor(new Color(1f, 1f, 1f, 0.05f));
+
+            row.Add(Cell(threshold.Element.DisplayName, 190, SignalPalette.Ink));
+            row.Add(Cell($"{value:0.###} {threshold.Element.Unit}", 130, SignalPalette.Ink));
+            row.Add(Cell(LimitText(threshold), 150, SignalPalette.Dim));
+            row.Add(Cell(SignalPalette.Label(severity), 90, SignalPalette.For(severity)));
+            row.Add(Cell(source != null && source.Suspect ? "SUSPECT" : "", 80, SignalPalette.Caution));
+
+            return row;
         }
 
         private static string LimitText(Threshold t) => t.Mode switch

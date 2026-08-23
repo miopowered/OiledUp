@@ -127,11 +127,7 @@ namespace Residue.Gameplay.World
 
         private static void BuildElements(List<BookPage> pages, ContentCatalog catalog)
         {
-            foreach (var category in new[]
-                     {
-                         ElementCategory.WearMetal, ElementCategory.Contaminant,
-                         ElementCategory.Additive, ElementCategory.FluidProperty
-                     })
+            foreach (var category in CategoryOrder)
             {
                 var sb = new StringBuilder();
                 int count = 0;
@@ -151,7 +147,19 @@ namespace Residue.Gameplay.World
             }
         }
 
-        private static string Readable(ElementCategory c) => c switch
+        /// <summary>
+        /// The order categories are presented in, everywhere. The terminal groups results by this
+        /// and the manual indexes elements by it; if the two disagreed the manual would be teaching
+        /// an organisation the results screen contradicts, which is worse than either order alone.
+        /// </summary>
+        public static readonly ElementCategory[] CategoryOrder =
+        {
+            ElementCategory.WearMetal, ElementCategory.Contaminant,
+            ElementCategory.Additive, ElementCategory.FluidProperty
+        };
+
+        /// <summary>Display name for a category. Shared with the terminal for the reason above.</summary>
+        public static string Readable(ElementCategory c) => c switch
         {
             ElementCategory.WearMetal => "Wear metals",
             ElementCategory.Contaminant => "Contaminants",
