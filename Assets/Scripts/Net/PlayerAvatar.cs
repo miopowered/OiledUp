@@ -132,7 +132,11 @@ namespace Residue.Net
 
             // The body animates from replicated movement on a replica, and from the controller on
             // the owner. It stays on in both cases; only its source changes.
-            if (body != null) body.SetRemote(!mine);
+            if (body != null)
+            {
+                body.SetRemote(!mine);
+                PlaceBodyOnItsLayer(body.gameObject, mine);
+            }
 
             name = mine ? "Player (you)" : $"Player {OwnerClientId}";
         }
@@ -140,6 +144,33 @@ namespace Residue.Net
         private static void SetActive(Behaviour b, bool active)
         {
             if (b != null) b.enabled = active;
+        }
+
+        /// <summary>
+        /// Only <i>your own</i> body goes on the hidden layer.
+        /// <para>
+        /// Hiding is done by culling <see cref="ThirdPersonView.PlayerBodyLayer"/> out of the eye
+        /// camera, which was exactly right when the only body in the lab was yours. With four
+        /// players it hides all of them: the camera cannot tell one layer member from another, so
+        /// everybody ends up invisible to everybody. The bodies were there, animating, being
+        /// replicated — and culled by a mask written for single player.
+        /// </para>
+        /// So the layer means "mine", not "a body". A teammate's goes on Default and is simply seen.
+        /// F4 still works: <see cref="ThirdPersonView"/> adds the layer back and your own body
+        /// appears, which is the one case the layer exists for.
+        /// </para>
+        /// </summary>
+        private static void PlaceBodyOnItsLayer(GameObject body, bool mine)
+        {
+            SetLayerRecursively(body, mine ? ThirdPersonView.PlayerBodyLayer : DefaultLayer);
+        }
+
+        private const int DefaultLayer = 0;
+
+        private static void SetLayerRecursively(GameObject go, int layer)
+        {
+            go.layer = layer;
+            foreach (Transform child in go.transform) SetLayerRecursively(child.gameObject, layer);
         }
     }
 }
