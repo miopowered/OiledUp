@@ -59,6 +59,19 @@ namespace Residue.Gameplay.World
             interactAction = map.FindAction("Interact", throwIfNotFound: false);
             agitateAction = map.FindAction("Attack", throwIfNotFound: false);
             map.Enable();
+
+            // Unity's template ships "Interact" with a Hold interaction attached. That is fatal here:
+            // with Hold, the action only reaches Performed after its own timeout, so WasPressedThisFrame
+            // never fires for a tap and nothing in the lab can be picked up. Hold timing is a property
+            // of the interactable (0 s for a tap, 20 s for a flush), not of the binding, so the asset
+            // must leave the action raw. Warn loudly rather than fail silently if it comes back.
+            if (interactAction != null && !string.IsNullOrEmpty(interactAction.interactions))
+            {
+                Debug.LogError(
+                    $"[PlayerInteractor] The 'Interact' action has interactions [{interactAction.interactions}] " +
+                    "configured on it. Clear them in InputSystem_Actions or tap interactions will not fire.",
+                    this);
+            }
         }
 
         private void Update()

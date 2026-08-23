@@ -97,6 +97,17 @@ namespace Residue.Gameplay.World
             toastLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
             toastLabel.style.whiteSpace = WhiteSpace.Normal;
             root.Add(toastLabel);
+
+            // Greybox affordance. Nothing in an untextured room tells you that pickup is E and
+            // agitation is the mouse, and a player who cannot pick a vial up cannot discover
+            // anything else in the game.
+            var controls = new Label(
+                "[WASD] move    [E] interact / hold    [LMB] agitate held vial    [Shift] run    [Esc] close terminal");
+            Style(controls, 12, SignalPalette.Dim);
+            controls.style.position = Position.Absolute;
+            controls.style.left = 16;
+            controls.style.bottom = 12;
+            root.Add(controls);
         }
 
         private void Update()

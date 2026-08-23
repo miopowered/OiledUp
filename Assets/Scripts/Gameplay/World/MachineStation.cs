@@ -74,7 +74,7 @@ namespace Residue.Gameplay.World
                     LoadRefusal.Accepted => $"Load into {title}",
                     LoadRefusal.NotEnoughVolume =>
                         $"{title} needs {machine.Def.SampleVolumeMl:F0} ml — {sample?.VolumeMl:F1} ml left",
-                    LoadRefusal.NotSettled => $"{title}: sample is settled. Hold LMB to agitate first.",
+                    LoadRefusal.NotSettled => $"{title}: sample has settled out — hold LMB to agitate first",
                     LoadRefusal.NeedsPreheat => $"{title}: sample is cold, needs preheating",
                     _ => $"{title} is occupied"
                 };
