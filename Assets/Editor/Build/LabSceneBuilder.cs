@@ -21,6 +21,12 @@ namespace Residue.Editor.Build
     /// </para>
     /// Regenerating replaces the scene wholesale. Anything hand-placed in it will be lost, which is
     /// the trade for having it be reproducible.
+    /// <para>
+    /// <b>Precondition:</b> a <i>saved</i> scene must be open, and the Editor must not be in play
+    /// mode. Unity refuses <c>NewScene(Additive)</c> while an untitled unsaved scene is open, and
+    /// additive is what keeps this from raising a save-changes modal that would hang MCP. If you
+    /// need to clear the hierarchy first, open another saved scene rather than an empty one.
+    /// </para>
     /// </summary>
     public static class LabSceneBuilder
     {
