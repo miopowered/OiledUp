@@ -4,7 +4,8 @@
     "references": [
         "Residue.Data",
         "Residue.Chemistry",
-        "Residue.Gameplay"
+        "Residue.Gameplay",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [
         "Editor"

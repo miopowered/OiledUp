@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Residue.Data;
 using UnityEditor;
 using UnityEngine;
@@ -70,6 +71,34 @@ namespace Residue.Editor.Content
                 set.Machines[row.Id] = PopulateMachine(Instance<MachineDef>(resolver, $"Machine_{row.Id}"), row, set);
 
             return set;
+        }
+
+        /// <summary>
+        /// An unsaved <see cref="ContentCatalog"/> pointing at the given set. Lets a test spin up a
+        /// whole <c>LabState</c> without touching the AssetDatabase.
+        /// </summary>
+        public static ContentCatalog BuildCatalogInMemory(ContentSet set)
+        {
+            var catalog = ScriptableObject.CreateInstance<ContentCatalog>();
+            catalog.name = "ContentCatalog";
+
+            var so = new SerializedObject(catalog);
+            FillList(so.FindProperty("elements"), ContentTables.Elements.Select(r => (UnityEngine.Object)set.Element(r.Id)));
+            FillList(so.FindProperty("causes"), ContentTables.Causes.Select(r => (UnityEngine.Object)set.Cause(r.Id)));
+            FillList(so.FindProperty("profiles"), ContentTables.Profiles.Select(r => (UnityEngine.Object)set.Profile(r.Id)));
+            FillList(so.FindProperty("faults"), ContentTables.Faults.Select(r => (UnityEngine.Object)set.Fault(r.Id)));
+            FillList(so.FindProperty("machines"), ContentTables.Machines.Select(r => (UnityEngine.Object)set.Machine(r.Id)));
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return catalog;
+        }
+
+        private static void FillList(SerializedProperty list, IEnumerable<UnityEngine.Object> values)
+        {
+            var items = values.ToList();
+            list.arraySize = items.Count;
+            for (int i = 0; i < items.Count; i++)
+                list.GetArrayElementAtIndex(i).objectReferenceValue = items[i];
         }
 
         private static T Instance<T>(ExistingAssetResolver resolver, string assetName) where T : ScriptableObject

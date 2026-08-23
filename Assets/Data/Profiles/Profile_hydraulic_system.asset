@@ -1,0 +1,121 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d837feb733db4ab41b4a479b189e6a2c, type: 3}
+  m_Name: Profile_hydraulic_system
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.EquipmentProfileDef
+  id: hydraulic_system
+  displayName: Hydraulic System
+  thresholds:
+  - element: {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
+    mode: 0
+    baseline: 5
+    baselineVariance: 0.3
+    normalLimit: 15
+    cautionLimit: 30
+  - element: {fileID: 11400000, guid: bf71441c22cc0da41a2b472eec960b4b, type: 2}
+    mode: 0
+    baseline: 3
+    baselineVariance: 0.3
+    normalLimit: 10
+    cautionLimit: 20
+  - element: {fileID: 11400000, guid: 9c9ded8397d1b9343a5f39d9c9382172, type: 2}
+    mode: 0
+    baseline: 1
+    baselineVariance: 0.35
+    normalLimit: 5
+    cautionLimit: 10
+  - element: {fileID: 11400000, guid: c842c1988fc55fd40ac5b95656116679, type: 2}
+    mode: 0
+    baseline: 1
+    baselineVariance: 0.35
+    normalLimit: 5
+    cautionLimit: 10
+  - element: {fileID: 11400000, guid: 0bb1df1c2008037458d35c01d1162f8c, type: 2}
+    mode: 0
+    baseline: 1
+    baselineVariance: 0.35
+    normalLimit: 5
+    cautionLimit: 10
+  - element: {fileID: 11400000, guid: 9f167d815ba4caf4f923482f9145409e, type: 2}
+    mode: 0
+    baseline: 2
+    baselineVariance: 0.3
+    normalLimit: 8
+    cautionLimit: 15
+  - element: {fileID: 11400000, guid: 61f32dba6e52e8547b287b99dd84bf32, type: 2}
+    mode: 0
+    baseline: 4
+    baselineVariance: 0.3
+    normalLimit: 10
+    cautionLimit: 20
+  - element: {fileID: 11400000, guid: 1c7d6588759d94741bfcdb8ee927803b, type: 2}
+    mode: 0
+    baseline: 3
+    baselineVariance: 0.4
+    normalLimit: 15
+    cautionLimit: 30
+  - element: {fileID: 11400000, guid: 058b14cb20fc7374f839a3c40017e064, type: 2}
+    mode: 0
+    baseline: 2
+    baselineVariance: 0.4
+    normalLimit: 15
+    cautionLimit: 30
+  - element: {fileID: 11400000, guid: 4ac0f9246b3141041be106c07692a337, type: 2}
+    mode: 0
+    baseline: 0.004
+    baselineVariance: 0.5
+    normalLimit: 0.02
+    cautionLimit: 0.05
+  - element: {fileID: 11400000, guid: bc8d378004ad7fd4cb3b4cc6d2688e67, type: 2}
+    mode: 0
+    baseline: 15
+    baselineVariance: 0.08
+    normalLimit: 18
+    cautionLimit: 21
+  - element: {fileID: 11400000, guid: 30561147d51d4db4aa121f3d1f022417, type: 2}
+    mode: 0
+    baseline: 0.5
+    baselineVariance: 0.5
+    normalLimit: 6
+    cautionLimit: 15
+  - element: {fileID: 11400000, guid: 9d8166c933ac4e341ba2611c063a6256, type: 2}
+    mode: 0
+    baseline: 5
+    baselineVariance: 0.25
+    normalLimit: 18
+    cautionLimit: 28
+  - element: {fileID: 11400000, guid: 9e1a54c2c2699c84cb0b406570c2f541, type: 2}
+    mode: 0
+    baseline: 0.5
+    baselineVariance: 0.3
+    normalLimit: 1.5
+    cautionLimit: 3
+  - element: {fileID: 11400000, guid: 05dbc700f81ef234393c62ed96ef63ef, type: 2}
+    mode: 1
+    baseline: 320
+    baselineVariance: 0.12
+    normalLimit: 200
+    cautionLimit: 120
+  - element: {fileID: 11400000, guid: 809560b9ddd7edc45a33a55823bee4b1, type: 2}
+    mode: 1
+    baseline: 300
+    baselineVariance: 0.12
+    normalLimit: 190
+    cautionLimit: 110
+  - element: {fileID: 11400000, guid: c69da98c45d33534aab87743d413566d, type: 2}
+    mode: 2
+    baseline: 46
+    baselineVariance: 0.03
+    normalLimit: 0.04
+    cautionLimit: 0.1
+  defaultOilChangeHours: 4000
+  baseOilGrade: ISO VG 46

@@ -1,0 +1,31 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4d74db45e8252541999c6f96711868f, type: 3}
+  m_Name: Machine_karl_fischer
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.MachineDef
+  id: karl_fischer
+  displayName: Karl Fischer Titrator
+  runTimeSeconds: 240
+  sampleVolumeMl: 5
+  costPerRun: 18
+  measures:
+  - {fileID: 11400000, guid: 4ac0f9246b3141041be106c07692a337, type: 2}
+  cannotDetect: []
+  baseNoisePercent: 0.01
+  calibrationDriftPerRun: 0.004
+  contaminationCarryoverPercent: 0.18
+  requiresFumeHood: 0
+  requiresPreheat: 0
+  preheatTargetC: 100
+  slots: 1
+  purchaseCost: 22000
+  footprint: {x: 1, y: 1}

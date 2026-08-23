@@ -1,0 +1,19 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7ff44158b43c4a47bd92bf2f63570d7, type: 3}
+  m_Name: Cause_air_filter_failure
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.RootCauseDef
+  id: air_filter_failure
+  displayName: Air Filter / Intake Seal Failure
+  explanation: Silicon rising WITH aluminium and iron means abrasive dirt is entering
+    through the intake. The worn component is a symptom. Replace it without fixing
+    the filter and the next sample looks identical.
