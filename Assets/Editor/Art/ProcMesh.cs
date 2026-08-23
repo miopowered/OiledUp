@@ -155,6 +155,39 @@ namespace Residue.Editor.Art
             public int TriangleCount => tris.Count / 3;
         }
 
+        /// <summary>
+        /// A single facing quad with real 0..1 UVs, for surfaces that carry an actual texture.
+        /// <para>
+        /// Everything else in this project maps every vertex to one palette texel, which is exactly
+        /// wrong for an instrument screen: the display texture would sample a single colour. Screens
+        /// are the one place the style contract's no-textures rule does not apply, because the
+        /// texture IS the readout.
+        /// </para>
+        /// </summary>
+        public static Mesh ScreenQuad(string name, float width, float height)
+        {
+            var mesh = new Mesh { name = name };
+            float w = width * 0.5f, h = height * 0.5f;
+
+            mesh.SetVertices(new List<Vector3>
+            {
+                new(-w, -h, 0f), new(w, -h, 0f), new(w, h, 0f), new(-w, h, 0f)
+            });
+            // Winding (0,1,2),(0,2,3) over BL,BR,TR,TL gives a geometric normal of +Z, so the quad
+            // faces +Z and its vertex normals must agree or it lights as if turned away.
+            mesh.SetNormals(new List<Vector3>
+            {
+                Vector3.forward, Vector3.forward, Vector3.forward, Vector3.forward
+            });
+            mesh.SetUVs(0, new List<Vector2>
+            {
+                new(0f, 0f), new(1f, 0f), new(1f, 1f), new(0f, 1f)
+            });
+            mesh.SetTriangles(new List<int> { 0, 1, 2, 0, 2, 3 }, 0);
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         public static Mesh Box(string name, Vector3 size, PaletteUv.Family family, int step) =>
             new Builder().Box(Vector3.zero, size, family, step).ToMesh(name);
 

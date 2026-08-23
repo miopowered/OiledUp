@@ -42,5 +42,26 @@ namespace Residue.Gameplay.World
                 ? $"Take blank slip — {MachineName}"
                 : $"Take printout — {EquipmentTag}";
         }
+
+        public override string UseHint => "read slip";
+
+        /// <summary>Glance at the slip without walking to the desk. Reading is not filing.</summary>
+        public override void UseInHand(PlayerInteractor player)
+        {
+            if (Result == null) { player.Say("The slip is blank."); return; }
+
+            var text = new System.Text.StringBuilder();
+            text.Append(Result.IsBlank ? $"{MachineName} blank: " : $"{EquipmentTag} · {MachineName}: ");
+
+            int shown = 0;
+            foreach (var kv in Result.Values)
+            {
+                if (shown++ >= 6) { text.Append("…"); break; }
+                text.Append($"{kv.Key} {kv.Value:0.###}   ");
+            }
+
+            if (shown == 0) text.Append("no values reported");
+            player.Say(text.ToString(), 6f);
+        }
     }
 }

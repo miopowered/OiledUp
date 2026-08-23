@@ -177,8 +177,17 @@ namespace Residue.Gameplay.World
         /// </summary>
         private void TickAgitate()
         {
+            if (agitateAction == null) { agitateElapsed = 0f; return; }
+
             var vial = CarriedVial;
-            if (vial == null || agitateAction == null) { agitateElapsed = 0f; return; }
+            if (vial == null)
+            {
+                // Anything that is not a vial gets a tap rather than a hold: open a manual, glance
+                // at a slip. A carried item cannot be looked at, so this is its only input route.
+                agitateElapsed = 0f;
+                if (Carried != null && agitateAction.WasPressedThisFrame()) Carried.UseInHand(this);
+                return;
+            }
 
             var lab = LabRuntime.Instance;
             if (lab == null || !lab.Lab.Samples.TryGet(vial.SampleId, out var sample)) return;

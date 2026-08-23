@@ -22,6 +22,7 @@ namespace Residue.Gameplay.World
         private VisualElement holdFill;
         private Label toastLabel;
         private Label statusLabel;
+        private Label handsLabel;
         private VisualElement root;
 
         private void OnEnable()
@@ -102,12 +103,19 @@ namespace Residue.Gameplay.World
             // agitation is the mouse, and a player who cannot pick a vial up cannot discover
             // anything else in the game.
             var controls = new Label(
-                "[WASD] move    [E] interact / hold    [LMB] agitate held vial    [Shift] run    [Esc] close terminal");
+                "[WASD] move    [E] interact / hold    [LMB] use held item    [Shift] run    [Esc] close");
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
             controls.style.bottom = 12;
             root.Add(controls);
+
+            handsLabel = new Label();
+            Style(handsLabel, 13, SignalPalette.Ink);
+            handsLabel.style.position = Position.Absolute;
+            handsLabel.style.left = 16;
+            handsLabel.style.bottom = 32;
+            root.Add(handsLabel);
         }
 
         private void Update()
@@ -142,6 +150,21 @@ namespace Residue.Gameplay.World
             holdFill.style.width = Length.Percent(interactor.HoldProgress * 100f);
 
             toastLabel.text = interactor.Toast ?? string.Empty;
+
+            // Tell the player what the thing in their hands does, since a carried item cannot be
+            // looked at and therefore never shows a prompt of its own.
+            var carried = interactor.Carried;
+            if (carried != null)
+            {
+                string hint = carried.UseHint;
+                handsLabel.text = hint == null
+                    ? $"holding: {carried.DisplayName}"
+                    : $"holding: {carried.DisplayName}    [LMB] {hint}";
+            }
+            else
+            {
+                handsLabel.text = string.Empty;
+            }
 
             UpdateStatus();
         }

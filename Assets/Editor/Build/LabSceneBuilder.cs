@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using Residue.Data;
 using Residue.Editor.Art;
@@ -79,14 +80,20 @@ namespace Residue.Editor.Build
 
             // Additive so the currently open scene is never closed — closing it would raise a
             // "save changes?" modal, which blocks the Editor and hangs every MCP call.
+            var screenMaterial = EnsureScreenMaterial();
+            var printoutPrefab = BuildPrintoutPrefab(palette);
+
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
 
+            var books = new List<ReferenceBook>();
+
             BuildEnvironment(scene, palette);
-            var runtime = BuildRuntime(scene, catalog, vialPrefab);
-            var stations = BuildStations(scene, palette);
+            BuildRuntime(scene, catalog, vialPrefab, printoutPrefab);
+            var stations = BuildStations(scene, palette, screenMaterial, books);
             var player = BuildPlayer(scene, palette, inputAsset, panelSettings);
 
             WireTerminal(stations.terminal, player.terminalScreen);
+            foreach (var book in books) WireBook(book, player.bookScreen);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -185,7 +192,8 @@ namespace Residue.Editor.Build
 
         // -- Simulation host ---------------------------------------------------------------------------
 
-        private static LabRuntime BuildRuntime(Scene scene, ContentCatalog catalog, VialProp vialPrefab)
+        private static LabRuntime BuildRuntime(Scene scene, ContentCatalog catalog,
+                                               VialProp vialPrefab, PrintoutProp printoutPrefab)
         {
             var go = new GameObject("LabRuntime");
             SceneManager.MoveGameObjectToScene(go, scene);
@@ -194,6 +202,7 @@ namespace Residue.Editor.Build
             var so = new SerializedObject(runtime);
             so.FindProperty("catalog").objectReferenceValue = catalog;
             so.FindProperty("vialPrefab").objectReferenceValue = vialPrefab;
+            so.FindProperty("printoutPrefab").objectReferenceValue = printoutPrefab;
 
             var ids = so.FindProperty("installedMachineIds");
             ids.arraySize = MachineIds.Length;
@@ -206,49 +215,81 @@ namespace Residue.Editor.Build
 
         // -- Stations ----------------------------------------------------------------------------------
 
-        private static (TerminalStation terminal, IntakeCrate crate) BuildStations(Scene scene, Material palette)
+        private static (TerminalStation terminal, IntakeCrate crate) BuildStations(
+            Scene scene, Material palette, Material screenMaterial, List<ReferenceBook> books)
         {
             var root = NewRoot(scene, "Stations");
+            var bookMesh = SaveMesh(BuildBookMesh("Book_Volume"));
 
-            var bodyMesh = SaveMesh(ProcMesh.Box("Machine_Body", new Vector3(0.62f, 0.5f, 0.5f),
-                PaletteUv.Family.NeutralWarm, 6));
-            var lightMesh = SaveMesh(ProcMesh.Box("Machine_Light", new Vector3(0.1f, 0.04f, 0.02f),
+            var lightMesh = SaveMesh(ProcMesh.Box("Machine_Light", new Vector3(0.1f, 0.025f, 0.015f),
                 PaletteUv.Family.Signal, 13));
-            var buttonMesh = SaveMesh(ProcMesh.Box("Machine_Button", new Vector3(0.07f, 0.05f, 0.02f),
+            var buttonMesh = SaveMesh(ProcMesh.Box("Machine_Button", new Vector3(0.055f, 0.04f, 0.018f),
                 PaletteUv.Family.Brass, 8));
-            var socketMesh = SaveMesh(ProcMesh.Cylinder("Machine_Socket", 0.03f, 0.012f, 10,
-                PaletteUv.Family.Sump, 3));
 
             float benchZ = -RoomDepth * 0.5f + 0.55f;
             float[] xs = { -2.7f, -0.9f, 0.9f, 2.7f };
 
             for (int i = 0; i < MachineIds.Length; i++)
             {
+                var visual = VisualFor(MachineIds[i]);
+
                 var machineGo = new GameObject($"Machine_{MachineIds[i]}");
                 SceneManager.MoveGameObjectToScene(machineGo, scene);
                 machineGo.transform.SetParent(root.transform, false);
-                machineGo.transform.position = new Vector3(xs[i], BenchHeight + 0.25f, benchZ);
+                machineGo.transform.position = new Vector3(xs[i], BenchHeight, benchZ);
 
+                var bodyMesh = SaveMesh(BuildMachineBody($"Machine_{MachineIds[i]}_Body", visual));
                 AddChild(machineGo, "Body", bodyMesh, palette, Vector3.zero, addCollider: true);
-                var statusLight = AddChild(machineGo, "StatusLight", lightMesh, palette,
-                    new Vector3(0f, 0.15f, 0.26f), addCollider: false);
-                AddChild(machineGo, "Socket", socketMesh, palette, new Vector3(0f, 0.25f, 0.1f), addCollider: false);
 
-                var socket = new GameObject("VialSocket");
-                socket.transform.SetParent(machineGo.transform, false);
-                socket.transform.localPosition = new Vector3(0f, 0.27f, 0.1f);
+                float front = visual.Size.z * 0.5f;
+
+                // Screen: its own quad with real UVs and the emissive material, because
+                // MachineDisplay writes a generated texture onto it every run.
+                var screenMesh = SaveMesh(ProcMesh.ScreenQuad(
+                    $"Machine_{MachineIds[i]}_Screen", visual.ScreenSize.x, visual.ScreenSize.y));
+                var screenGo = AddChild(machineGo, "Screen", screenMesh, screenMaterial,
+                    new Vector3(0f, visual.ScreenY, front + 0.004f), addCollider: false);
+
+                var display = screenGo.AddComponent<MachineDisplay>();
+                var dso = new SerializedObject(display);
+                dso.FindProperty("screen").objectReferenceValue = screenGo.GetComponent<Renderer>();
+                dso.FindProperty("style").enumValueIndex = visual.Panel ? 1 : 0;
+                dso.FindProperty("pixelWidth").intValue = visual.Panel ? 192 : 128;
+                dso.FindProperty("pixelHeight").intValue = visual.Panel ? 128 : 64;
+                dso.FindProperty("scale").intValue = 2;
+                dso.ApplyModifiedPropertiesWithoutUndo();
+
+                var statusLight = AddChild(machineGo, "StatusLight", lightMesh, palette,
+                    new Vector3(visual.Size.x * 0.5f - 0.08f, visual.Size.y - 0.04f, front + 0.008f),
+                    addCollider: false);
+
+                var vialSocket = new GameObject("VialSocket");
+                vialSocket.transform.SetParent(machineGo.transform, false);
+                vialSocket.transform.localPosition = new Vector3(0f, visual.Size.y + 0.005f, -0.06f);
+
+                var traySocket = new GameObject("PrintoutSocket");
+                traySocket.transform.SetParent(machineGo.transform, false);
+                traySocket.transform.localPosition = new Vector3(0f, 0.075f, front + 0.055f);
+                traySocket.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
 
                 var station = machineGo.AddComponent<MachineStation>();
                 var so = new SerializedObject(station);
                 so.FindProperty("machineInstanceId").stringValue = MachineIds[i];
-                so.FindProperty("vialSocket").objectReferenceValue = socket.transform;
+                so.FindProperty("vialSocket").objectReferenceValue = vialSocket.transform;
+                so.FindProperty("printoutSocket").objectReferenceValue = traySocket.transform;
                 so.FindProperty("statusLight").objectReferenceValue = statusLight.GetComponent<Renderer>();
+                so.FindProperty("display").objectReferenceValue = display;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
                 AddActionButton(machineGo, "CleanButton", buttonMesh, palette,
-                    new Vector3(-0.16f, -0.05f, 0.26f), station, MachineAction.Clean);
+                    new Vector3(-0.14f, 0.16f, front + 0.01f), station, MachineAction.Clean);
                 AddActionButton(machineGo, "BlankButton", buttonMesh, palette,
-                    new Vector3(0.16f, -0.05f, 0.26f), station, MachineAction.Blank);
+                    new Vector3(-0.06f, 0.16f, front + 0.01f), station, MachineAction.Blank);
+
+                // Its own manual, sitting beside it. §5.5: where you keep a reference matters.
+                books.Add(AddBook(machineGo, "Manual", bookMesh, palette,
+                    new Vector3(visual.Size.x * 0.5f + 0.13f, 0.015f, 0f),
+                    BookKind.MachineManual, MachineIds[i]));
             }
 
             // Staging racks on the island, plus one beside the instruments so a finished vial can be
@@ -291,7 +332,142 @@ namespace Residue.Editor.Build
 
             var terminal = terminalGo.AddComponent<TerminalStation>();
 
+            // Shelf of general references beside the desk. Keeping them here rather than as a
+            // terminal tab means looking something up costs the walk and the shift time — §6.1
+            // assumes reading is expensive.
+            var shelfMesh = SaveMesh(ProcMesh.Box("Lab_Shelf", new Vector3(0.9f, 0.04f, 0.24f),
+                PaletteUv.Family.Steel, 7));
+            var shelfGo = new GameObject("BookShelf");
+            SceneManager.MoveGameObjectToScene(shelfGo, scene);
+            shelfGo.transform.SetParent(root.transform, false);
+            shelfGo.transform.position = new Vector3(RoomWidth * 0.5f - 1.1f, BenchHeight + 0.5f, 1.98f);
+            AddChild(shelfGo, "Plank", shelfMesh, palette, Vector3.zero, addCollider: true);
+
+            books.Add(AddBook(shelfGo, "Elements", bookMesh, palette,
+                new Vector3(-0.28f, 0.04f, 0f), BookKind.ElementIndex, null));
+            books.Add(AddBook(shelfGo, "Diagnostics", bookMesh, palette,
+                new Vector3(0f, 0.04f, 0f), BookKind.DiagnosticGuide, null));
+            books.Add(AddBook(shelfGo, "Thresholds", bookMesh, palette,
+                new Vector3(0.28f, 0.04f, 0f), BookKind.ThresholdTables, null));
+
             return (terminal, crate);
+        }
+
+        // -- Machine visuals ---------------------------------------------------------------------------
+
+        /// <summary>Per-instrument proportions, so they are distinguishable by silhouette alone.</summary>
+        private readonly struct MachineVisual
+        {
+            public readonly Vector3 Size;
+            public readonly Vector2 ScreenSize;
+            public readonly float ScreenY;
+            public readonly bool Panel;
+            public readonly int Dials;
+            public readonly int Vents;
+
+            public MachineVisual(Vector3 size, Vector2 screenSize, float screenY, bool panel, int dials, int vents)
+            {
+                Size = size; ScreenSize = screenSize; ScreenY = screenY;
+                Panel = panel; Dials = dials; Vents = vents;
+            }
+        }
+
+        private static MachineVisual VisualFor(string id) => id switch
+        {
+            // Wide and low with a big panel: the spectrometer is the centrepiece instrument.
+            "icp" => new MachineVisual(new Vector3(0.78f, 0.46f, 0.52f), new Vector2(0.40f, 0.24f), 0.30f, true, 3, 6),
+
+            "ftir" => new MachineVisual(new Vector3(0.60f, 0.42f, 0.46f), new Vector2(0.30f, 0.19f), 0.28f, true, 2, 4),
+
+            // A titrator is a small box with a two-line readout and a lot of knobs.
+            "karl_fischer" => new MachineVisual(new Vector3(0.46f, 0.38f, 0.42f), new Vector2(0.22f, 0.10f), 0.28f, false, 3, 2),
+
+            // Ferrography is tall and slow-looking. It should read as the expensive option.
+            "ferrography" => new MachineVisual(new Vector3(0.52f, 0.66f, 0.46f), new Vector2(0.30f, 0.22f), 0.46f, true, 1, 8),
+
+            _ => new MachineVisual(new Vector3(0.55f, 0.44f, 0.46f), new Vector2(0.26f, 0.14f), 0.30f, false, 2, 4)
+        };
+
+        /// <summary>
+        /// One mesh for an instrument's chassis: body, screen bezel, dials, vent slats, output slot
+        /// and feet. Pivot at base centre per §2.1, so the machine sits on whatever it is placed on.
+        /// </summary>
+        private static Mesh BuildMachineBody(string name, MachineVisual v)
+        {
+            var b = new ProcMesh.Builder();
+            float front = v.Size.z * 0.5f;
+            const float footHeight = 0.018f;
+
+            float bodyHeight = v.Size.y - footHeight;
+            b.Box(new Vector3(0f, footHeight + bodyHeight * 0.5f, 0f),
+                new Vector3(v.Size.x, bodyHeight, v.Size.z), PaletteUv.Family.NeutralWarm, 7);
+
+            // Feet lift it off the bench so it reads as equipment rather than a painted block.
+            float fx = v.Size.x * 0.5f - 0.045f, fz = v.Size.z * 0.5f - 0.045f;
+            foreach (var corner in new[]
+                     {
+                         new Vector2(-fx, -fz), new Vector2(fx, -fz),
+                         new Vector2(-fx, fz), new Vector2(fx, fz)
+                     })
+            {
+                b.Box(new Vector3(corner.x, footHeight * 0.5f, corner.y),
+                    new Vector3(0.05f, footHeight, 0.05f), PaletteUv.Family.Sump, 4);
+            }
+
+            // Recessed bezel around the screen.
+            float bw = v.ScreenSize.x + 0.035f, bh = v.ScreenSize.y + 0.035f;
+            b.Box(new Vector3(0f, v.ScreenY, front - 0.004f), new Vector3(bw, bh, 0.012f),
+                PaletteUv.Family.Sump, 2);
+
+            // Dials along the lower front. Cylinders build along +Y, so these read as knobs on the
+            // top lip rather than dials on the face — good enough for greybox, and a dial that
+            // protrudes upward is still unmistakably a dial.
+            for (int i = 0; i < v.Dials; i++)
+            {
+                float x = v.Size.x * 0.5f - 0.075f - i * 0.075f;
+                b.Cylinder(new Vector3(x, v.Size.y - 0.002f, front - 0.06f), 0.024f, 0.016f, 12,
+                    PaletteUv.Family.Brass, 9);
+            }
+
+            // Vent slats down one side.
+            for (int i = 0; i < v.Vents; i++)
+            {
+                float y = footHeight + 0.05f + i * 0.028f;
+                if (y > v.Size.y - 0.05f) break;
+                b.Box(new Vector3(-v.Size.x * 0.5f + 0.0035f, y, 0f),
+                    new Vector3(0.007f, 0.012f, v.Size.z * 0.55f), PaletteUv.Family.Sump, 3);
+            }
+
+            // Output slot the printout emerges from.
+            b.Box(new Vector3(0f, 0.075f, front - 0.006f), new Vector3(0.20f, 0.016f, 0.014f),
+                PaletteUv.Family.Sump, 1);
+
+            // Top-loading port for the vial.
+            b.Cylinder(new Vector3(0f, v.Size.y - 0.006f, -0.06f), 0.032f, 0.008f, 12,
+                PaletteUv.Family.Sump, 2);
+
+            return b.ToMesh(name);
+        }
+
+        private static Mesh BuildBookMesh(string name)
+        {
+            return new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.014f, 0f), new Vector3(0.16f, 0.028f, 0.22f), PaletteUv.Family.NeutralCold, 9)
+                .Box(new Vector3(-0.083f, 0.014f, 0f), new Vector3(0.008f, 0.030f, 0.225f), PaletteUv.Family.DeepBlue, 6)
+                .ToMesh(name);
+        }
+
+        private static ReferenceBook AddBook(GameObject parent, string name, Mesh mesh, Material palette,
+                                             Vector3 localPosition, BookKind kind, string machineId)
+        {
+            var go = AddChild(parent, $"Book_{name}", mesh, palette, localPosition, addCollider: true);
+            var book = go.AddComponent<ReferenceBook>();
+
+            var so = new SerializedObject(book);
+            so.FindProperty("kind").enumValueIndex = (int)kind;
+            so.FindProperty("machineId").stringValue = machineId ?? string.Empty;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return book;
         }
 
         private static void AddRack(GameObject root, Scene scene, string rackId, Vector3 position,
@@ -331,7 +507,7 @@ namespace Residue.Editor.Build
 
         // -- Player ------------------------------------------------------------------------------------
 
-        private static (PlayerController controller, TerminalScreen terminalScreen) BuildPlayer(
+        private static (PlayerController controller, TerminalScreen terminalScreen, BookScreen bookScreen) BuildPlayer(
             Scene scene, Material palette,
             UnityEngine.InputSystem.InputActionAsset inputAsset,
             PanelSettings panelSettings)
@@ -394,12 +570,31 @@ namespace Residue.Editor.Build
             screenSo.FindProperty("interactor").objectReferenceValue = interactor;
             screenSo.ApplyModifiedPropertiesWithoutUndo();
 
-            return (player, screen);
+            // Reading view, above the terminal so an open manual covers it.
+            var bookGo = new GameObject("BookUI");
+            SceneManager.MoveGameObjectToScene(bookGo, scene);
+            var bookDoc = bookGo.AddComponent<UIDocument>();
+            SetPanelSettings(bookDoc, panelSettings, 20);
+            var bookScreen = bookGo.AddComponent<BookScreen>();
+            var bookSo = new SerializedObject(bookScreen);
+            bookSo.FindProperty("document").objectReferenceValue = bookDoc;
+            bookSo.FindProperty("player").objectReferenceValue = player;
+            bookSo.FindProperty("interactor").objectReferenceValue = interactor;
+            bookSo.ApplyModifiedPropertiesWithoutUndo();
+
+            return (player, screen, bookScreen);
         }
 
         private static void WireTerminal(TerminalStation station, TerminalScreen screen)
         {
             var so = new SerializedObject(station);
+            so.FindProperty("screen").objectReferenceValue = screen;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static void WireBook(ReferenceBook book, BookScreen screen)
+        {
+            var so = new SerializedObject(book);
             so.FindProperty("screen").objectReferenceValue = screen;
             so.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -421,13 +616,23 @@ namespace Residue.Editor.Build
 
             var go = new GameObject("Vial");
 
-            var glassMesh = SaveMesh(ProcMesh.Cylinder("Vial_Glass", 0.017f, 0.085f, 10,
+            var glassMesh = SaveMesh(ProcMesh.Cylinder("Vial_Glass", 0.017f, 0.082f, 12,
                 PaletteUv.Family.Solvent, 12));
-            var fluidMesh = SaveMesh(ProcMesh.Cylinder("Vial_Fluid", 0.014f, 0.05f, 10,
+
+            // Full-height fluid column: VialProp scales this on Y, so an almost-spent sample reads
+            // as spent from across the room without opening a screen.
+            var fluidMesh = SaveMesh(ProcMesh.Cylinder("Vial_Fluid", 0.0138f, 0.070f, 12,
                 PaletteUv.Family.Oxide, 4));
 
+            var capMesh = SaveMesh(ProcMesh.Cylinder("Vial_Cap", 0.0195f, 0.014f, 12,
+                PaletteUv.Family.DeepBlue, 5));
+            var labelMesh = SaveMesh(ProcMesh.Box("Vial_Label", new Vector3(0.024f, 0.030f, 0.002f),
+                PaletteUv.Family.NeutralWarm, 13));
+
             AddChild(go, "Glass", glassMesh, palette, Vector3.zero, addCollider: false);
-            var fluid = AddChild(go, "Fluid", fluidMesh, palette, new Vector3(0f, 0.004f, 0f), addCollider: false);
+            var fluid = AddChild(go, "Fluid", fluidMesh, palette, new Vector3(0f, 0.005f, 0f), addCollider: false);
+            AddChild(go, "Cap", capMesh, palette, new Vector3(0f, 0.080f, 0f), addCollider: false);
+            AddChild(go, "Label", labelMesh, palette, new Vector3(0f, 0.036f, 0.0172f), addCollider: false);
 
             var collider = go.AddComponent<CapsuleCollider>();
             collider.radius = 0.025f;
@@ -440,11 +645,42 @@ namespace Residue.Editor.Build
             var vial = go.AddComponent<VialProp>();
             var so = new SerializedObject(vial);
             so.FindProperty("fluidRenderer").objectReferenceValue = fluid.GetComponent<Renderer>();
+            so.FindProperty("fluidTransform").objectReferenceValue = fluid.transform;
             so.ApplyModifiedPropertiesWithoutUndo();
 
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
             Object.DestroyImmediate(go);
             return prefab.GetComponent<VialProp>();
+        }
+
+        /// <summary>A results slip: a sheet with a printed header band, thin enough to read as paper.</summary>
+        private static PrintoutProp BuildPrintoutPrefab(Material palette)
+        {
+            string path = $"{PrefabFolder}/Printout.prefab";
+            var go = new GameObject("Printout");
+
+            var sheetMesh = SaveMesh(ProcMesh.Box("Printout_Sheet", new Vector3(0.105f, 0.0015f, 0.145f),
+                PaletteUv.Family.NeutralWarm, 14));
+            var bandMesh = SaveMesh(ProcMesh.Box("Printout_Band", new Vector3(0.105f, 0.0018f, 0.020f),
+                PaletteUv.Family.Sump, 5));
+
+            var sheet = AddChild(go, "Sheet", sheetMesh, palette, Vector3.zero, addCollider: false);
+            AddChild(go, "Band", bandMesh, palette, new Vector3(0f, 0.0004f, 0.058f), addCollider: false);
+
+            var collider = go.AddComponent<BoxCollider>();
+            collider.size = new Vector3(0.11f, 0.02f, 0.15f);
+
+            var body = go.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+
+            var printout = go.AddComponent<PrintoutProp>();
+            var so = new SerializedObject(printout);
+            so.FindProperty("paper").objectReferenceValue = sheet.GetComponent<MeshRenderer>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            Object.DestroyImmediate(go);
+            return prefab.GetComponent<PrintoutProp>();
         }
 
         /// <summary>
@@ -482,6 +718,40 @@ namespace Residue.Editor.Build
             settings.match = 0.5f;
             EditorUtility.SetDirty(settings);
             return settings;
+        }
+
+        /// <summary>
+        /// Instrument screens get their own material rather than a palette one.
+        /// <para>
+        /// A screen is the single place the §2.1 no-textures rule does not apply, because the
+        /// texture IS the readout. Sharing the palette material also meant an unlit editor showed
+        /// the whole 16x16 atlas on every instrument, which looks like a bug.
+        /// </para>
+        /// </summary>
+        private static Material EnsureScreenMaterial()
+        {
+            const string path = "Assets/Art/Materials/M_Screen.mat";
+
+            var material = AssetDatabase.LoadAssetAtPath<Material>(path);
+            var shader = Shader.Find("Universal Render Pipeline/Lit");
+            if (shader == null) return AssetDatabase.LoadAssetAtPath<Material>(PaletteMaterial);
+
+            if (material == null)
+            {
+                material = new Material(shader) { name = "M_Screen" };
+                AssetDatabase.CreateAsset(material, path);
+            }
+
+            material.shader = shader;
+            material.SetColor("_BaseColor", new Color(0.04f, 0.06f, 0.07f));
+            material.SetTexture("_BaseMap", null);
+            material.SetFloat("_Smoothness", 0f);
+            material.SetFloat("_Metallic", 0f);
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", new Color(0.10f, 0.18f, 0.18f));
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            EditorUtility.SetDirty(material);
+            return material;
         }
 
         private static Mesh SaveMesh(Mesh mesh)

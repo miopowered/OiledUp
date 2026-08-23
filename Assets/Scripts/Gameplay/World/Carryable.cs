@@ -44,5 +44,18 @@ namespace Residue.Gameplay.World
         public override bool CanInteract(PlayerInteractor player) => player.Carried == null;
 
         public override void Interact(PlayerInteractor player) => player.TryCarry(this);
+
+        /// <summary>
+        /// What the primary button does while this is in your hands: shake a vial, open a manual,
+        /// glance at a slip.
+        /// <para>
+        /// Needed because a carried item cannot be targeted — its colliders are off and the
+        /// interactor skips it — so the normal look-at-and-press route is unavailable by design.
+        /// </para>
+        /// </summary>
+        public virtual void UseInHand(PlayerInteractor player) { }
+
+        /// <summary>HUD hint for <see cref="UseInHand"/>, or null if the item does nothing in hand.</summary>
+        public virtual string UseHint => null;
     }
 }
