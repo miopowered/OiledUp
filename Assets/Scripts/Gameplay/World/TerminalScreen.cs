@@ -152,7 +152,6 @@ namespace Residue.Gameplay.World
 
             var lab = LabRuntime.Instance?.Lab;
             root.Clear();
-            if (lab == null) return;
 
             root.style.flexGrow = 1f;
             root.style.backgroundColor = new StyleColor(new Color(0.05f, 0.06f, 0.07f, 0.97f));
@@ -160,6 +159,8 @@ namespace Residue.Gameplay.World
             root.style.paddingRight = 24;
             root.style.paddingTop = 18;
             root.style.paddingBottom = 18;
+
+            if (lab == null) { root.Add(NotHereYet()); return; }
 
             root.Add(Header(lab));
 
@@ -172,6 +173,51 @@ namespace Residue.Gameplay.World
             body.Add(Detail(lab));
             body.Add(CalibrationPanel(lab));
             root.Add(body);
+        }
+
+        /// <summary>
+        /// What a joined client sees at the desk, for now.
+        /// <para>
+        /// <b>Why not a partial terminal.</b> Almost every panel on this screen could be built from
+        /// replicated views today — the sample list, the instruments, the calibration certificates —
+        /// and filing a verdict is already a <see cref="LabCommand"/> the host validates. What does
+        /// <i>not</i> replicate is <see cref="TestResult"/>: the measured numbers, the thresholds they
+        /// are scored against, and the run log. So a client could be handed FILE NORMAL / MONITOR /
+        /// CRITICAL with no evidence on the screen to base the call on, which is precisely the shape
+        /// hard rule 3 forbids — a consequence landing on something the player could not check.
+        /// </para>
+        /// A blank panel would read as a broken screen, so it says what it is and where the work is
+        /// still possible. Deleting this means replicating results; see docs/MULTIPLAYER.md.
+        /// </summary>
+        private VisualElement NotHereYet()
+        {
+            var panel = Panel();
+            panel.style.flexGrow = 1f;
+            panel.Add(SectionTitle("SAMPLE TERMINAL"));
+
+            panel.Add(Dim(LabView.Current == null
+                ? "Waiting for the lab. If this does not clear, the session never came up."
+                : "This terminal is host-side for now. Measured values do not replicate yet, so a " +
+                  "verdict filed from here would be filed blind — and a call you could not check is " +
+                  "exactly what the lab refuses to ask of you."));
+
+            var still = new Label(
+                "You can still work the instruments: flush them, run a solvent blank, run a certified " +
+                "standard and recalibrate. The day clock and the books are in the corner of your screen.");
+            still.style.fontSize = 12;
+            still.style.marginTop = 10;
+            still.style.whiteSpace = WhiteSpace.Normal;
+            still.style.color = new StyleColor(SignalPalette.Ink);
+            panel.Add(still);
+
+            var close = new Button(Close) { text = "CLOSE  (Esc)" };
+            StyleButton(close, SignalPalette.PanelSoft);
+            close.style.marginTop = 14;
+            close.style.marginLeft = 0;
+            close.style.alignSelf = Align.FlexStart;
+            panel.Add(close);
+
+            return panel;
         }
 
         private VisualElement Header(LabState lab)

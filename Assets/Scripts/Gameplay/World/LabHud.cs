@@ -1,4 +1,3 @@
-using Residue.Gameplay.Simulation;
 using UnityEngine;
 using UnityEngine.UIElements;
 
@@ -229,17 +228,20 @@ namespace Residue.Gameplay.World
             UpdateStatus();
         }
 
+        /// <summary>
+        /// The corner readout: the clock, the books, and how much is still open.
+        /// <para>
+        /// Read through <see cref="LabView.Current"/> rather than off <c>LabRuntime.Lab</c>, so it is
+        /// drawn on a joined client too. The shift clock is the pressure the whole game runs on (§6.1)
+        /// and a player who could not see it was playing a different game from the person hosting.
+        /// </para>
+        /// </summary>
         private void UpdateStatus()
         {
-            var lab = LabRuntime.Instance?.Lab;
+            var lab = LabView.Current;
             if (lab == null) { statusLabel.text = string.Empty; return; }
 
-            int open = 0;
-            foreach (var s in lab.Samples.All)
-            {
-                if (!s.FiledVerdict.HasValue) open++;
-            }
-
+            int open = lab.OpenSampleCount;
             var span = System.TimeSpan.FromSeconds(Mathf.Max(0f, lab.DaySecondsRemaining));
 
             string clock = lab.ShiftOver
@@ -249,8 +251,8 @@ namespace Residue.Gameplay.World
 
             statusLabel.text =
                 $"DAY {lab.Day}   {clock}\n" +
-                $"£{lab.Economy.Money:N0}   REP {lab.Economy.Reputation:F0}   " +
-                $"SOLVENT {lab.Economy.SolventUnits:F0}   STD {lab.Economy.ReferenceStandards}\n" +
+                $"£{lab.Money:N0}   REP {lab.Reputation:F0}   " +
+                $"SOLVENT {lab.SolventUnits:F0}   STD {lab.ReferenceStandards}\n" +
                 $"{open} sample{(open == 1 ? "" : "s")} open";
         }
 

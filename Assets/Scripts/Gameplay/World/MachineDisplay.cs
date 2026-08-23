@@ -81,19 +81,32 @@ namespace Residue.Gameplay.World
 
         // -- Public API ------------------------------------------------------------------------------
 
-        public void ShowIdle(MachineInstance machine)
+        /// <summary>
+        /// The instrument's name in screen case, or a stand-in before the definition is known — which
+        /// on a client is the first few frames after the lab scene loads.
+        /// </summary>
+        private static string Title(IMachineView machine) =>
+            machine != null && machine.Def != null ? machine.Def.DisplayName : "INSTRUMENT";
+
+        public void ShowIdle(IMachineView machine)
         {
             Clear();
-            string title = machine?.Def != null ? machine.Def.DisplayName : "INSTRUMENT";
-            DrawText(2, 2, Shorten(title, Columns), ink);
+            DrawText(2, 2, Shorten(Title(machine), Columns), ink);
             DrawText(2, 2 + LineHeight, "READY", dim);
             Apply();
         }
 
-        public void ShowRunning(MachineInstance machine)
+        /// <summary>
+        /// The progress readout. Everything it draws is replicated (§3.1), so this is the same screen
+        /// on the host's monitor and on a joined client's — which matters because the run clock is how
+        /// a player decides whether to wait at the machine or go and do something else.
+        /// </summary>
+        public void ShowRunning(IMachineView machine)
         {
+            if (machine == null) return;
+
             Clear();
-            DrawText(2, 2, Shorten(machine.Def.DisplayName, Columns), dim);
+            DrawText(2, 2, Shorten(Title(machine), Columns), dim);
             DrawText(2, 2 + LineHeight, $"RUNNING {machine.SecondsRemaining:F0}S", ink);
             DrawProgressBar(2, 2 + LineHeight * 2, Columns * PixelFont.Advance * scale - 4, machine.Progress);
             Apply();
@@ -104,16 +117,21 @@ namespace Residue.Gameplay.World
         /// A recalibration has no reading to draw, and a screen still showing the previous result
         /// would leave the player with no sign at the machine that anything happened at all.
         /// </summary>
-        public void ShowNotice(MachineInstance machine, string headline, string detail)
+        public void ShowNotice(IMachineView machine, string headline, string detail)
         {
             Clear();
-            DrawText(2, 2, Shorten(machine?.Def != null ? machine.Def.DisplayName : "INSTRUMENT", Columns), dim);
+            DrawText(2, 2, Shorten(Title(machine), Columns), dim);
             DrawText(2, 2 + LineHeight, Shorten(headline ?? "", Columns), ink);
             DrawText(2, 2 + LineHeight * 2, Shorten(detail ?? "", Columns), dim);
             Apply();
         }
 
-        public void Show(MachineInstance machine, TestResult result, SampleState sample)
+        /// <summary>
+        /// Draw a finished reading. Host-only in practice: <see cref="TestResult"/> does not replicate,
+        /// so a client's screen returns to <see cref="ShowIdle"/> when a run ends and the numbers are
+        /// read at the terminal instead. That is a gap, not a rule — see docs/MULTIPLAYER.md.
+        /// </summary>
+        public void Show(IMachineView machine, TestResult result, SampleState sample)
         {
             if (result == null) { ShowIdle(machine); return; }
 
@@ -127,7 +145,7 @@ namespace Residue.Gameplay.World
 
         // -- Layouts ---------------------------------------------------------------------------------
 
-        private void DrawNumeric(MachineInstance machine, TestResult result, SampleState sample)
+        private void DrawNumeric(IMachineView machine, TestResult result, SampleState sample)
         {
             int y = 2;
             DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);
@@ -150,10 +168,10 @@ namespace Residue.Gameplay.World
             if (shown == 0) DrawText(2, y, "NO READING", dim);
         }
 
-        private void DrawPanel(MachineInstance machine, TestResult result, SampleState sample)
+        private void DrawPanel(IMachineView machine, TestResult result, SampleState sample)
         {
             int y = 2;
-            DrawText(2, y, Shorten(machine.Def.DisplayName, Columns), ink);
+            DrawText(2, y, Shorten(Title(machine), Columns), ink);
             y += LineHeight;
 
             DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);

@@ -149,12 +149,20 @@ namespace Residue.Gameplay.World
             // This process simulates, so this process validates. On a client the executor stays null
             // and LabCommands refuses locally rather than mutating a lab that is not there.
             LabCommands.Executor = new LabCommandExecutor(Lab, this);
+
+            // And this process reads its own lab rather than a snapshot of it. On a client this stays
+            // null and Residue.Net installs the replicated view instead — see LabView.
+            LabView.Host = new HostLabView(Lab);
         }
 
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
             if (LabCommands.Executor != null && LabCommands.Executor.Lab == Lab) LabCommands.Executor = null;
+
+            // Checked against this runtime's own lab, for the same reason the executor is: a second
+            // LabRuntime destroying itself in Awake must not unhook the one that is actually running.
+            if (LabView.Host is HostLabView host && host.Lab == Lab) LabView.Host = null;
         }
 
         // -- Fixtures ---------------------------------------------------------------------------------

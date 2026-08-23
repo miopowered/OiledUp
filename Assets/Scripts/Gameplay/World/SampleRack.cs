@@ -127,9 +127,17 @@ namespace Residue.Gameplay.World
             int free = FreeSlots;
 
             if (player.Carried == null)
+            {
+                // A joined client's rack holds nothing because vials are local props and none were
+                // spawned here (§3.2 — see ILabView.HasVialProps), not because the host's rack is
+                // bare. Setting something down still works: the manual is a scene prop and exists in
+                // every process, which is why only the empty-handed branch has to explain itself.
+                if (LabView.VialsMissingHere) return $"Rack — {LabView.VialsAreHostOnly}";
+
                 return free == slotCount
                     ? "Rack — empty"
                     : $"Rack — {slotCount - free} sample{(slotCount - free == 1 ? "" : "s")}. Look at one to take it.";
+            }
 
             return free > 0 ? $"Set down in rack ({free} free)" : "Rack full";
         }

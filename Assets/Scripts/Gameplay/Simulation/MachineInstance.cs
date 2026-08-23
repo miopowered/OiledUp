@@ -68,6 +68,21 @@ namespace Residue.Gameplay.Simulation
         public TestResult LastResult;
 
         /// <summary>
+        /// A sample run has finished and its vial is still sitting in the instrument.
+        /// <para>
+        /// The difference between "press E to run this" and "press E to take your vial back", and it
+        /// belongs here rather than on the station that pressed the button. A station remembering it
+        /// locally is only right for the player who started the run: in co-op, everyone else's station
+        /// offers to run the sample a second time, which quietly spends millilitres nobody asked to
+        /// spend (§4.5). Kept on the instrument, it is the same answer for the whole room and it
+        /// replicates.
+        /// </para>
+        /// Only a <see cref="RunKind.Sample"/> sets it. A blank and a standard need no vial and leave
+        /// nothing to collect.
+        /// </summary>
+        public bool HasResultWaiting;
+
+        /// <summary>
         /// Most recent solvent blank, held separately so a later sample run cannot overwrite it.
         /// <para>
         /// This is the §5.2 tell. Hard rule: never punish something the player could not have
@@ -133,6 +148,7 @@ namespace Residue.Gameplay.Simulation
             if (verdict != LoadRefusal.Accepted) return verdict;
 
             LoadedSample = sample.Id;
+            HasResultWaiting = false;
             SampleLifecycle.TryMove(sample, SampleLocation.InMachine(InstanceId, 0), out _);
             return LoadRefusal.Accepted;
         }
@@ -143,6 +159,7 @@ namespace Residue.Gameplay.Simulation
             if (IsRunning) return SampleId.None;
             var id = LoadedSample;
             LoadedSample = SampleId.None;
+            HasResultWaiting = false;
             return id;
         }
 
@@ -225,6 +242,8 @@ namespace Residue.Gameplay.Simulation
             var finished = ActiveRun;
             SecondsRemaining = 0f;
             ActiveRun = RunKind.None;
+
+            if (finished == RunKind.Sample) HasResultWaiting = true;
             return finished;
         }
 

@@ -89,6 +89,12 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
+            // A joined client's crate is empty because the bottles never travelled, not because the
+            // morning delivery was small (§3.2 — see ILabView.HasVialProps). Saying "crate empty"
+            // there would be a lie that reads as a bug, and hard rule 3 is about the player always
+            // being able to tell what is going on.
+            if (LabView.VialsMissingHere) return $"Delivery crate — {LabView.VialsAreHostOnly}";
+
             if (player.Carried != null) return "Hands full";
             return Remaining > 0
                 ? $"Take next sample ({Remaining} in crate)"

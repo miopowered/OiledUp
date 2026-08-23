@@ -29,6 +29,12 @@ namespace Residue.Gameplay.World
     /// somewhere honest: a standard run and a recalibration both occupy the instrument for a share of
     /// its own cycle, and both are charged. Adding a hold on top would tax the player's hands for
     /// something the machine is doing.
+    /// <para>
+    /// <b>All four work from a joined client.</b> None of them needs a vial — which is what makes this
+    /// the part of the lab a connected player can operate in full today (see
+    /// <see cref="ILabView.HasVialProps"/> for what still cannot). Everything it reads comes through
+    /// <see cref="LabView.Current"/>, so a host and a client run identical code.
+    /// </para>
     /// </summary>
     public sealed class MachineActionButton : Interactable
     {
@@ -49,12 +55,14 @@ namespace Residue.Gameplay.World
             if (station == null) station = GetComponentInParent<MachineStation>();
         }
 
+        private IMachineView Machine => station != null ? station.Machine : null;
+
         private static bool ShiftOver
         {
             get
             {
-                var lab = LabRuntime.Instance;
-                return lab != null && lab.Lab != null && lab.Lab.ShiftOver;
+                var lab = LabView.Current;
+                return lab != null && lab.ShiftOver;
             }
         }
 
@@ -63,24 +71,41 @@ namespace Residue.Gameplay.World
             get
             {
                 if (action != MachineAction.Clean) return 0f;
+                return Mathf.Max(MinimumFlushSeconds, cleanSeconds * TimeScale);
+            }
+        }
 
-                var runtime = LabRuntime.Instance;
-                float scale = runtime != null && runtime.Lab != null ? runtime.Lab.MachineTimeScale : 1f;
-                return Mathf.Max(MinimumFlushSeconds, cleanSeconds * scale);
+        /// <summary>
+        /// <c>LabRuntime</c>'s testing time scale, read back off the instrument rather than off the
+        /// lab.
+        /// <para>
+        /// A client has no <see cref="LabState"/> to ask, but it does have the instrument's actual run
+        /// time — the host sends it precisely so nobody has to guess — and the scale is the ratio
+        /// between that and the published figure both sides ship. Deriving it costs one divide and
+        /// cannot disagree with the host, which reading a local serialized field would.
+        /// </para>
+        /// </summary>
+        private float TimeScale
+        {
+            get
+            {
+                var machine = Machine;
+                if (machine?.Def == null || machine.Def.RunTimeSeconds <= 0f) return 1f;
+                return machine.RunSeconds / machine.Def.RunTimeSeconds;
             }
         }
 
         public override string Prompt(PlayerInteractor player)
         {
-            var machine = station != null ? station.Machine : null;
-            var lab = LabRuntime.Instance?.Lab;
-            if (machine == null) return null;
+            var machine = Machine;
+            var lab = LabView.Current;
+            if (machine == null || machine.Def == null) return null;
 
             if (action == MachineAction.Clean)
             {
                 if (machine.IsRunning) return "Cannot flush while running";
-                if (lab != null && lab.Economy.SolventUnits < 1f) return "Out of solvent";
-                return $"Hold to flush {machine.Def.DisplayName} ({HoldSeconds:F0}s, 1 solvent)";
+                if (lab != null && lab.SolventUnits < 1f) return "Out of solvent";
+                return $"Hold to flush {machine.DisplayName} ({HoldSeconds:F0}s, 1 solvent)";
             }
 
             if (machine.IsRunning) return "Instrument busy";
@@ -90,17 +115,17 @@ namespace Residue.Gameplay.World
                 if (!machine.IsEmpty) return "Remove the vial before calibrating";
                 if (lab == null) return null;
                 if (!machine.HasFreshCheck(lab.Day)) return "Run today's certified standard first";
-                if (lab.Economy.Money < lab.Tuning.CalibrationCost) return "Cannot afford the calibration";
+                if (lab.Money < lab.CalibrationCost) return "Cannot afford the calibration";
 
-                return $"Recalibrate {machine.Def.DisplayName} " +
-                       $"({machine.CalibrationSeconds:F0}s, £{lab.Tuning.CalibrationCost:N0})";
+                return $"Recalibrate {machine.DisplayName} " +
+                       $"({machine.CalibrationSeconds:F0}s, £{lab.CalibrationCost:N0})";
             }
 
             if (action == MachineAction.Reference)
             {
                 if (!machine.IsEmpty) return "Remove the vial before running a standard";
                 if (ShiftOver) return "Shift over — no new runs";
-                if (lab != null && lab.Economy.ReferenceStandards < 1)
+                if (lab != null && lab.ReferenceStandards < 1)
                     return "No certified standards — order them at the terminal";
 
                 return $"Run certified standard ({machine.RunSeconds:F0}s, 1 ampoule) — flush afterwards";
@@ -113,25 +138,24 @@ namespace Residue.Gameplay.World
 
         public override bool CanInteract(PlayerInteractor player)
         {
-            var machine = station != null ? station.Machine : null;
-            var lab = LabRuntime.Instance?.Lab;
+            var machine = Machine;
+            var lab = LabView.Current;
             if (machine == null || machine.IsRunning || lab == null) return false;
 
             if (action == MachineAction.Clean)
             {
                 // Flushing is housekeeping, not analysis — still allowed after the shift ends.
-                return lab.Economy.SolventUnits >= 1f;
+                return lab.SolventUnits >= 1f;
             }
 
             // Calibration is housekeeping too: it produces no reading, so the shift clock does not
             // gate it. Being locked out of correcting an instrument you have just proved is wrong
             // would be a punishment for checking.
             if (action == MachineAction.Calibrate)
-                return machine.IsEmpty && machine.HasFreshCheck(lab.Day) &&
-                       lab.Economy.Money >= lab.Tuning.CalibrationCost;
+                return machine.IsEmpty && machine.HasFreshCheck(lab.Day) && lab.Money >= lab.CalibrationCost;
 
             if (action == MachineAction.Reference)
-                return machine.IsEmpty && !ShiftOver && lab.Economy.ReferenceStandards >= 1;
+                return machine.IsEmpty && !ShiftOver && lab.ReferenceStandards >= 1;
 
             return machine.IsEmpty && !ShiftOver;
         }
@@ -174,13 +198,13 @@ namespace Residue.Gameplay.World
             }
         }
 
-        /// <summary>The instrument's name, or a neutral stand-in where this process has no lab.</summary>
+        /// <summary>The instrument's name, or a neutral stand-in where this process has no view of it.</summary>
         private string Title
         {
             get
             {
-                var machine = station != null ? station.Machine : null;
-                return machine != null && machine.Def != null ? machine.Def.DisplayName : "Instrument";
+                var machine = Machine;
+                return machine != null ? machine.DisplayName : "Instrument";
             }
         }
     }

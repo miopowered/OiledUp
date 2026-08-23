@@ -65,14 +65,10 @@ namespace Residue.Gameplay.World
             // terminal reads as a broken interaction rather than as a missing screen.
             if (ScreenFor(player) == null) return "Terminal — no display for you";
 
-            var lab = LabRuntime.Instance?.Lab;
+            var lab = LabView.Current;
             if (lab == null) return "Terminal";
 
-            int open = 0;
-            foreach (var s in lab.Samples.All)
-            {
-                if (!s.FiledVerdict.HasValue) open++;
-            }
+            int open = lab.OpenSampleCount;
             return open > 0 ? $"Open terminal ({open} open)" : "Open terminal";
         }
 

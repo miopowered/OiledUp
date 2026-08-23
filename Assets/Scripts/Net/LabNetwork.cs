@@ -89,6 +89,12 @@ namespace Residue.Net
                         "must be false before the lab scene loads, or every player is running their " +
                         "own simulation — including its ground truth.", this);
                 }
+
+                // The read seam, wired up. Until this lands, every station in the room has nothing to
+                // read and switches itself off; from here they draw from the same snapshots the
+                // terminal does. Client-only: a host reads its own lab, which is a publish ahead of
+                // anything it has sent (see LabView).
+                LabView.Replicated = new ReplicatedLabView(this);
                 return;
             }
 
@@ -116,6 +122,10 @@ namespace Residue.Net
             {
                 Instance = null;
                 LabCommands.Router = null;
+
+                // Cleared together with the router: a station reading a despawned list would be
+                // drawing a lab that is no longer on the other end of anything.
+                if (LabView.Replicated is ReplicatedLabView) LabView.Replicated = null;
             }
 
             awaiting.Clear();
@@ -503,7 +513,7 @@ namespace Residue.Net
             if (!IsServer || Lab == null) return;
 
             day.Value = DayView.From(Lab);
-            economy.Value = EconomyView.From(Lab.Economy);
+            economy.Value = EconomyView.From(Lab.Economy, Lab.Tuning);
 
             Sync(samples);
             Sync(machines);

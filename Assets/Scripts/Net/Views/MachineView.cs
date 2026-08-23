@@ -58,8 +58,33 @@ namespace Residue.Net.Views
         /// </summary>
         public bool IsLoaded;
 
+        /// <summary>
+        /// A sample run has finished and its vial is still in the instrument. The difference between
+        /// a station offering "run this" and offering "take your vial back", which every player in the
+        /// room has to agree on or two of them will run the same sample twice (§4.5).
+        /// </summary>
+        public bool HasResultWaiting;
+
         /// <summary>Seconds left on whatever is running. Zero when idle.</summary>
         public float SecondsRemaining;
+
+        /// <summary>
+        /// How long a sample run takes on this instrument, after the testing time scale.
+        /// <para>
+        /// Sent rather than derived, even though <see cref="MachineDef.RunTimeSeconds"/> is content
+        /// both sides ship, because <see cref="LabRuntime"/>'s time scale is applied host-side and a
+        /// client that multiplied by its own copy would be quoting the wrong number the moment the two
+        /// disagreed. Four bytes to make "Run (30s)" mean the same thing to everyone in the room.
+        /// </para>
+        /// </summary>
+        public float RunSeconds;
+
+        /// <summary>
+        /// Fraction of the current run completed, for the progress bar on the instrument's own screen.
+        /// Zero when idle. Derived host-side because the run's total duration is not otherwise
+        /// knowable here — a recalibration is half a cycle, not a whole one (§5.3).
+        /// </summary>
+        public float Progress;
 
         /// <summary>Runs since the last solvent flush. The player's cue that carryover is building (§5.2).</summary>
         public int RunsSinceFlush;
@@ -107,7 +132,10 @@ namespace Residue.Net.Views
                 DefId = ViewText.Fixed64(machine.Def != null ? machine.Def.Id : null),
                 IsRunning = machine.IsRunning,
                 IsLoaded = !machine.IsEmpty,
+                HasResultWaiting = machine.HasResultWaiting,
                 SecondsRemaining = machine.IsRunning ? machine.SecondsRemaining : 0f,
+                RunSeconds = machine.RunSeconds,
+                Progress = machine.Progress,
                 RunsSinceFlush = machine.Runtime != null ? machine.Runtime.RunsSinceClean : 0,
                 LastBlankDay = machine.LastBlankDay,
                 LastBlankFoundResidue = FoundResidue(machine.LastBlank),
@@ -139,7 +167,10 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref DefId);
             serializer.SerializeValue(ref IsRunning);
             serializer.SerializeValue(ref IsLoaded);
+            serializer.SerializeValue(ref HasResultWaiting);
             serializer.SerializeValue(ref SecondsRemaining);
+            serializer.SerializeValue(ref RunSeconds);
+            serializer.SerializeValue(ref Progress);
             serializer.SerializeValue(ref RunsSinceFlush);
             serializer.SerializeValue(ref LastBlankDay);
             serializer.SerializeValue(ref LastBlankFoundResidue);
@@ -154,7 +185,10 @@ namespace Residue.Net.Views
             DefId.Equals(other.DefId) &&
             IsRunning == other.IsRunning &&
             IsLoaded == other.IsLoaded &&
+            HasResultWaiting == other.HasResultWaiting &&
             SecondsRemaining.Equals(other.SecondsRemaining) &&
+            RunSeconds.Equals(other.RunSeconds) &&
+            Progress.Equals(other.Progress) &&
             RunsSinceFlush == other.RunsSinceFlush &&
             LastBlankDay == other.LastBlankDay &&
             LastBlankFoundResidue == other.LastBlankFoundResidue &&
