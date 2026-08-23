@@ -48,6 +48,58 @@ namespace Residue.Tests.EditMode
             content = null;
         }
 
+        /// <summary>
+        /// Solvent must be replenishable. §5.2 makes skipping the flush tempting; it must never make
+        /// it <i>compulsory</i>.
+        /// <para>
+        /// A run starts with twelve units and every flush spends one. With no way to buy more, a
+        /// twenty-day contract across five instruments runs dry in the first few days, after which
+        /// residue accumulates with nothing the player can do about it. That is not a difficulty
+        /// curve, it is a soft-lock on the mechanic §9 calls non-cuttable.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void Solvent_CanBeRestocked_SoFlushingNeverBecomesImpossible()
+        {
+            var economy = new Economy(tuning, startingSolvent: 1f);
+
+            Assert.IsTrue(economy.TryConsumeSolvent(), "The one unit we started with should flush.");
+            Assert.IsFalse(economy.TryConsumeSolvent(), "Now dry — this is the state under test.");
+
+            Assert.IsTrue(economy.TryBuySolvent(10),
+                "A dry lab with money in the bank must be able to restock, or the flush mechanic " +
+                "is permanently gone for the rest of the run.");
+
+            Assert.IsTrue(economy.TryConsumeSolvent(), "Restocked solvent has to actually be usable.");
+        }
+
+        [Test]
+        public void BuyingSolvent_IsRefused_WhenItCannotBeAfforded_AndChargesNothing()
+        {
+            var economy = new Economy(tuning, startingSolvent: 0f);
+            economy.Charge(tuning.StartingMoney);   // spend down to nothing
+
+            float before = economy.Money;
+
+            Assert.IsFalse(economy.TryBuySolvent(50), "Cannot buy what is not affordable.");
+            Assert.AreEqual(before, economy.Money, "A refused purchase must not charge.");
+            Assert.AreEqual(0f, economy.SolventUnits, "A refused purchase must not deliver.");
+        }
+
+        /// <summary>
+        /// Flushing between every sample must stay affordable against what the work pays. If a
+        /// disciplined lab cannot cover its own solvent, "skip the flush" stops being a temptation
+        /// and becomes the only viable strategy — which deletes the §5.2 decision entirely.
+        /// </summary>
+        [Test]
+        public void FlushingAfterEverySample_CostsFarLessThanTheWorkPays()
+        {
+            float perSample = tuning.SolventUnitCost;
+            Assert.Less(perSample, tuning.BasePayout * 0.5f,
+                $"One flush costs {perSample:F0} against a {tuning.BasePayout:F0} base payout. " +
+                "Cleaning has to be a cost the player weighs, not one that outruns the job.");
+        }
+
         [Test]
         public void FilingCriticalOnEverything_LosesMoney()
         {

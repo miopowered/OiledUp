@@ -50,6 +50,16 @@ namespace Residue.Gameplay.Simulation
         /// </summary>
         public float MonitorOnImminentMultiplier = 1.6f;
 
+        /// <summary>
+        /// Price of one solvent unit, which is one flush (§5.2).
+        /// <para>
+        /// Has to be small enough that flushing is never the thing that bankrupts you, and large
+        /// enough that flushing after every single run is visibly wasteful. The temptation to skip
+        /// is the mechanic; pricing it out of reach would replace a decision with a rule.
+        /// </para>
+        /// </summary>
+        public float SolventUnitCost = 45f;
+
         public float FalsePositiveReputation = -3f;
         public float MonitorOnImminentReputation = -8f;
         public float MissedFaultReputation = -12f;

@@ -78,5 +78,26 @@ namespace Residue.Gameplay.Simulation
             SolventUnits += units;
             Changed?.Invoke();
         }
+
+        /// <summary>Price of restocking <paramref name="units"/> of solvent.</summary>
+        public float SolventCost(int units) => tuning.SolventUnitCost * Mathf.Max(0, units);
+
+        /// <summary>
+        /// Buy solvent. Returns false and changes nothing if it is unaffordable.
+        /// <para>
+        /// Without this the run had no way to replenish, so the starting twelve units were the
+        /// entire supply for the whole contract. Once dry, flushing became impossible and residue
+        /// accumulated with no remedy — which is §9's "never punish something the player could not
+        /// have checked" inverted into something they could not have <i>fixed</i>.
+        /// </para>
+        /// </summary>
+        public bool TryBuySolvent(int units)
+        {
+            if (units <= 0) return false;
+            if (!TrySpend(SolventCost(units))) return false;
+
+            AddSolvent(units);
+            return true;
+        }
     }
 }
