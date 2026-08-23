@@ -52,23 +52,9 @@ namespace Residue.Gameplay.World
         /// </summary>
         public static ILabView Current => Host ?? Replicated;
 
-        /// <summary>
-        /// What to tell a player who is reaching for a bottle that did not travel. One sentence in one
-        /// place, so the day vials replicate there is one thing to delete rather than five.
-        /// </summary>
-        public const string VialsAreHostOnly = "Vials are host-side only for now — you cannot pick one up here.";
-
-        /// <summary>
-        /// True when this process is reading replicated state and therefore has no vial props. Sugar
-        /// over <see cref="ILabView.HasVialProps"/> that also covers "no view at all yet".
-        /// </summary>
-        public static bool VialsMissingHere
-        {
-            get
-            {
-                var view = Current;
-                return view != null && !view.HasVialProps;
-            }
-        }
+        // VialsAreHostOnly and VialsMissingHere used to live here: the one sentence a crate, a rack or
+        // an instrument said to a player reaching for a bottle that had not travelled. They are gone
+        // because the bottles travel — see VialFeed and VialReconciler — and there is nothing left to
+        // apologise for. Deleting the sentence was always the plan; this is the change that earned it.
     }
 }

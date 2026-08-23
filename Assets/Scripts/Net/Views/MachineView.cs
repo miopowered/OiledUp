@@ -111,6 +111,30 @@ namespace Residue.Net.Views
         /// </summary>
         public int CalibrationCheckDay;
 
+        // -- The last recalibration -------------------------------------------------------------------
+        //
+        // Safe to send, and for the same reason the end-of-day report may name a fault: this is what a
+        // correction turned out to have been, after the player bought the ampoule and ran it. It is
+        // the answer to a question they asked, not the hidden state the question was about — which is
+        // why DriftPercent stays host-side and this does not.
+
+        /// <summary>False when this instrument has never been recalibrated.</summary>
+        public bool HasRecalibration;
+
+        public int RecalibratedDay;
+
+        /// <summary>Signed error removed. 0.18 means it had been reading 18% high.</summary>
+        public float RecalibrationCorrected;
+
+        /// <summary>Individual runs the correction put in doubt.</summary>
+        public int RecalibrationFlaggedRuns;
+
+        /// <summary>Samples with at least one run inside the drift window.</summary>
+        public int RecalibrationAffectedSamples;
+
+        /// <summary>Of those, the filed records. This is the number that hurts (§5.3).</summary>
+        public int RecalibrationAffectedRecords;
+
         public bool IsIdle => !IsRunning;
         public bool IsEmpty => !IsLoaded;
 
@@ -125,6 +149,7 @@ namespace Residue.Net.Views
             if (machine == null) return default;
 
             var check = machine.LastCheck;
+            var calibration = machine.LastCalibration;
 
             return new MachineView
             {
@@ -142,7 +167,13 @@ namespace Residue.Net.Views
                 HasCalibrationCheck = check != null,
                 CalibrationErrorFraction = check?.ErrorFraction ?? 0f,
                 CalibrationOutOfTolerance = check != null && check.IsOutOfTolerance,
-                CalibrationCheckDay = check?.Day ?? -1
+                CalibrationCheckDay = check?.Day ?? -1,
+                HasRecalibration = calibration.HasValue,
+                RecalibratedDay = calibration?.Day ?? -1,
+                RecalibrationCorrected = calibration?.CorrectedDrift ?? 0f,
+                RecalibrationFlaggedRuns = calibration?.FlaggedResults ?? 0,
+                RecalibrationAffectedSamples = calibration?.AffectedSamples ?? 0,
+                RecalibrationAffectedRecords = calibration?.AffectedArchived ?? 0
             };
         }
 
@@ -178,6 +209,12 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref CalibrationErrorFraction);
             serializer.SerializeValue(ref CalibrationOutOfTolerance);
             serializer.SerializeValue(ref CalibrationCheckDay);
+            serializer.SerializeValue(ref HasRecalibration);
+            serializer.SerializeValue(ref RecalibratedDay);
+            serializer.SerializeValue(ref RecalibrationCorrected);
+            serializer.SerializeValue(ref RecalibrationFlaggedRuns);
+            serializer.SerializeValue(ref RecalibrationAffectedSamples);
+            serializer.SerializeValue(ref RecalibrationAffectedRecords);
         }
 
         public bool Equals(MachineView other) =>
@@ -195,7 +232,13 @@ namespace Residue.Net.Views
             HasCalibrationCheck == other.HasCalibrationCheck &&
             CalibrationErrorFraction.Equals(other.CalibrationErrorFraction) &&
             CalibrationOutOfTolerance == other.CalibrationOutOfTolerance &&
-            CalibrationCheckDay == other.CalibrationCheckDay;
+            CalibrationCheckDay == other.CalibrationCheckDay &&
+            HasRecalibration == other.HasRecalibration &&
+            RecalibratedDay == other.RecalibratedDay &&
+            RecalibrationCorrected.Equals(other.RecalibrationCorrected) &&
+            RecalibrationFlaggedRuns == other.RecalibrationFlaggedRuns &&
+            RecalibrationAffectedSamples == other.RecalibrationAffectedSamples &&
+            RecalibrationAffectedRecords == other.RecalibrationAffectedRecords;
 
         public override bool Equals(object obj) => obj is MachineView o && Equals(o);
 

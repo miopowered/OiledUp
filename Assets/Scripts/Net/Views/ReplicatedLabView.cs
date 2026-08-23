@@ -68,12 +68,10 @@ namespace Residue.Net.Views
             }
         }
 
-        /// <summary>
-        /// False, and that is the honest answer rather than a placeholder. §3.2 keeps a vial a local
-        /// prop and nothing replicates <c>SampleLocation</c>, so this process has no bottles in it at
-        /// all — see <see cref="ILabView.HasVialProps"/> for what the world layer does about that.
-        /// </summary>
-        public bool HasVialProps => false;
+        // There was a HasVialProps here, answering false: this process had no bottles in it, and the
+        // crate, the racks and the instruments said so rather than drawing an empty shelf. It is gone
+        // with the interface member — the location record replicates now and every process builds the
+        // same props from it, so there is nothing left to apologise for. See ILabView.
 
         /// <summary>
         /// The adapter for a placed instrument. Never null for a well-formed id, even before the first

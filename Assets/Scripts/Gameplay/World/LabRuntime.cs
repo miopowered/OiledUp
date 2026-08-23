@@ -78,6 +78,13 @@ namespace Residue.Gameplay.World
 
         public IReadOnlyDictionary<SampleId, VialProp> Props => props;
 
+        /// <summary>
+        /// Keeps this process's bottles in step with the host's, on a process that has no lab of its
+        /// own. Null wherever <see cref="Lab"/> is not — a process that simulates spawns its own props
+        /// as the samples arrive and has nothing to reconcile against.
+        /// </summary>
+        private VialReconciler vials;
+
         private void Awake()
         {
             if (Instance != null && Instance != this)
@@ -114,8 +121,13 @@ namespace Residue.Gameplay.World
 
             // A client builds no lab. See SimulatesLocally: constructing one here would put a
             // truth-bearing simulation in every player's process.
+            //
+            // It does build the bottles, though. They are local props either way (§3.2) — the only
+            // difference is where the instruction to place one comes from, and on this side it comes
+            // off the wire rather than out of a LabState.
             if (!SimulatesLocally)
             {
+                vials = new VialReconciler(this);
                 Debug.Log("[LabRuntime] Client process — the lab is replicated, not simulated.", this);
                 return;
             }
@@ -176,6 +188,14 @@ namespace Residue.Gameplay.World
         private static readonly Dictionary<string, Transform> fixtures = new();
 
         /// <summary>
+        /// The subset of fixtures a bottle can actually be put <i>into</i>. Separate from
+        /// <see cref="fixtures"/> because most of what registers — the terminal, a wall panel — has a
+        /// position and no shelf, and a caller asking for slot 3 of the terminal should be told no
+        /// rather than handed its root transform.
+        /// </summary>
+        private static readonly Dictionary<string, IVialSlots> slotted = new();
+
+        /// <summary>
         /// Announce a fixture so the host can tell whether a player is standing at it. Called from
         /// <c>OnEnable</c> by anything a command can be aimed at.
         /// </summary>
@@ -185,11 +205,43 @@ namespace Residue.Gameplay.World
             fixtures[fixtureId] = placed;
         }
 
+        /// <summary>
+        /// Announce a fixture that also has places to put bottles in — see <see cref="IVialSlots"/>.
+        /// <para>
+        /// Registered rather than searched for because a <c>SampleLocation</c> names a container by
+        /// id, and the id is the only thing that crosses the wire. A client resolving
+        /// <c>rack#3</c> has nothing else to go on.
+        /// </para>
+        /// </summary>
+        public static void RegisterFixture(string fixtureId, Transform placed, IVialSlots slots)
+        {
+            RegisterFixture(fixtureId, placed);
+            if (string.IsNullOrEmpty(fixtureId) || placed == null || slots == null) return;
+            slotted[fixtureId] = slots;
+        }
+
         /// <summary>Withdraw a fixture. Ignores the call if something else has since claimed the id.</summary>
         public static void ForgetFixture(string fixtureId, Transform placed)
         {
             if (string.IsNullOrEmpty(fixtureId)) return;
-            if (fixtures.TryGetValue(fixtureId, out var current) && current == placed) fixtures.Remove(fixtureId);
+            if (!fixtures.TryGetValue(fixtureId, out var current) || current != placed) return;
+
+            fixtures.Remove(fixtureId);
+            slotted.Remove(fixtureId);
+        }
+
+        /// <summary>
+        /// The container placed under that id, or null if this scene has none — or has one with no
+        /// slots in it. Null is a real answer and the reconciler treats it as "leave the prop alone".
+        /// </summary>
+        public static IVialSlots SlotsFor(string containerId)
+        {
+            if (string.IsNullOrEmpty(containerId)) return null;
+            if (!slotted.TryGetValue(containerId, out var slots)) return null;
+
+            // Unity's ==, because a destroyed MonoBehaviour is a live C# reference and calling
+            // Slot() on one throws rather than returning null.
+            return slots is Object o && o == null ? null : slots;
         }
 
         bool ILabStations.TryLocate(string fixtureId, out Vector3 position)
@@ -210,28 +262,75 @@ namespace Residue.Gameplay.World
 
         private void Update()
         {
-            if (Lab == null) return;
-            Lab.Tick(Time.deltaTime);
+            if (Lab != null)
+            {
+                Lab.Tick(Time.deltaTime);
+                return;
+            }
+
+            // No lab means no simulation to advance, but there are still bottles in the room and the
+            // host has an opinion about where they are.
+            vials?.Tick();
         }
 
         // -- Props ----------------------------------------------------------------------------------
 
         /// <summary>
-        /// Create the physical vial for a sample. Pooling comes with M4 (§3.2); for one lab's worth
-        /// of samples per day, instantiating is fine and keeps the MVP honest about what it is.
+        /// Create the physical vial for a sample this process is simulating. Pooling comes later
+        /// (§3.2); for one lab's worth of samples per day, instantiating is fine and keeps the MVP
+        /// honest about what it is.
         /// </summary>
-        public VialProp SpawnVial(SampleState sample, Transform socket)
+        public VialProp SpawnVial(SampleState sample, Transform socket) =>
+            sample == null
+                ? null
+                : SpawnVial(sample.Id, sample.EquipmentTag, sample.VolumeMl, socket);
+
+        /// <summary>
+        /// Create the physical vial from the facts about a bottle, rather than from a
+        /// <see cref="SampleState"/> nobody but the host has.
+        /// <para>
+        /// This is the one that actually builds the prop, and both sides go through it. §3.2 makes a
+        /// vial a local prop on every machine in the session; the only thing that differs is where the
+        /// instruction came from — the host's own registry, or the replicated record a
+        /// <see cref="VialReconciler"/> is walking. Two spawn paths would be two things to keep
+        /// looking alike, and the one nobody plays would be the one that drifted.
+        /// </para>
+        /// </summary>
+        public VialProp SpawnVial(SampleId id, string label, float volumeMl, Transform socket,
+                                  bool interactable = true)
         {
-            if (sample == null || vialPrefab == null) return null;
-            if (props.TryGetValue(sample.Id, out var existing) && existing != null) return existing;
+            if (!id.IsValid || vialPrefab == null || socket == null) return null;
+            if (props.TryGetValue(id, out var existing) && existing != null) return existing;
 
             var vial = Instantiate(vialPrefab, socket);
-            vial.Bind(sample.Id, sample.EquipmentTag);
-            vial.AttachTo(socket);
-            vial.SetFillFraction(sample.VolumeMl / 100f);
+            vial.Bind(id, label);
+            vial.AttachTo(socket, interactable);
+            vial.SetFillFraction(volumeMl / VialProp.FullMl);
 
-            props[sample.Id] = vial;
+            props[id] = vial;
             return vial;
+        }
+
+        /// <summary>
+        /// Destroy the prop for a bottle that no longer exists, and forget it.
+        /// <para>
+        /// Called when a sample stops appearing in the replicated list, which is how "consumed" is
+        /// expressed — the host drops the row rather than sending a tombstone (see
+        /// <see cref="VialReconciler"/>). Anyone holding it is left holding nothing: Unity's null
+        /// semantics make <c>PlayerInteractor.Carried</c> read as empty the moment the object goes,
+        /// which is the right outcome and the reason no hand-back is wired here.
+        /// </para>
+        /// </summary>
+        public void RetireVial(SampleId id)
+        {
+            if (!props.TryGetValue(id, out var prop)) return;
+            props.Remove(id);
+            if (prop == null) return;
+
+            // Destroy is a play-mode call and logs an error in the Editor's edit mode, where the
+            // reconciler is exercised by tests.
+            if (Application.isPlaying) Destroy(prop.gameObject);
+            else DestroyImmediate(prop.gameObject);
         }
 
         /// <summary>

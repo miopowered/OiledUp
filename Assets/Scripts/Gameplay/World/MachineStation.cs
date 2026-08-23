@@ -20,7 +20,7 @@ namespace Residue.Gameplay.World
     /// replicated snapshot of one, and neither branch exists at this level.
     /// </para>
     /// </summary>
-    public sealed class MachineStation : Interactable
+    public sealed class MachineStation : Interactable, IVialSlots
     {
         [Tooltip("Must match an id in LabRuntime.installedMachineIds.")]
         [SerializeField] private string machineInstanceId = "icp";
@@ -54,9 +54,24 @@ namespace Residue.Gameplay.World
         // Announced before anything else so the host can tell whether a player asking to run this
         // instrument is standing at it. Independent of whether this process has a lab: on a client
         // the station has no MachineInstance, and it still has a position.
-        private void OnEnable() => LabRuntime.RegisterFixture(machineInstanceId, transform);
+        //
+        // Registered as a container too, because MachineInstance.TryLoad records the vial at
+        // InMachine(instanceId, 0) and a client has to be able to turn that back into a socket.
+        private void OnEnable() => LabRuntime.RegisterFixture(machineInstanceId, transform, this);
 
         private void OnDisable() => LabRuntime.ForgetFixture(machineInstanceId, transform);
+
+        // -- IVialSlots -------------------------------------------------------------------------------
+        //
+        // An instrument takes exactly one vial, so the slot index is along for the ride and every
+        // index resolves to the same socket.
+
+        public Transform Slot(int index) => vialSocket != null ? vialSocket : transform;
+
+        public int FreeSlot() => 0;
+
+        public int SlotOf(Transform prop) =>
+            prop != null && prop.parent == (vialSocket != null ? vialSocket : transform) ? 0 : -1;
 
         private void Start()
         {
@@ -182,8 +197,7 @@ namespace Residue.Gameplay.World
 
             if (!machine.IsEmpty && player.Carried == null)
             {
-                if (machine.HasResultWaiting)
-                    return CanTakeBack ? $"Take vial from {title}" : $"{title} — {LabView.VialsAreHostOnly}";
+                if (machine.HasResultWaiting) return $"Take vial from {title}";
 
                 return ShiftOver
                     ? $"{title} — shift over, no new runs"
@@ -208,18 +222,6 @@ namespace Residue.Gameplay.World
             }
         }
 
-        /// <summary>
-        /// Whether a vial coming out of this instrument would have anywhere to go.
-        /// <para>
-        /// False on a joined client, where vials are not props (§3.2, <see cref="ILabView.HasVialProps"/>).
-        /// Refused here rather than left to the host, because the host would <i>accept</i> it: the
-        /// sample would be recorded as held by a player with nothing in their hands, and it would then
-        /// be unreachable by anyone until that connection dropped. Hard rule 3 cuts both ways — a
-        /// player must not be shown an action whose success strands the thing they wanted.
-        /// </para>
-        /// </summary>
-        private static bool CanTakeBack => !LabView.VialsMissingHere;
-
         public override bool CanInteract(PlayerInteractor player)
         {
             var machine = Machine;
@@ -229,13 +231,22 @@ namespace Residue.Gameplay.World
             {
                 if (player.CarriedVial == null) return false; // holding a slip or a manual
                 if (ShiftOver || !machine.IsEmpty) return false;
+
                 var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
-                if (sample == null || !sample.IsLogged) return false;
+
+                // A client is holding a bottle and none of the paperwork behind it: volume, settling
+                // and whether it was ever booked in all live on a SampleState it does not have (§3.2).
+                // Offer the load and let the host refuse in a sentence the player can read — the house
+                // pattern in LabCommands, and the alternative is a second copy of §4.5 living out here
+                // to drift from the enforced one.
+                if (sample == null) return HostLab == null && machine.CanAccept(null) == LoadRefusal.Accepted;
+
+                if (!sample.IsLogged) return false;
                 return machine.CanAccept(sample) == LoadRefusal.Accepted;
             }
 
             if (machine.IsEmpty) return false;
-            if (machine.HasResultWaiting) return CanTakeBack;
+            if (machine.HasResultWaiting) return true;
             return !ShiftOver;
         }
 
@@ -285,8 +296,11 @@ namespace Residue.Gameplay.World
 
                 player.TryCarry(vial);
 
+                // Host-side. On a client SampleFor is null and the fill arrives with the next publish
+                // instead — VialReconciler refreshes it even for the bottle in your own hands, which
+                // is the one place it touches a locally held prop and the reason it does.
                 var sample = lab.SampleFor(result.Sample);
-                if (sample != null) vial.SetFillFraction(sample.VolumeMl / 100f);
+                if (sample != null) vial.SetFillFraction(sample.VolumeMl / VialProp.FullMl);
             });
         }
 
@@ -297,7 +311,7 @@ namespace Residue.Gameplay.World
             var lab = LabRuntime.Instance;
             var sample = lab?.SampleFor(completed.LoadedSample);
             var vial = lab?.PropFor(completed.LoadedSample);
-            if (sample != null && vial != null) vial.SetFillFraction(sample.VolumeMl / 100f);
+            if (sample != null && vial != null) vial.SetFillFraction(sample.VolumeMl / VialProp.FullMl);
 
             if (display != null) display.Show(Machine, result, sample);
             EmitPrintout(completed, result, sample);

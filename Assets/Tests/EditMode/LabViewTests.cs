@@ -8,6 +8,7 @@ using Residue.Editor.Content;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
 using Residue.Net.Views;
+using UnityEngine;
 using Object = UnityEngine.Object;
 
 namespace Residue.Tests.EditMode
@@ -270,29 +271,110 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Promise: a client says vials are not here rather than drawing an empty crate.
+        /// Promise: a bottle is in one place, and a client that is told where puts it there.
         /// <para>
-        /// §3.2 makes a vial a local prop and nothing replicates <c>SampleLocation</c>, so a joined
-        /// client's crate and racks are bare however full the host's are. Hard rule 3 is about the
-        /// player always being able to tell what is going on: "crate empty" would be a sentence that
-        /// is false, and it would read as a bug rather than as a limitation.
+        /// This replaces a test that asserted the opposite — that a client had no vial props and said
+        /// so out loud. §3.2 still keeps a vial a local prop rather than a <c>NetworkObject</c>, but
+        /// the location record replicates now, so "there are no bottles here" stopped being true and
+        /// the sentence it guarded was deleted. What has to be guarded instead is the reconciliation
+        /// itself, and specifically its three moves: a bottle that appears is built, a bottle that
+        /// moves is re-parented, and a bottle that stops appearing is destroyed rather than left
+        /// standing in a crate the host has already emptied.
         /// </para>
+        /// Driven through <see cref="LabRuntime.SlotsFor"/> exactly as the running game is, so a
+        /// container that forgot to register its slots fails here rather than in a session.
         /// </summary>
         [Test]
-        public void AProcessWithNoVialProps_SaysSoRatherThanShowingAnEmptyShelf()
+        public void AClientsProps_FollowTheBottlesItIsToldAbout()
         {
-            var lab = new LabState(catalog, OneDayPlan(), 1234);
+            var runtime = NewRuntime();
+            var crate = NewContainer("intake", 4);
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
 
-            LabView.Host = null;
-            LabView.Replicated = new ReplicatedLabView(null);
-            Assert.IsFalse(LabView.Current.HasVialProps);
-            Assert.IsTrue(LabView.VialsMissingHere,
-                "This is what every crate, rack and instrument reads before it offers a vial.");
-            Assert.IsNotEmpty(LabView.VialsAreHostOnly, "There has to be something to say to the player.");
+            var reconciler = new VialReconciler(runtime);
+            var sample = new SampleId(7);
 
-            LabView.Host = new HostLabView(lab);
-            Assert.IsTrue(LabView.Current.HasVialProps, "A process that simulates spawned the bottles.");
-            Assert.IsFalse(LabView.VialsMissingHere);
+            // Appeared.
+            reconciler.Reconcile(new[] { InCrate(sample, slot: 2) });
+            var prop = runtime.PropFor(sample);
+            Assert.IsNotNull(prop, "A bottle the host listed has no prop in the room.");
+            Assert.AreSame(crate.Slot(2), prop.transform.parent,
+                "The crate's third hole is where the host says it is; two players have to be able to " +
+                "talk about the same bottle.");
+            Assert.AreEqual("WERK-1 QUENCH 1", prop.Label,
+                "The label on the glass is the only tell for a mis-log (§5.1) and has to reach a client.");
+
+            // Moved.
+            reconciler.Reconcile(new[] { OnRack(sample, slot: 1) });
+            Assert.AreSame(rack.Slot(1), runtime.PropFor(sample).transform.parent,
+                "Somebody racked it and this client is still showing it in the crate.");
+            Assert.AreEqual(3, rack.FreeSlots, "The rack counts what is parented into it, not what it placed.");
+
+            // Stopped appearing. Consumed vials are dropped from the list rather than tombstoned.
+            reconciler.Reconcile(System.Array.Empty<VialPlacement>());
+            Assert.IsNull(runtime.PropFor(sample),
+                "A spent bottle is still standing in the rack, and it can never be picked up again.");
+
+            Retire(crate);
+            Retire(rack);
+            Object.DestroyImmediate(runtime.gameObject);
+        }
+
+        private static VialPlacement InCrate(SampleId id, int slot) =>
+            new(id, "WERK-1 QUENCH 1", 100f, SampleLocation.InCrate("intake", slot));
+
+        private static VialPlacement OnRack(SampleId id, int slot) =>
+            new(id, "WERK-1 QUENCH 1", 62f, SampleLocation.OnSurface(SampleRack.DefaultRackId, slot));
+
+        /// <summary>
+        /// A <see cref="LabRuntime"/> with a vial prefab and no lab — the shape a client is in.
+        /// <c>Awake</c> does not run in edit mode, so nothing here has to be undone.
+        /// </summary>
+        private static LabRuntime NewRuntime()
+        {
+            var go = new GameObject("LabRuntime_UnderTest");
+            var runtime = go.AddComponent<LabRuntime>();
+
+            // Parented to the runtime so tearing that down takes the prefab with it, and inactive so
+            // nothing in the prefab itself ever ticks.
+            var prefabGo = new GameObject("VialPrefab");
+            prefabGo.transform.SetParent(go.transform, false);
+            prefabGo.SetActive(false);
+
+            var so = new UnityEditor.SerializedObject(runtime);
+            so.FindProperty("vialPrefab").objectReferenceValue = prefabGo.AddComponent<VialProp>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return runtime;
+        }
+
+        /// <summary>
+        /// A slotted container under a given id, registered the way its <c>OnEnable</c> would be.
+        /// A rack stands in for the crate as well: what is under test is <see cref="IVialSlots"/>,
+        /// and the crate answers it the same way with a different mesh behind it.
+        /// </summary>
+        private static SampleRack NewContainer(string id, int slots)
+        {
+            var go = new GameObject($"Container_{id}");
+            var rack = go.AddComponent<SampleRack>();
+
+            var so = new UnityEditor.SerializedObject(rack);
+            so.FindProperty("rackId").stringValue = id;
+            so.FindProperty("slotCount").intValue = slots;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            LabRuntime.RegisterFixture(id, go.transform, rack);
+            return rack;
+        }
+
+        /// <summary>
+        /// Withdraw and destroy a container. The fixture table is static and outlives a test, so a
+        /// registration left behind would be a destroyed transform the next test resolved an id to.
+        /// </summary>
+        private static void Retire(SampleRack rack)
+        {
+            LabRuntime.ForgetFixture(rack.RackId, rack.transform);
+            Object.DestroyImmediate(rack.gameObject);
         }
 
         /// <summary>

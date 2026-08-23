@@ -77,8 +77,12 @@ Setup alone will not make co-op work. Remaining, in order:
       `IMachineView` through `LabView.Current`, satisfied by the host's `LabState` on one side and by
       the replicated views on the other. Before this, every one of them found no `LabState` on a
       client and switched itself off.
-- [ ] **Vial props on a client.** See below — the largest thing left.
-- [ ] **Results on a client.** See below.
+- [x] **Vial props on a client.** The bottles exist in every process. Only the record travels — §3.2
+      keeps a vial a local prop, because 200+ `NetworkObject`s a shift would drown the connection —
+      and `VialReconciler` rebuilds the room from it each frame.
+- [x] **Results on a client.** Measured values replicate, so the terminal is a real terminal on a
+      client and an instrument's own screen shows the numbers it just produced. See below for the
+      shape and for what is still host-only.
 - [ ] **Vivox proximity voice.**
 
 ---
@@ -94,36 +98,72 @@ Working today, identically to the host:
 - Start a run on an instrument somebody else has loaded, and see when a result is waiting in it.
 - Read the day clock, the balance, reputation, solvent and ampoule stock, and the open-sample count.
 - Pick up, read and put down the reference manual.
+- Take a vial out of the delivery crate and read the label off it, rack it, load an instrument with
+  it and take it back out. See other players carrying bottles around.
 
-Not yet, and the reason in each case:
+- Book a vial in, read its panel grouped by category, read the run log, the instruments' blanks and
+  their calibration certificates, re-open a record in doubt, order solvent and ampoules, and file a
+  verdict — all from the same terminal the host uses, drawn by the same code.
+- Read the numbers off an instrument's own screen when a run finishes.
+
+Not yet, and the reason:
 
 | Blocked | Why |
 |---|---|
-| Taking a vial from the crate, racking one, loading one, taking one back | **Vial props do not exist on a client.** §3.2 makes a vial a local prop rather than a `NetworkObject` — 200+ per shift would drown the connection — and nothing replicates `SampleLocation`, so a client's crate and racks are genuinely empty. The world layer says so out loud (`ILabView.HasVialProps`) instead of drawing a bare shelf, and `MachineStation` refuses a take-back rather than letting the host accept one: the host *would* accept, and the sample would then be recorded as held by a player with nothing in their hands and be unreachable by anyone until that connection dropped. |
-| Reading a result off an instrument display, or using the terminal at all | **`TestResult` does not replicate.** No view can express measured values. The terminal's sample list, instruments panel and calibration certificates could all be built from what already crosses today — but the results table cannot, and a terminal that offered FILE NORMAL / MONITOR / CRITICAL with no evidence on the screen would be asking for a call the player could not check, which hard rule 3 forbids. So it says what it is instead. |
+| Reading the end-of-day report | **`ConsequenceReport` does not replicate.** It is the one screen in the game that names a fault (§4.3), and it does so after the consequence has landed. Putting that on the wire is a deliberate decision about ground truth and deserves its own change rather than riding along with the results table. Ending the day works from either desk; a joined one says where the summary is drawn. |
 
-### Unblocking vial props
+### How vial props work
 
 1. A `VialView` — sample id, the **paper label**, volume, and `SampleLocation` — replicated in its
    own list. The label has to travel: reading it off the bottle is the only tell for a mis-log
-   (§5.1). It must **not** join `SampleView`, which feeds screens; a screen that could diff the label
-   against `RecordTag` would correct the player's mistake for them. Two lists, one rule each.
-2. A surface abstraction so a prop can be parented client-side: `IntakeCrate` and `SampleRack` build
-   their own slot transforms and only `LabRuntime.RegisterFixture` knows where fixtures are, which
-   gives a fixture root but not a slot.
-3. A client-side prop manager on `LabRuntime` that reconciles props against that list each publish —
-   spawn on arrival, re-parent on move, destroy on `Consumed`.
-4. Held-by-another-player needs a client id to carry-socket lookup, which today only `PlayerAvatar`
-   could answer.
+   (§5.1). It deliberately does **not** join `SampleView`, which feeds screens; a screen that could
+   diff the label against `RecordTag` would correct the player's mistake for them.
+2. `IVialSlots` is the surface abstraction. `IntakeCrate`, `SampleRack` and `MachineStation` each
+   hand out the transform for slot *N*, and register it alongside their position with
+   `LabRuntime.RegisterFixture`, so a client can turn `rack#3` back into a place in the room.
+   Occupancy is read off the slot transforms — a slot's child *is* its occupant — so props parented
+   by the host's own code and props parented by the reconciler are counted by the same rule.
+3. `VialReconciler`, driven from `LabRuntime.Update`, walks the list each frame: spawn what appeared,
+   re-parent what moved, destroy what stopped appearing. It never touches the local player's hands,
+   which belong to the callbacks in `LabCommands.Attempt`.
+4. `VialFeed` is the seam — the third of its kind, after `LabCommands.Router` and
+   `LabView.Replicated`. `Residue.Net.ReplicatedVials` fills it in at startup and answers
+   "where are client *N*'s hands" through a small accessor on `PlayerAvatar`.
 
-### Unblocking results
+### How results work
 
-A `ResultView` carrying machine def id, day, suspect and blank/reference flags, plus the element
-readings as a `FixedList` of (element id, value) pairs. The one design question is the budget: a
-`FixedList512Bytes` holds about fourteen readings and an elemental panel can exceed that, so either
-the panel is split across rows or the readings ride in their own list keyed by result. Everything
-downstream — the terminal's results table, run log, suspect archive and the instrument display —
-falls out of it.
+1. **Two lists, not a nested one.** `ResultView` is one finished run — a key, the sample it belongs
+   to, whether it has been filed, the machine definition and the placed instrument, the day, volume
+   and cost, and the blank / reference / suspect flags. `ReadingView` is one (element id, value)
+   pair naming the run's key.
+2. **The budget question, answered by refusing a budget.** Readings inside the result — a
+   `FixedList512Bytes` of pairs — holds about fourteen, and the panel it has to hold is content the
+   tables are free to grow. Every cap needs an overflow rule, and every overflow rule means a
+   terminal showing fewer numbers than the host scored the verdict against: a call the player could
+   not check, which hard rule 3 forbids. Silent truncation would be worse again. A flat keyed list
+   has no cap to exceed; the cost is four bytes of key per reading, and the key is what makes a row
+   self-describing rather than positional — readings for a key that has not arrived draw nothing,
+   where an offset into a neighbouring list would draw the wrong numbers under the right heading.
+3. **What the host publishes.** Every result filed against a record that has not been resolved, plus
+   each instrument's last reading, its last solvent blank, and the certificate on file. A resolved
+   record is closed and nothing draws its numbers, so they stop travelling. Filed and unfiled are
+   different rows on purpose: an instrument finishing a run puts nothing on a record until somebody
+   carries the slip to the desk (§5.1), so the terminal draws the filed ones and the machine's own
+   screen draws whatever is on it.
+4. **`RecordFeed` is the seam** — the fourth of its kind, after `LabCommands.Router`,
+   `LabView.Replicated` and `VialFeed.Source`. `Residue.Net.ReplicatedRecords` fills it in on spawn
+   and rebuilds `SampleState`, `TestResult` and `CalibrationCheck` objects from the rows, so the
+   terminal has one set of drawing code rather than a host version and a client version that can
+   quietly disagree. Nothing there computes a reading: §3.1 keeps `MeasurementPipeline` host-only.
+5. **The certificate is rebuilt, not sent.** A client runs `CalibrationCheck.From` against a
+   `ReferenceStandard` blended from its own content tables, which is where the host's came from too
+   — §5.3 turns on every certified figure being one the player can look up in the manual, so
+   deriving it is what stops the certificate and the limits disagreeing across two screens.
+6. **The instrument display pulls.** A client has no run-completed event, so `MachineDisplay` asks
+   the feed four times a second and redraws when what is on the glass is not the reading the host
+   published. It captions a sample run with the sample id: the paper label reaches a client through
+   `VialView` and must never reach a screen (§5.1), and the typed tag would caption a client's screen
+   differently from the host's.
 
 ---
 

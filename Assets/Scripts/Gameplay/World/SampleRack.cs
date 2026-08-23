@@ -1,11 +1,10 @@
 using System.Collections.Generic;
-using Residue.Chemistry;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
 {
     /// <summary>
-    /// A slotted rack you can set vials into. This is <see cref="SampleLocationKind.OnSurface"/>
+    /// A slotted rack you can set vials into. This is <see cref="Chemistry.SampleLocationKind.OnSurface"/>
     /// made physical (§3.2).
     /// <para>
     /// Without somewhere to put a vial down, one pair of hands and four instruments deadlocks the
@@ -16,7 +15,7 @@ namespace Residue.Gameplay.World
     /// Taking a vial back out needs no code here — <see cref="VialProp"/> is itself an
     /// <see cref="Interactable"/>, so the player targets the specific vial they want.
     /// </summary>
-    public sealed class SampleRack : Interactable
+    public sealed class SampleRack : Interactable, IVialSlots
     {
         /// <summary>
         /// The rack a vial goes back to when nobody chose where to put it — a dropped player's, in
@@ -33,14 +32,22 @@ namespace Residue.Gameplay.World
 
         private readonly List<Transform> slots = new();
 
-        // Holds anything carryable, not just vials: a results slip you have not walked to the desk
-        // yet needs somewhere to live too, and it competes for the same shelf space.
-        private readonly List<Carryable> occupants = new();
-
         public string RackId => rackId;
 
-        private void Awake()
+        /// <summary>
+        /// Build the holes, once, on whichever call gets here first.
+        /// <para>
+        /// Lazy rather than in <c>Awake</c> because <see cref="LabRuntime.SlotsFor"/> now hands this
+        /// rack to <see cref="VialReconciler"/> the moment it registers, and "the slots are built by a
+        /// lifecycle method that has already run" is a promise this component would rather not depend
+        /// on — Unity does not run <c>Awake</c> in edit mode at all, which is where the reconciler is
+        /// tested.
+        /// </para>
+        /// </summary>
+        private void EnsureSlots()
         {
+            if (slots.Count > 0 || slotCount <= 0) return;
+
             for (int i = 0; i < slotCount; i++)
             {
                 var go = new GameObject($"Slot_{i:D2}");
@@ -50,55 +57,71 @@ namespace Residue.Gameplay.World
                     0f,
                     (i / columns) * spacing);
                 slots.Add(go.transform);
-                occupants.Add(null);
             }
         }
 
         // Announced so the host can tell whether a player is actually standing at this rack when they
-        // ask to put something down in it. See LabRuntime.RegisterFixture.
-        private void OnEnable() => LabRuntime.RegisterFixture(rackId, transform);
+        // ask to put something down in it, and with its slots so a client can resolve the rack#N a
+        // put-down was recorded against. See LabRuntime.RegisterFixture.
+        private void OnEnable()
+        {
+            EnsureSlots();
+            LabRuntime.RegisterFixture(rackId, transform, this);
+        }
 
         private void OnDisable() => LabRuntime.ForgetFixture(rackId, transform);
 
-        /// <summary>
-        /// Drop entries whose vial has been taken elsewhere. The player removes a vial by targeting
-        /// it directly, so the rack never gets told — cheaper to notice than to wire a callback
-        /// through every possible destination.
-        /// </summary>
-        private void Compact()
+        // -- IVialSlots -------------------------------------------------------------------------------
+        //
+        // A rack has a fixed number of holes, so Slot() clamps rather than growing. What lives in each
+        // is read off the transform — see VialSlot for why there is no list of occupants any more.
+
+        public Transform Slot(int index)
         {
-            for (int i = 0; i < occupants.Count; i++)
-            {
-                var v = occupants[i];
-                if (v == null) continue;
-                if (v.transform.parent != slots[i]) occupants[i] = null;
-            }
+            EnsureSlots();
+            if (slots.Count == 0) return transform;
+            return slots[Mathf.Clamp(index, 0, slots.Count - 1)];
         }
 
+        public int FreeSlot()
+        {
+            EnsureSlots();
+            for (int i = 0; i < slots.Count; i++)
+            {
+                if (VialSlot.Occupant(slots[i]) == null) return i;
+            }
+            return -1;
+        }
+
+        public int SlotOf(Transform prop)
+        {
+            EnsureSlots();
+            return VialSlot.IndexOf(slots, prop);
+        }
+
+        // -- Shelf space ------------------------------------------------------------------------------
+
+        /// <summary>
+        /// How many holes are empty. Counts anything carryable, not just vials: a results slip you
+        /// have not walked to the desk yet needs somewhere to live too, and it competes for the same
+        /// shelf space.
+        /// </summary>
         public int FreeSlots
         {
             get
             {
-                Compact();
+                EnsureSlots();
                 int n = 0;
-                foreach (var o in occupants)
+                for (int i = 0; i < slots.Count; i++)
                 {
-                    if (o == null) n++;
+                    if (VialSlot.Occupant(slots[i]) == null) n++;
                 }
                 return n;
             }
         }
 
         /// <summary>The first slot with nothing in it, or -1 when the rack is full.</summary>
-        public int NextFreeSlot()
-        {
-            Compact();
-            for (int i = 0; i < occupants.Count; i++)
-            {
-                if (occupants[i] == null) return i;
-            }
-            return -1;
-        }
+        public int NextFreeSlot() => FreeSlot();
 
         /// <summary>
         /// Park an item in a slot. Purely local: where a vial <i>is</i> belongs to the host and is
@@ -109,12 +132,23 @@ namespace Residue.Gameplay.World
         public bool TryPlace(Carryable item, int slot)
         {
             if (item == null) return false;
-            Compact();
+            EnsureSlots();
 
-            if (slot < 0 || slot >= occupants.Count || occupants[slot] != null) slot = NextFreeSlot();
+            if (slot < 0 || slot >= slots.Count)
+            {
+                slot = FreeSlot();
+            }
+            else
+            {
+                // Already in that hole is not a reason to move it. On a client the reconciler can put
+                // the prop where the host said before this callback runs, and treating the item as
+                // its own obstruction would bounce it into the next slot along.
+                var occupant = VialSlot.Occupant(slots[slot]);
+                if (occupant != null && occupant != item) slot = FreeSlot();
+            }
+
             if (slot < 0) return false;
 
-            occupants[slot] = item;
             item.AttachTo(slots[slot], interactable: true);
             return true;
         }
@@ -128,15 +162,10 @@ namespace Residue.Gameplay.World
 
             if (player.Carried == null)
             {
-                // A joined client's rack holds nothing because vials are local props and none were
-                // spawned here (§3.2 — see ILabView.HasVialProps), not because the host's rack is
-                // bare. Setting something down still works: the manual is a scene prop and exists in
-                // every process, which is why only the empty-handed branch has to explain itself.
-                if (LabView.VialsMissingHere) return $"Rack — {LabView.VialsAreHostOnly}";
-
-                return free == slotCount
+                return free == slots.Count
                     ? "Rack — empty"
-                    : $"Rack — {slotCount - free} sample{(slotCount - free == 1 ? "" : "s")}. Look at one to take it.";
+                    : $"Rack — {slots.Count - free} sample{(slots.Count - free == 1 ? "" : "s")}. " +
+                      "Look at one to take it.";
             }
 
             return free > 0 ? $"Set down in rack ({free} free)" : "Rack full";
@@ -153,7 +182,7 @@ namespace Residue.Gameplay.World
 
             // The slot is chosen here because the rack is the thing that knows which of its holes are
             // full, and it is sent along so the host records the same shelf the player is looking at.
-            int slot = NextFreeSlot();
+            int slot = FreeSlot();
             if (slot < 0) return;
 
             LabCommands.Attempt(player, LabCommand.PutDown(rackId, slot), _ =>

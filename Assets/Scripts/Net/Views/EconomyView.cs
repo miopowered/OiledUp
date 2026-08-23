@@ -38,17 +38,34 @@ namespace Residue.Net.Views
         /// </summary>
         public float CalibrationCost;
 
+        /// <summary>
+        /// Price of one solvent unit and of one certified ampoule (§5.2, §5.3). Same argument as
+        /// <see cref="CalibrationCost"/>: the ORDER buttons at the terminal print a price and grey
+        /// themselves out against the balance, and a client quoting its own default tuning would be
+        /// wrong the first time either figure was retuned. Sent per unit rather than per pack so the
+        /// pack size stays a decision the screen makes.
+        /// </summary>
+        public float SolventUnitCost;
+
+        public float ReferenceStandardUnitCost;
+
         /// <summary>Project host state for replication. The only place the economy projection is written.</summary>
-        public static EconomyView From(Economy economy, EconomyTuning tuning = null) => economy == null
-            ? default
-            : new EconomyView
+        public static EconomyView From(Economy economy, EconomyTuning tuning = null)
+        {
+            if (economy == null) return default;
+
+            var balance = tuning ?? new EconomyTuning();
+            return new EconomyView
             {
                 Money = economy.Money,
                 Reputation = economy.Reputation,
                 SolventUnits = economy.SolventUnits,
                 ReferenceStandards = economy.ReferenceStandards,
-                CalibrationCost = (tuning ?? new EconomyTuning()).CalibrationCost
+                CalibrationCost = balance.CalibrationCost,
+                SolventUnitCost = balance.SolventUnitCost,
+                ReferenceStandardUnitCost = balance.ReferenceStandardCost
             };
+        }
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
         {
@@ -57,6 +74,8 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref SolventUnits);
             serializer.SerializeValue(ref ReferenceStandards);
             serializer.SerializeValue(ref CalibrationCost);
+            serializer.SerializeValue(ref SolventUnitCost);
+            serializer.SerializeValue(ref ReferenceStandardUnitCost);
         }
 
         public bool Equals(EconomyView other) =>
@@ -64,7 +83,9 @@ namespace Residue.Net.Views
             Reputation.Equals(other.Reputation) &&
             SolventUnits.Equals(other.SolventUnits) &&
             ReferenceStandards == other.ReferenceStandards &&
-            CalibrationCost.Equals(other.CalibrationCost);
+            CalibrationCost.Equals(other.CalibrationCost) &&
+            SolventUnitCost.Equals(other.SolventUnitCost) &&
+            ReferenceStandardUnitCost.Equals(other.ReferenceStandardUnitCost);
 
         public override bool Equals(object obj) => obj is EconomyView o && Equals(o);
 

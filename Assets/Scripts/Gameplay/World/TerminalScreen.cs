@@ -150,7 +150,7 @@ namespace Residue.Gameplay.World
             var root = Root;
             if (root == null) return;
 
-            var lab = LabRuntime.Instance?.Lab;
+            var records = ReadRecords();
             root.Clear();
 
             root.style.flexGrow = 1f;
@@ -160,36 +160,59 @@ namespace Residue.Gameplay.World
             root.style.paddingTop = 18;
             root.style.paddingBottom = 18;
 
-            if (lab == null) { root.Add(NotHereYet()); return; }
+            if (records == null) { root.Add(WaitingForTheLab()); return; }
 
-            root.Add(Header(lab));
+            root.Add(Header(records));
 
-            if (reportOverlay != null) { root.Add(ReportPanel(lab)); return; }
+            var host = HostLab;
+            if (reportOverlay != null && host != null) { root.Add(ReportPanel(host)); return; }
+
+            // The one thing a joined desk cannot draw. A ConsequenceReport names the fault (§4.3) and
+            // nothing puts one on the wire, so the summary stays where the lab is rather than being
+            // half-reconstructed here.
+            if (!records.IsLive)
+            {
+                root.Add(Tiny("Joined terminal — the end-of-day report is drawn on the host's screen.",
+                    SignalPalette.Dim));
+            }
 
             var body = Row();
             body.style.flexGrow = 1f;
             body.style.marginTop = 12;
-            body.Add(SampleList(lab));
-            body.Add(Detail(lab));
-            body.Add(CalibrationPanel(lab));
+            body.Add(SampleList(records));
+            body.Add(Detail(records));
+            body.Add(CalibrationPanel(records));
             root.Add(body);
         }
 
+        /// <summary>This process's own lab, or null on a joined client. Nothing else asks which side it is on.</summary>
+        private static LabState HostLab =>
+            LabRuntime.Instance != null ? LabRuntime.Instance.Lab : null;
+
         /// <summary>
-        /// What a joined client sees at the desk, for now.
+        /// Gather what this desk is looking at.
         /// <para>
-        /// <b>Why not a partial terminal.</b> Almost every panel on this screen could be built from
-        /// replicated views today — the sample list, the instruments, the calibration certificates —
-        /// and filing a verdict is already a <see cref="LabCommand"/> the host validates. What does
-        /// <i>not</i> replicate is <see cref="TestResult"/>: the measured numbers, the thresholds they
-        /// are scored against, and the run log. So a client could be handed FILE NORMAL / MONITOR /
-        /// CRITICAL with no evidence on the screen to base the call on, which is precisely the shape
-        /// hard rule 3 forbids — a consequence landing on something the player could not check.
+        /// A process that simulates reads its own <see cref="LabState"/> and always did — single
+        /// player has no wire and must not acquire one. A client reads the same shapes off
+        /// <see cref="RecordFeed"/>, rebuilt from what the host published. Everything below this line
+        /// draws <see cref="LabRecords"/> and cannot tell which it was handed, which is what stops
+        /// "works in single player" and "works in co-op" becoming two screens.
         /// </para>
-        /// A blank panel would read as a broken screen, so it says what it is and where the work is
-        /// still possible. Deleting this means replicating results; see docs/MULTIPLAYER.md.
         /// </summary>
-        private VisualElement NotHereYet()
+        private static LabRecords ReadRecords()
+        {
+            var lab = HostLab;
+            if (lab != null) return LabRecords.FromHost(lab);
+
+            var feed = RecordFeed.Source;
+            return feed != null ? feed.ReadLab() : null;
+        }
+
+        /// <summary>
+        /// No lab and no feed: the session has not come up, or this screen outlived it. Said out loud
+        /// rather than drawn as an empty desk, because a terminal with nothing on it reads as broken.
+        /// </summary>
+        private VisualElement WaitingForTheLab()
         {
             var panel = Panel();
             panel.style.flexGrow = 1f;
@@ -197,18 +220,8 @@ namespace Residue.Gameplay.World
 
             panel.Add(Dim(LabView.Current == null
                 ? "Waiting for the lab. If this does not clear, the session never came up."
-                : "This terminal is host-side for now. Measured values do not replicate yet, so a " +
-                  "verdict filed from here would be filed blind — and a call you could not check is " +
-                  "exactly what the lab refuses to ask of you."));
-
-            var still = new Label(
-                "You can still work the instruments: flush them, run a solvent blank, run a certified " +
-                "standard and recalibrate. The day clock and the books are in the corner of your screen.");
-            still.style.fontSize = 12;
-            still.style.marginTop = 10;
-            still.style.whiteSpace = WhiteSpace.Normal;
-            still.style.color = new StyleColor(SignalPalette.Ink);
-            panel.Add(still);
+                : "Waiting for the first publish from the host. The instruments in the room are " +
+                  "already readable; this desk fills in a moment."));
 
             var close = new Button(Close) { text = "CLOSE  (Esc)" };
             StyleButton(close, SignalPalette.PanelSoft);
@@ -220,13 +233,13 @@ namespace Residue.Gameplay.World
             return panel;
         }
 
-        private VisualElement Header(LabState lab)
+        private VisualElement Header(LabRecords records)
         {
             var bar = Row();
             bar.style.justifyContent = Justify.SpaceBetween;
             bar.style.alignItems = Align.Center;
 
-            var left = new Label($"SAMPLE TERMINAL — DAY {lab.Day}");
+            var left = new Label($"SAMPLE TERMINAL — DAY {records.Day}");
             left.style.fontSize = 18;
             left.style.color = new StyleColor(SignalPalette.Ink);
             left.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -235,7 +248,7 @@ namespace Residue.Gameplay.World
             var right = Row();
             right.style.alignItems = Align.Center;
 
-            var money = new Label($"£{lab.Economy.Money:N0}    REP {lab.Economy.Reputation:F0}");
+            var money = new Label($"£{records.Money:N0}    REP {records.Reputation:F0}");
             money.style.fontSize = 15;
             money.style.color = new StyleColor(SignalPalette.Dim);
             money.style.marginRight = 16;
@@ -247,7 +260,8 @@ namespace Residue.Gameplay.World
                 // client has no LabState to read them from and the day summary is replicated
                 // separately, so making the command carry them would put a list of consequences on
                 // the wire for the one process that already has it.
-                reportOverlay = lab.LastReports;
+                var host = HostLab;
+                reportOverlay = host != null ? host.LastReports : null;
             }))
             { text = "END DAY" };
             StyleButton(endDay, SignalPalette.Accent);
@@ -261,7 +275,7 @@ namespace Residue.Gameplay.World
             return bar;
         }
 
-        private VisualElement SampleList(LabState lab)
+        private VisualElement SampleList(LabRecords records)
         {
             var panel = Panel();
             panel.style.width = 320;
@@ -272,7 +286,7 @@ namespace Residue.Gameplay.World
             var scroll = new ScrollView();
             scroll.style.flexGrow = 1f;
 
-            var open = lab.OpenSamples();
+            var open = records.Open;
             if (open.Count == 0) scroll.Add(Dim("Nothing open. End the day."));
 
             foreach (var sample in open)
@@ -301,8 +315,11 @@ namespace Residue.Gameplay.World
                     sample.IsLogged ? SignalPalette.Ink : SignalPalette.Dim);
                 row.Add(tag);
 
+                // The id is printed because an instrument's own screen captions a run with it — the
+                // paper label is on the bottle, not on a display (§5.1) — so this is what lets a
+                // player match the numbers on the machine to the record on the desk.
                 var meta = new Label(
-                    $"{sample.Profile.DisplayName} · {sample.VolumeMl:F0} ml · " +
+                    $"{sample.Id} · {ProfileName(sample)} · {sample.VolumeMl:F0} ml · " +
                     $"{sample.Results.Count} run{(sample.Results.Count == 1 ? "" : "s")}");
                 meta.style.fontSize = 11;
                 meta.style.color = new StyleColor(SignalPalette.Dim);
@@ -312,9 +329,17 @@ namespace Residue.Gameplay.World
             }
 
             panel.Add(scroll);
-            panel.Add(InstrumentsPanel(lab));
+            panel.Add(InstrumentsPanel(records));
             return panel;
         }
+
+        /// <summary>
+        /// The fluid's name, or a stand-in. Null is not expected on either side — both processes ship
+        /// the same tables — but a screen is the wrong place to find out that a catalog is missing a
+        /// profile, and an exception here would take the whole desk down mid-shift.
+        /// </summary>
+        private static string ProfileName(SampleState sample) =>
+            sample?.Profile != null ? sample.Profile.DisplayName : "unknown fluid";
 
         /// <summary>
         /// Per-instrument state, including the last solvent blank.
@@ -324,7 +349,7 @@ namespace Residue.Gameplay.World
         /// works because contamination is checkable; an unreadable tell is the same as no tell.
         /// </para>
         /// </summary>
-        private VisualElement InstrumentsPanel(LabState lab)
+        private VisualElement InstrumentsPanel(LabRecords records)
         {
             var box = new VisualElement();
             box.style.marginTop = 10;
@@ -333,9 +358,11 @@ namespace Residue.Gameplay.World
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
             box.Add(SectionTitle("INSTRUMENTS"));
 
-            foreach (var machine in lab.Machines)
+            foreach (var machine in records.Instruments)
             {
-                var header = new Label($"{machine.Def.DisplayName} · {machine.Runtime.RunsSinceClean} run(s) since flush");
+                if (machine == null) continue;
+
+                var header = new Label($"{machine.DisplayName} · {machine.RunsSinceFlush} run(s) since flush");
                 header.style.fontSize = 11;
                 header.style.color = new StyleColor(SignalPalette.Ink);
                 box.Add(header);
@@ -359,7 +386,7 @@ namespace Residue.Gameplay.World
                     : Tiny($"blank day {machine.LastBlankDay}: {residue}", SignalPalette.Caution));
             }
 
-            box.Add(SolventRow(lab));
+            box.Add(SolventRow(records));
             return box;
         }
 
@@ -374,7 +401,7 @@ namespace Residue.Gameplay.World
         /// Amendable while the sample is only logged, fixed once work starts. Hard rule 3 punishes
         /// never checking, not the typo itself.
         /// </summary>
-        private VisualElement BookInRow(LabState lab, SampleState sample)
+        private VisualElement BookInRow(SampleState sample)
         {
             var box = new VisualElement();
             box.style.marginTop = 4;
@@ -430,7 +457,7 @@ namespace Residue.Gameplay.World
         /// cost that makes §9 work sits on the flush itself, which is the part you are tempted to
         /// skip — not on buying the bottle.
         /// </summary>
-        private VisualElement SolventRow(LabState lab)
+        private VisualElement SolventRow(LabRecords records)
         {
             const int packSize = 10;
 
@@ -441,10 +468,10 @@ namespace Residue.Gameplay.World
             row.style.borderTopWidth = 1;
             row.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
 
-            float cost = lab.Economy.SolventCost(packSize);
-            bool dry = lab.Economy.SolventUnits < 1f;
+            float cost = records.SolventUnitCost * packSize;
+            bool dry = records.SolventUnits < 1f;
 
-            var stock = new Label($"SOLVENT  {lab.Economy.SolventUnits:F0} unit(s)");
+            var stock = new Label($"SOLVENT  {records.SolventUnits:F0} unit(s)");
             stock.style.fontSize = 12;
             stock.style.width = 220;
 
@@ -461,10 +488,10 @@ namespace Residue.Gameplay.World
             // Greyed out from the balance this screen is already showing. No round trip: the same
             // affordability check runs again on the host when the order lands, so the worst a stale
             // balance can do is turn a press into a refusal.
-            buy.SetEnabled(lab.Economy.Money >= cost);
+            buy.SetEnabled(records.Money >= cost);
             row.Add(buy);
 
-            if (lab.Economy.Money < cost)
+            if (records.Money < cost)
                 row.Add(Tiny("  cannot afford a restock", SignalPalette.Dim));
 
             return row;
@@ -481,7 +508,7 @@ namespace Residue.Gameplay.World
         /// them with.
         /// </para>
         /// </summary>
-        private VisualElement CalibrationPanel(LabState lab)
+        private VisualElement CalibrationPanel(LabRecords records)
         {
             const int packSize = 3;
 
@@ -494,37 +521,40 @@ namespace Residue.Gameplay.World
             order.style.alignItems = Align.Center;
             order.style.marginBottom = 6;
 
-            float cost = lab.Economy.ReferenceStandardCost(packSize);
+            float cost = records.ReferenceStandardUnitCost * packSize;
 
-            var stock = new Label($"STANDARDS  {lab.Economy.ReferenceStandards} ampoule(s)");
+            var stock = new Label($"STANDARDS  {records.ReferenceStandards} ampoule(s)");
             stock.style.fontSize = 12;
             stock.style.flexGrow = 1f;
 
             // Caution only when the tell is actually unavailable. A low stock is information, and
             // hard rule 4 keeps the signal colours meaning verdict state.
             stock.style.color = new StyleColor(
-                lab.Economy.ReferenceStandards < 1 ? SignalPalette.Caution : SignalPalette.Ink);
+                records.ReferenceStandards < 1 ? SignalPalette.Caution : SignalPalette.Ink);
             order.Add(stock);
 
             var buy = new Button(() => Ask(LabCommand.OrderStandards(packSize), null))
             { text = $"ORDER {packSize}  (£{cost:N0})" };
 
             StyleButton(buy, SignalPalette.PanelSoft);
-            buy.SetEnabled(lab.Economy.Money >= cost);
+            buy.SetEnabled(records.Money >= cost);
             order.Add(buy);
             panel.Add(order);
 
             // Where the certificate comes from, so the numbers are checkable before one is ever run.
             panel.Add(Tiny(
-                $"{lab.Standard.Id} — certified at the healthy baselines the manual publishes.",
+                $"{records.StandardId} — certified at the healthy baselines the manual publishes.",
                 SignalPalette.Dim));
 
             var scroll = new ScrollView();
             scroll.style.flexGrow = 1f;
 
-            foreach (var machine in lab.Machines) scroll.Add(InstrumentCheck(machine));
+            foreach (var machine in records.Instruments)
+            {
+                if (machine != null) scroll.Add(InstrumentCheck(machine));
+            }
 
-            scroll.Add(SuspectArchive(lab));
+            scroll.Add(SuspectArchive(records));
             panel.Add(scroll);
             return panel;
         }
@@ -534,17 +564,17 @@ namespace Residue.Gameplay.World
         /// than summarised away, because the average error underneath them is only trustworthy if the
         /// numbers it came from are on the same screen.
         /// </summary>
-        private static VisualElement InstrumentCheck(MachineInstance machine)
+        private static VisualElement InstrumentCheck(InstrumentRecord machine)
         {
             var box = new VisualElement();
             box.style.marginBottom = 8;
 
-            var header = new Label(machine.Def.DisplayName);
+            var header = new Label(machine.DisplayName);
             header.style.fontSize = 11;
             header.style.color = new StyleColor(SignalPalette.Ink);
             box.Add(header);
 
-            var check = machine.LastCheck;
+            var check = machine.Check;
             if (check == null)
             {
                 box.Add(Tiny("no standard run today — drift unknown", SignalPalette.Caution));
@@ -588,7 +618,7 @@ namespace Residue.Gameplay.World
         /// what turns a bad reading into a decision the player remembers making.
         /// </para>
         /// </summary>
-        private VisualElement SuspectArchive(LabState lab)
+        private VisualElement SuspectArchive(LabRecords records)
         {
             var box = new VisualElement();
             box.style.marginTop = 8;
@@ -597,7 +627,7 @@ namespace Residue.Gameplay.World
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
             box.Add(SectionTitle("RECORDS IN DOUBT"));
 
-            var suspect = lab.Samples.SuspectArchive();
+            var suspect = records.InDoubt;
             if (suspect.Count == 0)
             {
                 box.Add(Dim("No filed record rests on a drifting instrument."));
@@ -606,7 +636,7 @@ namespace Residue.Gameplay.World
 
             foreach (var sample in suspect)
             {
-                float need = lab.SmallestSuspectDraw(sample);
+                float need = records.SmallestReTestDraw(sample);
 
                 var card = new VisualElement();
                 card.style.marginBottom = 6;
@@ -654,22 +684,23 @@ namespace Residue.Gameplay.World
             return label;
         }
 
-        private VisualElement Detail(LabState lab)
+        private VisualElement Detail(LabRecords records)
         {
             var panel = Panel();
             panel.style.flexGrow = 1f;
 
-            if (!selected.IsValid || !lab.Samples.TryGet(selected, out var sample))
+            var sample = selected.IsValid ? records.Sample(selected) : null;
+            if (sample == null)
             {
                 panel.Add(Dim("Select a sample."));
                 return panel;
             }
 
             panel.Add(SectionTitle(sample.RecordTag));
-            panel.Add(BookInRow(lab, sample));
+            panel.Add(BookInRow(sample));
 
             var sub = new Label(
-                $"{sample.Profile.DisplayName} · {sample.Profile.BaseOilGrade} · " +
+                $"{ProfileName(sample)} · {(sample.Profile != null ? sample.Profile.BaseOilGrade : "—")} · " +
                 $"{sample.HoursSinceOilChange:F0} h on the oil · {sample.VolumeMl:F1} ml remaining");
             sub.style.fontSize = 12;
             sub.style.color = new StyleColor(SignalPalette.Dim);
@@ -701,7 +732,7 @@ namespace Residue.Gameplay.World
             scroll.Add(RunLog(sample));
             panel.Add(scroll);
 
-            panel.Add(VerdictBar(lab, sample));
+            panel.Add(VerdictBar(records, sample));
             return panel;
         }
 
@@ -725,6 +756,16 @@ namespace Residue.Gameplay.World
             if (sample.Results.Count == 0)
             {
                 box.Add(Dim("No results yet. Run this sample on an instrument."));
+                return box;
+            }
+
+            // Nothing to score against. Both processes ship the same tables, so this is a broken
+            // catalog rather than a state the game has — but the desk saying so beats it throwing
+            // mid-shift with a panel of numbers already on the glass.
+            if (sample.Profile == null)
+            {
+                box.Add(Dim("This fluid's profile is missing from the content catalog, so nothing " +
+                            "here can be scored. Rebuild definitions."));
                 return box;
             }
 
@@ -834,7 +875,7 @@ namespace Residue.Gameplay.World
             return box;
         }
 
-        private VisualElement VerdictBar(LabState lab, SampleState sample)
+        private VisualElement VerdictBar(LabRecords records, SampleState sample)
         {
             var box = new VisualElement();
             box.style.marginTop = 10;
@@ -843,7 +884,7 @@ namespace Residue.Gameplay.World
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
 
             var causes = new List<string> { "(no root cause)" };
-            foreach (var c in lab.Content.Causes)
+            foreach (var c in records.Causes)
             {
                 if (c != null) causes.Add(c.DisplayName);
             }
@@ -853,7 +894,7 @@ namespace Residue.Gameplay.World
             dropdown.RegisterValueChangedCallback(evt =>
             {
                 pendingCause = null;
-                foreach (var c in lab.Content.Causes)
+                foreach (var c in records.Causes)
                 {
                     if (c != null && c.DisplayName == evt.newValue) pendingCause = c;
                 }
@@ -861,9 +902,9 @@ namespace Residue.Gameplay.World
             box.Add(dropdown);
 
             var buttons = Row();
-            buttons.Add(VerdictButton(lab, sample, Verdict.Normal, "FILE NORMAL"));
-            buttons.Add(VerdictButton(lab, sample, Verdict.Monitor, "FILE MONITOR"));
-            buttons.Add(VerdictButton(lab, sample, Verdict.Critical, "FILE CRITICAL — PULL"));
+            buttons.Add(VerdictButton(sample, Verdict.Normal, "FILE NORMAL"));
+            buttons.Add(VerdictButton(sample, Verdict.Monitor, "FILE MONITOR"));
+            buttons.Add(VerdictButton(sample, Verdict.Critical, "FILE CRITICAL — PULL"));
             box.Add(buttons);
 
             return box;
@@ -875,7 +916,7 @@ namespace Residue.Gameplay.World
         /// already ships the same content — an id is the only part of it that means anything on the
         /// other side of the wire.
         /// </summary>
-        private Button VerdictButton(LabState lab, SampleState sample, Verdict verdict, string text)
+        private Button VerdictButton(SampleState sample, Verdict verdict, string text)
         {
             var button = new Button(() =>
             {

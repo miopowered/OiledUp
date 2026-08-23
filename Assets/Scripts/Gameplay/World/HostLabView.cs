@@ -55,9 +55,6 @@ namespace Residue.Gameplay.World
             }
         }
 
-        /// <summary>Always true: a process that simulates is the process that spawned the bottles.</summary>
-        public bool HasVialProps => true;
-
         public IMachineView Machine(string instanceId)
         {
             if (string.IsNullOrEmpty(instanceId)) return null;

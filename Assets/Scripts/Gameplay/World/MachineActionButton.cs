@@ -30,10 +30,10 @@ namespace Residue.Gameplay.World
     /// its own cycle, and both are charged. Adding a hold on top would tax the player's hands for
     /// something the machine is doing.
     /// <para>
-    /// <b>All four work from a joined client.</b> None of them needs a vial — which is what makes this
-    /// the part of the lab a connected player can operate in full today (see
-    /// <see cref="ILabView.HasVialProps"/> for what still cannot). Everything it reads comes through
-    /// <see cref="LabView.Current"/>, so a host and a client run identical code.
+    /// <b>All four work from a joined client</b>, and were the first things that did: none of them
+    /// needs a vial, so they were operable long before a bottle could exist on a client at all.
+    /// Everything they read comes through <see cref="LabView.Current"/>, so a host and a client run
+    /// identical code.
     /// </para>
     /// </summary>
     public sealed class MachineActionButton : Interactable

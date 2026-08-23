@@ -33,6 +33,21 @@ namespace Residue.Net
         [SerializeField] private CharacterBody body;
 
         /// <summary>
+        /// Where this player's carried bottle hangs.
+        /// <para>
+        /// The one thing this component exposes about a player other than which half of them runs
+        /// here, and it exists because a client id has to become a place in the room somehow. Vials
+        /// are local props (§3.2) and only their <c>SampleLocation</c> travels, so a bottle the host
+        /// says client 2 is holding has to be parented to client 2's hands by every process
+        /// separately — and this is the only component that knows which body belongs to which
+        /// connection. See <c>Residue.Gameplay.World.IPlayerHands</c>.
+        /// </para>
+        /// Valid on a replica, where <see cref="interactor"/> is disabled but its transforms are
+        /// still in the scene and still following the body around.
+        /// </summary>
+        public Transform CarrySocket => interactor != null ? interactor.CarrySocket : transform;
+
+        /// <summary>
         /// Crouching and carrying, replicated because a replica cannot infer them from position.
         /// <para>
         /// Owner-write rather than server-write: the owner is the only one who knows, and routing a

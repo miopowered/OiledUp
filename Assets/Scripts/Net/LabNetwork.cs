@@ -52,11 +52,32 @@ namespace Residue.Net
         private NetworkList<SampleView> samples;
         private NetworkList<MachineView> machines;
         private NetworkList<VialView> vials;
+        private NetworkList<ResultView> results;
+        private NetworkList<ReadingView> readings;
 
         public DayView Day => day.Value;
         public EconomyView Economy => economy.Value;
         public NetworkList<SampleView> Samples => samples;
         public NetworkList<MachineView> Machines => machines;
+
+        /// <summary>
+        /// Every finished run a screen may still need: filed against a record, sitting on an
+        /// instrument, or the blank and the certificate that say whether an instrument can be trusted.
+        /// <para>
+        /// Flat and keyed rather than nested inside <see cref="Samples"/>, because a run does not
+        /// always belong to a sample — a solvent blank belongs to the machine (§5.2) — and because a
+        /// <c>NetworkList</c> element must be unmanaged, so "a sample with its results inside it" is
+        /// not a shape this wire has. See <see cref="ResultView"/> for the budget argument.
+        /// </para>
+        /// </summary>
+        public NetworkList<ResultView> Results => results;
+
+        /// <summary>
+        /// The numbers, each naming the run it came off. Separate from <see cref="Results"/> because
+        /// a panel is not a fixed width and a cap on it would be a cap on what the player is shown
+        /// while still being judged on all of it — see <see cref="ReadingView"/>.
+        /// </summary>
+        public NetworkList<ReadingView> Readings => readings;
 
         /// <summary>
         /// The bottles, as physical objects: where each one is and what its label says.
@@ -80,6 +101,8 @@ namespace Residue.Net
             samples = new NetworkList<SampleView>();
             machines = new NetworkList<MachineView>();
             vials = new NetworkList<VialView>();
+            results = new NetworkList<ResultView>();
+            readings = new NetworkList<ReadingView>();
         }
 
         public override void OnNetworkSpawn()
@@ -108,6 +131,11 @@ namespace Residue.Net
                 // terminal does. Client-only: a host reads its own lab, which is a publish ahead of
                 // anything it has sent (see LabView).
                 LabView.Replicated = new ReplicatedLabView(this);
+
+                // And the numbers. Until this lands the terminal has no evidence to draw and says so
+                // instead of offering a verdict, which is hard rule 3 refusing to ask for a call the
+                // player cannot check.
+                RecordFeed.Source = new ReplicatedRecords(this);
                 return;
             }
 
@@ -139,6 +167,7 @@ namespace Residue.Net
                 // Cleared together with the router: a station reading a despawned list would be
                 // drawing a lab that is no longer on the other end of anything.
                 if (LabView.Replicated is ReplicatedLabView) LabView.Replicated = null;
+                if (RecordFeed.Source is ReplicatedRecords) RecordFeed.Source = null;
             }
 
             awaiting.Clear();
@@ -146,6 +175,8 @@ namespace Residue.Net
             if (!IsServer) return;
 
             actors.Clear();
+            resultKeys.Clear();
+            checkKeys.Clear();
             Sessions.ItemReleased -= OnItemReleased;
 
             var manager = NetworkManager.Singleton;
@@ -531,6 +562,156 @@ namespace Residue.Net
             Sync(samples);
             Sync(machines);
             Sync(vials);
+
+            GatherResults();
+            Sync(results, resultRows);
+            Sync(readings, readingRows);
+        }
+
+        // -- Results ---------------------------------------------------------------------------------
+        //
+        // Two lists rebuilt in one pass. Every row is self-describing: a reading names the run it came
+        // off by key, so the lists cannot be read against each other wrongly — a key that has not
+        // arrived draws nothing, where an offset into a neighbouring list would draw the wrong
+        // numbers under the right heading.
+
+        private readonly List<ResultView> resultRows = new();
+        private readonly List<ReadingView> readingRows = new();
+
+        /// <summary>
+        /// Where a run sits in <see cref="resultRows"/> this pass, so a result reached twice — filed
+        /// against a record <i>and</i> still the last thing an instrument produced — is one row that
+        /// knows both facts rather than two rows that each know half.
+        /// </summary>
+        private readonly Dictionary<TestResult, int> rowOf = new();
+
+        /// <summary>
+        /// Identity for a run, assigned once and never reused. Keyed on the object rather than
+        /// derived from its position, because a position moves the day a sample is resolved and every
+        /// reading behind it would move with it.
+        /// </summary>
+        private readonly Dictionary<TestResult, int> resultKeys = new();
+
+        /// <summary>
+        /// The same, for certificates. A <see cref="CalibrationCheck"/> outlives the readout it was
+        /// built from — <see cref="MachineInstance.LastResult"/> is overwritten by the next run of any
+        /// kind — so the certificate is what carries a standard's numbers to a client, and it needs an
+        /// identity of its own.
+        /// </summary>
+        private readonly Dictionary<CalibrationCheck, int> checkKeys = new();
+
+        private int nextResultKey;
+
+        /// <summary>
+        /// Rebuild the result rows and the readings under them.
+        /// <para>
+        /// Filed results first, in record order, because those are append-only and therefore stable at
+        /// the tail; the instruments' own last readings follow, and those churn. A resolved record is
+        /// closed and nothing on any screen draws its numbers, so its results stop travelling — which
+        /// is what keeps a twenty-day contract from carrying every reading it ever took.
+        /// </para>
+        /// </summary>
+        private void GatherResults()
+        {
+            resultRows.Clear();
+            readingRows.Clear();
+            rowOf.Clear();
+
+            foreach (var state in Lab.Samples.All)
+            {
+                if (state.Stage == SampleStage.Resolved) continue;
+
+                foreach (var result in state.Results) Emit(result, state.Id, filed: true, null);
+            }
+
+            foreach (var machine in Lab.Machines)
+            {
+                // A reference readout travels as its certificate instead: LastResult is transient and
+                // LastCheck is what the terminal still has to be able to print tomorrow.
+                if (machine.LastResult != null && !machine.LastResult.IsReference)
+                    Emit(machine.LastResult, machine.LoadedSample, filed: false, machine.InstanceId);
+
+                Emit(machine.LastBlank, SampleId.None, filed: false, machine.InstanceId);
+                EmitCertificate(machine);
+            }
+        }
+
+        /// <summary>
+        /// Add a run and its numbers, or fold what is now known into the row it already has.
+        /// <para>
+        /// <paramref name="filed"/> is the §5.1 distinction and not bookkeeping: an instrument
+        /// finishing a run puts nothing on a record, so an unfiled row is a slip somebody still has to
+        /// carry to the desk. The terminal draws the filed ones; the instrument's screen draws its own.
+        /// </para>
+        /// </summary>
+        private void Emit(TestResult result, SampleId sample, bool filed, string instanceId)
+        {
+            if (result == null) return;
+
+            if (rowOf.TryGetValue(result, out int at))
+            {
+                var known = resultRows[at];
+                if (filed) known.Filed = true;
+                if (sample.IsValid) known.Sample = sample.Value;
+                if (!string.IsNullOrEmpty(instanceId)) known.MachineInstanceId = ViewText.Fixed32(instanceId);
+                resultRows[at] = known;
+                return;
+            }
+
+            int key = KeyFor(result);
+            rowOf[result] = resultRows.Count;
+            resultRows.Add(ResultView.From(result, key, sample, filed, instanceId));
+
+            foreach (var kv in result.Values) readingRows.Add(new ReadingView(key, kv.Key, kv.Value));
+        }
+
+        /// <summary>
+        /// Publish the certificate on file as the reference run it was read from. The client rebuilds
+        /// the per-element lines with <see cref="CalibrationCheck.From"/> against the standard its own
+        /// content tables blend, so the certified column comes from the manual on both sides and the
+        /// average error cannot come apart between two screens.
+        /// </summary>
+        private void EmitCertificate(MachineInstance machine)
+        {
+            var check = machine.LastCheck;
+            if (check == null) return;
+
+            int key = KeyFor(check);
+
+            resultRows.Add(new ResultView
+            {
+                Key = key,
+                Sample = 0,
+                Filed = false,
+                MachineDefId = ViewText.Fixed32(check.MachineId),
+                MachineInstanceId = ViewText.Fixed32(machine.InstanceId),
+                DayRun = check.Day,
+                IsReference = true
+            });
+
+            foreach (var line in check.Lines)
+            {
+                if (line.Element == null) continue;
+                readingRows.Add(new ReadingView(key, line.Element.Id, line.Measured));
+            }
+        }
+
+        private int KeyFor(TestResult result)
+        {
+            if (resultKeys.TryGetValue(result, out int key)) return key;
+
+            key = ++nextResultKey;
+            resultKeys[result] = key;
+            return key;
+        }
+
+        private int KeyFor(CalibrationCheck check)
+        {
+            if (checkKeys.TryGetValue(check, out int key)) return key;
+
+            key = ++nextResultKey;
+            checkKeys[check] = key;
+            return key;
         }
 
         /// <summary>
@@ -575,6 +756,27 @@ namespace Residue.Net
             }
 
             for (int extra = list.Count - 1; extra >= i; extra--) list.RemoveAt(extra);
+        }
+
+        /// <summary>
+        /// Push a rebuilt buffer into its list, in place. Same whole-snapshot rule as the projections
+        /// above and the same reason: NGO suppresses a write that does not change a value, so the
+        /// wire cost is the rows that actually moved, and there is no incremental invalidation to get
+        /// wrong.
+        /// </summary>
+        private static void Sync<T>(NetworkList<T> list, List<T> rows)
+            where T : unmanaged, IEquatable<T>
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (i < list.Count)
+                {
+                    if (!list[i].Equals(rows[i])) list[i] = rows[i];
+                }
+                else list.Add(rows[i]);
+            }
+
+            for (int extra = list.Count - 1; extra >= rows.Count; extra--) list.RemoveAt(extra);
         }
 
         private void Sync(NetworkList<MachineView> list)

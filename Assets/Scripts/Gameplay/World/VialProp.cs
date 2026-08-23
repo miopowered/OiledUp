@@ -20,6 +20,13 @@ namespace Residue.Gameplay.World
         private static readonly int BaseColor = Shader.PropertyToID("_BaseColor");
         private MaterialPropertyBlock block;
 
+        /// <summary>
+        /// What a full bottle holds, in millilitres — the volume <c>SampleGenerator</c> ships one at.
+        /// Named because four places divide by it to get a fill fraction, and a literal repeated four
+        /// times is a literal that will eventually only be changed in three of them.
+        /// </summary>
+        public const float FullMl = 100f;
+
         public SampleId SampleId { get; private set; }
 
         /// <summary>The paper label, exactly as the customer wrote it. Never the logged tag (§5.1).</summary>

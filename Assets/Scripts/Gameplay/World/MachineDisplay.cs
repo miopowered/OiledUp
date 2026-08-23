@@ -51,6 +51,21 @@ namespace Residue.Gameplay.World
         /// <summary>Most recent runs on this instrument, newest first. Purely local to the screen.</summary>
         private readonly List<string> history = new();
 
+        /// <summary>
+        /// What is currently rasterised, as a fold of the reading that produced it. Zero for anything
+        /// that is not a reading — idle, a progress bar, a notice.
+        /// <para>
+        /// This is what lets the client-side pull below coexist with the station driving the same
+        /// screen: the station clears to <see cref="ShowIdle"/> when a run ends because on its side
+        /// there is nothing to draw, and the pull then notices that what is on the glass is not the
+        /// reading the host published and puts it back. Without it the two would fight at 4 Hz.
+        /// </para>
+        /// </summary>
+        private int drawn;
+
+        private float nextPull;
+        private string resolvedInstanceId;
+
         private void Awake()
         {
             texture = new Texture2D(pixelWidth, pixelHeight, TextureFormat.RGBA32, false, false)
@@ -94,6 +109,55 @@ namespace Residue.Gameplay.World
             DrawText(2, 2, Shorten(Title(machine), Columns), ink);
             DrawText(2, 2 + LineHeight, "READY", dim);
             Apply();
+            drawn = 0;
+        }
+
+        /// <summary>
+        /// Put the host's last reading back on the glass, on a process that has no run-completed event
+        /// to draw from.
+        /// <para>
+        /// Pulled rather than pushed, for the reason the record feed gives: the host republishes on
+        /// its own clock and on every accepted command, and a screen that rasterised on arrival would
+        /// rasterise at times this component has no say over. Four times a second against a fold of
+        /// what is already drawn, so the common case costs a dictionary lookup and a comparison.
+        /// </para>
+        /// Off entirely where this process simulates. There the station draws the result the instant
+        /// the run completes, from the object itself, and a second source would only ever be later.
+        /// </summary>
+        private void Update()
+        {
+            if (!RecordFeed.IsReplicated) return;
+            if (Time.time < nextPull) return;
+            nextPull = Time.time + 0.25f;
+
+            var machine = LabView.Current?.Machine(InstanceId);
+
+            // While it runs the screen belongs to the station's progress bar, which is the same
+            // readout every player in the room is watching.
+            if (machine == null || machine.IsRunning) return;
+
+            var feed = RecordFeed.Source;
+            if (feed == null || !feed.TryLastReading(InstanceId, out var reading, out var sample)) return;
+
+            if (Fold(reading, sample) == drawn) return;
+            Show(machine, reading, sample);
+        }
+
+        /// <summary>
+        /// Which instrument this screen belongs to, taken off the station it hangs under. Resolved
+        /// once: the scene builder parents every display to its machine, and a screen that moved to a
+        /// different instrument mid-session would be a different bug entirely.
+        /// </summary>
+        private string InstanceId
+        {
+            get
+            {
+                if (resolvedInstanceId != null) return resolvedInstanceId;
+
+                var station = GetComponentInParent<MachineStation>();
+                resolvedInstanceId = station != null ? station.InstanceId : "";
+                return resolvedInstanceId;
+            }
         }
 
         /// <summary>
@@ -110,6 +174,7 @@ namespace Residue.Gameplay.World
             DrawText(2, 2 + LineHeight, $"RUNNING {machine.SecondsRemaining:F0}S", ink);
             DrawProgressBar(2, 2 + LineHeight * 2, Columns * PixelFont.Advance * scale - 4, machine.Progress);
             Apply();
+            drawn = 0;
         }
 
         /// <summary>
@@ -124,31 +189,73 @@ namespace Residue.Gameplay.World
             DrawText(2, 2 + LineHeight, Shorten(headline ?? "", Columns), ink);
             DrawText(2, 2 + LineHeight * 2, Shorten(detail ?? "", Columns), dim);
             Apply();
+            drawn = 0;
         }
 
         /// <summary>
-        /// Draw a finished reading. Host-only in practice: <see cref="TestResult"/> does not replicate,
-        /// so a client's screen returns to <see cref="ShowIdle"/> when a run ends and the numbers are
-        /// read at the terminal instead. That is a gap, not a rule — see docs/MULTIPLAYER.md.
+        /// Draw a finished reading, from the vial the instrument is holding. The host's path: the
+        /// bottle is physically in the machine, so its paper label is what the screen captions.
         /// </summary>
         public void Show(IMachineView machine, TestResult result, SampleState sample)
         {
             if (result == null) { ShowIdle(machine); return; }
 
-            RecordHistory(result, sample);
+            Draw(machine, result, Caption(result, sample?.EquipmentTag), Fold(result, sample?.Id ?? SampleId.None));
+        }
+
+        /// <summary>
+        /// Draw a finished reading a client read off the wire, captioned with the sample's id.
+        /// <para>
+        /// <b>Not the tank tag.</b> Neither one, in fact: the paper label reaches a client through
+        /// <c>VialView</c> and must never reach a screen (§5.1 — a display that could show it beside
+        /// what someone typed corrects the mis-log for free), and the typed tag would caption this
+        /// screen differently from the host's, which is the co-op divergence the whole view layer
+        /// exists to prevent. The id is what both sides can print, and the terminal prints it beside
+        /// the record so the two can be matched.
+        /// </para>
+        /// </summary>
+        public void Show(IMachineView machine, TestResult result, SampleId sample)
+        {
+            if (result == null) { ShowIdle(machine); return; }
+
+            Draw(machine, result, Caption(result, sample.IsValid ? sample.ToString() : null),
+                 Fold(result, sample));
+        }
+
+        private void Draw(IMachineView machine, TestResult result, string caption, int fold)
+        {
+            RecordHistory(result, caption);
 
             Clear();
-            if (style == DisplayStyle.Numeric) DrawNumeric(machine, result, sample);
-            else DrawPanel(machine, result, sample);
+            if (style == DisplayStyle.Numeric) DrawNumeric(result, caption);
+            else DrawPanel(machine, result, caption);
             Apply();
+            drawn = fold;
+        }
+
+        /// <summary>
+        /// A run's identity as far as this screen is concerned. Order-independent, because a
+        /// <see cref="TestResult.Values"/> map has no order to depend on.
+        /// </summary>
+        private static int Fold(TestResult result, SampleId sample)
+        {
+            if (result == null) return 0;
+
+            int fold = result.DayRun * 397 ^ sample.Value ^ (result.IsBlank ? 7 : 0) ^
+                       (result.IsReference ? 13 : 0);
+
+            foreach (var kv in result.Values) fold ^= kv.Key.GetHashCode() * 31 ^ kv.Value.GetHashCode();
+
+            // Zero means "not a reading" to the puller above, so never hand it back as one.
+            return fold == 0 ? 1 : fold;
         }
 
         // -- Layouts ---------------------------------------------------------------------------------
 
-        private void DrawNumeric(IMachineView machine, TestResult result, SampleState sample)
+        private void DrawNumeric(TestResult result, string caption)
         {
             int y = 2;
-            DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);
+            DrawText(2, y, Shorten(caption, Columns), dim);
             y += LineHeight;
 
             // A small readout shows the values large rather than many. Two lines at double size.
@@ -168,13 +275,13 @@ namespace Residue.Gameplay.World
             if (shown == 0) DrawText(2, y, "NO READING", dim);
         }
 
-        private void DrawPanel(IMachineView machine, TestResult result, SampleState sample)
+        private void DrawPanel(IMachineView machine, TestResult result, string caption)
         {
             int y = 2;
             DrawText(2, y, Shorten(Title(machine), Columns), ink);
             y += LineHeight;
 
-            DrawText(2, y, Shorten(Caption(result, sample), Columns), dim);
+            DrawText(2, y, Shorten(caption, Columns), dim);
             y += LineHeight;
 
             DrawRule(2, y + 1, Columns * PixelFont.Advance * scale - 4);
@@ -202,21 +309,21 @@ namespace Residue.Gameplay.World
                 DrawText(2, historyY + LineHeight * (i + 1), Shorten(history[i], Columns), dim);
         }
 
-        private void RecordHistory(TestResult result, SampleState sample)
+        private void RecordHistory(TestResult result, string caption)
         {
-            history.Insert(0, $"D{result.DayRun} {Shorten(Caption(result, sample), 14)}");
+            history.Insert(0, $"D{result.DayRun} {Shorten(caption, 14)}");
             while (history.Count > 6) history.RemoveAt(history.Count - 1);
         }
 
         /// <summary>
         /// What the run was of. A standard has to name itself: an instrument screen showing a full
-        /// panel of plausible numbers with no sample tag beside it reads as somebody else's sample.
+        /// panel of plausible numbers with no sample named beside it reads as somebody else's sample.
         /// </summary>
-        private static string Caption(TestResult result, SampleState sample)
+        private static string Caption(TestResult result, string sample)
         {
             if (result.IsBlank) return "SOLVENT BLANK";
             if (result.IsReference) return "CERT STANDARD";
-            return sample?.EquipmentTag ?? "-";
+            return string.IsNullOrEmpty(sample) ? "-" : sample;
         }
 
         // -- Raster ----------------------------------------------------------------------------------

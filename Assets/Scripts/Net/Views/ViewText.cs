@@ -28,5 +28,33 @@ namespace Residue.Net.Views
             if (!string.IsNullOrEmpty(value)) packed.CopyFromTruncated(value);
             return packed;
         }
+
+        /// <summary>
+        /// 29 bytes of payload, for the ids the content tables mint rather than the text a player
+        /// types: the longest element id is 6 characters ("TCRmax"), the longest machine id 12
+        /// ("karl_fischer"), the longest placed id 14 ("karl_fischer-0"). Readings are the one thing
+        /// on this wire there are thousands of, so the size that fits an id with room to double is
+        /// worth having as its own budget — <see cref="Fixed64"/> would cost 32 bytes a reading to
+        /// carry nothing.
+        /// </summary>
+        public static FixedString32Bytes Fixed32(string value)
+        {
+            var packed = new FixedString32Bytes();
+            if (!string.IsNullOrEmpty(value)) packed.CopyFromTruncated(value);
+            return packed;
+        }
+
+        /// <summary>
+        /// 125 bytes of payload, against a longest field note of 62 characters. Notes are free text
+        /// written in the content tables rather than typed by a player, so this is headroom against
+        /// an author, not against an attacker — and it still truncates rather than throwing, for the
+        /// reason the type doc gives.
+        /// </summary>
+        public static FixedString128Bytes Fixed128(string value)
+        {
+            var packed = new FixedString128Bytes();
+            if (!string.IsNullOrEmpty(value)) packed.CopyFromTruncated(value);
+            return packed;
+        }
     }
 }

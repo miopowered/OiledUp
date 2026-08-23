@@ -53,17 +53,13 @@ namespace Residue.Gameplay.World
         /// <summary>Samples that have arrived and have no verdict filed yet.</summary>
         int OpenSampleCount { get; }
 
-        /// <summary>
-        /// Whether physical vials exist in this process.
-        /// <para>
-        /// False on a joined client. §3.2 makes a vial a local prop rather than a NetworkObject — 200+
-        /// of them would drown the connection — and nothing replicates <c>SampleLocation</c> yet, so a
-        /// client's crate and racks are empty however full the host's are. Call sites read this to
-        /// <i>say so</i>: hard rule 3 forbids showing a player a shelf that is only empty because the
-        /// bottles did not travel.
-        /// </para>
-        /// </summary>
-        bool HasVialProps { get; }
+        // There was a HasVialProps here, and it is gone on purpose. It meant "this process has
+        // physical bottles in it", which was false on a joined client and made the crate, the racks
+        // and every instrument say so rather than draw a shelf that was only empty because nothing
+        // travelled. §3.2 still keeps a vial a local prop — but the location record replicates now,
+        // and VialReconciler builds the same props on every machine in the session out of it. The
+        // answer is yes everywhere the world layer runs, and a question with one answer is not a
+        // question. See VialFeed for what replaced it.
 
         /// <summary>The instrument placed under that id, or null if this process has not heard of it.</summary>
         IMachineView Machine(string instanceId);

@@ -41,6 +41,32 @@ namespace Residue.Net.Views
         /// <summary>Millilitres left. §4.5's whole test-ordering decision is about this number.</summary>
         public float VolumeMl;
 
+        /// <summary>
+        /// Hours the oil has been in the tank. Context for every reading on the panel — the same acid
+        /// number means one thing at 300 h and another at 5000 h — and safe to send because the
+        /// generator copies it straight from the arrival plan: it is drawn per delivery, never from
+        /// what is wrong with the oil.
+        /// </summary>
+        public float HoursSinceOilChange;
+
+        /// <summary>
+        /// The courier's note, verbatim. Vague, wrong or absent by design (§4.4), and drawn from a
+        /// fixed pool independently of the fault — it is atmosphere and misdirection, not a hint, so
+        /// it says nothing a client could not have been told at the desk.
+        /// <para>
+        /// It travels because the host's terminal prints it. A client filing a verdict without the
+        /// note would be making the call on strictly less evidence than the player beside them, which
+        /// is the co-op version of the thing hard rule 3 forbids.
+        /// </para>
+        /// </summary>
+        public FixedString128Bytes FieldTechNote;
+
+        /// <summary>
+        /// The earlier sample this is a re-draw of, or 0 for a first draw (§5.4). A re-draw exists
+        /// because the player filed MONITOR, which is their own decision reflected back.
+        /// </summary>
+        public int ResampleOf;
+
         public SampleStage Stage;
 
         public bool IsLogged;
@@ -49,6 +75,9 @@ namespace Residue.Net.Views
         public bool HasVerdict;
 
         public Verdict FiledVerdict;
+
+        /// <summary>Day the call was filed, or -1. The §5.3 archive names it beside the verdict.</summary>
+        public int FiledOnDay;
 
         /// <summary>
         /// Worst <i>reading</i> against the profile — measured numbers scored by published thresholds,
@@ -88,10 +117,14 @@ namespace Residue.Net.Views
                 RecordTag = ViewText.Fixed64(state.RecordTag),
                 ProfileId = ViewText.Fixed64(state.Profile != null ? state.Profile.Id : null),
                 VolumeMl = state.VolumeMl,
+                HoursSinceOilChange = state.HoursSinceOilChange,
+                FieldTechNote = ViewText.Fixed128(state.FieldTechNote),
+                ResampleOf = state.ResampleOf.Value,
                 Stage = state.Stage,
                 IsLogged = state.IsLogged,
                 HasVerdict = state.FiledVerdict.HasValue,
                 FiledVerdict = state.FiledVerdict ?? Verdict.Normal,
+                FiledOnDay = state.FiledOnDay,
                 WorstReading = state.WorstReading(),
                 HasSuspectResult = suspect
             };
@@ -103,10 +136,14 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref RecordTag);
             serializer.SerializeValue(ref ProfileId);
             serializer.SerializeValue(ref VolumeMl);
+            serializer.SerializeValue(ref HoursSinceOilChange);
+            serializer.SerializeValue(ref FieldTechNote);
+            serializer.SerializeValue(ref ResampleOf);
             serializer.SerializeValue(ref Stage);
             serializer.SerializeValue(ref IsLogged);
             serializer.SerializeValue(ref HasVerdict);
             serializer.SerializeValue(ref FiledVerdict);
+            serializer.SerializeValue(ref FiledOnDay);
             serializer.SerializeValue(ref WorstReading);
             serializer.SerializeValue(ref HasSuspectResult);
         }
@@ -116,10 +153,14 @@ namespace Residue.Net.Views
             RecordTag.Equals(other.RecordTag) &&
             ProfileId.Equals(other.ProfileId) &&
             VolumeMl.Equals(other.VolumeMl) &&
+            HoursSinceOilChange.Equals(other.HoursSinceOilChange) &&
+            FieldTechNote.Equals(other.FieldTechNote) &&
+            ResampleOf == other.ResampleOf &&
             Stage == other.Stage &&
             IsLogged == other.IsLogged &&
             HasVerdict == other.HasVerdict &&
             FiledVerdict == other.FiledVerdict &&
+            FiledOnDay == other.FiledOnDay &&
             WorstReading == other.WorstReading &&
             HasSuspectResult == other.HasSuspectResult;
 

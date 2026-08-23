@@ -25,6 +25,14 @@ namespace Residue.Gameplay.World
         [SerializeField] private PlayerController player;
         [SerializeField] private Transform carrySocket;
 
+        /// <summary>
+        /// Where a carried item hangs. Exposed so <c>Residue.Net</c> can answer "show me that
+        /// player's hands" for a bottle the host says somebody else is holding — see
+        /// <see cref="IPlayerHands"/>. Read on replicas too, where this component is disabled but its
+        /// transforms are still in the room.
+        /// </summary>
+        public Transform CarrySocket => carrySocket != null ? carrySocket : transform;
+
         [SerializeField] private float range = 2.5f;
 
         [Tooltip("Must exclude the player's own layer.\n\n" +
@@ -418,7 +426,7 @@ namespace Residue.Gameplay.World
             if (item == null || Carried != null) return false;
 
             Carried = item;
-            item.AttachTo(carrySocket != null ? carrySocket : transform, interactable: false);
+            item.AttachTo(CarrySocket, interactable: false);
 
             if (item is VialProp vial)
             {
@@ -426,7 +434,7 @@ namespace Residue.Gameplay.World
                     ? LabRuntime.Instance.SampleFor(vial.SampleId)
                     : null;
 
-                if (sample != null) vial.SetFillFraction(sample.VolumeMl / 100f);
+                if (sample != null) vial.SetFillFraction(sample.VolumeMl / VialProp.FullMl);
             }
             return true;
         }
