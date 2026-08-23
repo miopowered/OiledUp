@@ -13,12 +13,12 @@ MonoBehaviour:
   m_Name: Fault_water_ingress
   m_EditorClassIdentifier: Residue.Data::Residue.Data.FaultDef
   id: water_ingress
-  displayName: Water Ingress (Condensation)
-  severity: 1
+  displayName: Water Ingress
+  severity: 2
   signature:
   - element: {fileID: 11400000, guid: 4ac0f9246b3141041be106c07692a337, type: 2}
-    multiplier: 6
-    flatAdd: 0.16
+    multiplier: 8
+    flatAdd: 1200
     progressionOverSeverity:
       serializedVersion: 2
       m_Curve:
@@ -43,8 +43,35 @@ MonoBehaviour:
       m_PreInfinity: 2
       m_PostInfinity: 2
       m_RotationOrder: 4
-  - element: {fileID: 11400000, guid: e1869aef4bacf0d47947b57277ee431d, type: 2}
-    multiplier: 1.5
+  - element: {fileID: 11400000, guid: 03b02790fbdfdac42a29e36b07b8cbf2, type: 2}
+    multiplier: 0.72
+    flatAdd: 0
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: 865e128cb936ac94a9ece08acf68fb1b, type: 2}
+    multiplier: 2.2
     flatAdd: 12
     progressionOverSeverity:
       serializedVersion: 2
@@ -72,10 +99,16 @@ MonoBehaviour:
       m_RotationOrder: 4
   canCause: []
   validOn:
-  - {fileID: 11400000, guid: ac4fbca440a422947adb55ab4d1bcdb8, type: 2}
-  - {fileID: 11400000, guid: 9e2e03dc832d7d444a47e8cab79f38ab, type: 2}
-  - {fileID: 11400000, guid: 536dabed83f8ca04abb3d72a90c207e2, type: 2}
-  daysToFailure: 15
-  repairCost: 700
-  teardownCostIfWrong: 3200
-  rootCause: {fileID: 11400000, guid: 0aeb2a88acf53e040b0bf05dbe8a58cb, type: 2}
+  - {fileID: 11400000, guid: 5e01bc96f92abde439b9ef54bcf1f516, type: 2}
+  - {fileID: 11400000, guid: 04b525cc34a7ece44bcac84ae37dafdb, type: 2}
+  - {fileID: 11400000, guid: 4d428588bd3218942bcad06c2ca5ceaa, type: 2}
+  - {fileID: 11400000, guid: e40e0bf63f3d0fa4297d058d32dfe17b, type: 2}
+  - {fileID: 11400000, guid: a498f24c352662841848d8dd9de96510, type: 2}
+  - {fileID: 11400000, guid: e9e9676865bd37943ab397a16e3acb46, type: 2}
+  daysToFailure: 4
+  repairCost: 11500
+  teardownCostIfWrong: 6200
+  rootCause: {fileID: 11400000, guid: c4e4ca7ffb08c6045b6166ba225f096a, type: 2}
+  missedConsequence: Left in service. Water flashed to steam as the charge went in
+    and the bath erupted. Fire crews attended, the line is down and the incident
+    is with the insurer. This is the one that hurts people, not just parts.

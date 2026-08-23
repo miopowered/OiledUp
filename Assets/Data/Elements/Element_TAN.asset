@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Total Acid Number
   unit: mgKOH/g
   category: 3
-  sourceHint: acid build-up from oxidation
+  sourceHint: acid built up by oxidation. Climbs steadily with thermal ageing and
+    sharply with localised overheating.

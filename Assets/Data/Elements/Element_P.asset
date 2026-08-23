@@ -16,4 +16,5 @@ MonoBehaviour:
   displayName: Phosphorus
   unit: ppm
   category: 2
-  sourceHint: anti-wear additive, tracks zinc
+  sourceHint: tracks zinc in most packages. Zinc and phosphorus moving together points
+    at a product change; one moving alone points at depletion.

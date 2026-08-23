@@ -52,7 +52,7 @@ namespace Residue.Tests.EditMode
                 plan.Days.Add(new DayPlan
                 {
                     SampleCount = samplesPerDay,
-                    ProfileIds = new[] { "diesel_engine_heavy" },
+                    ProfileIds = new[] { "quench_oil_cold" },
                     BorderlineCount = 0,
                     HealthyChance = healthyChance,
                     DaySeconds = daySeconds
@@ -160,19 +160,19 @@ namespace Residue.Tests.EditMode
         public void RunningAnInstrument_DoesNotFileTheResultItself()
         {
             var lab = new LabState(catalog, PlanOf(1), 606);
-            var icp = lab.Install(catalog.Machine("icp"), "icp");
+            var elemental = lab.Install(catalog.Machine("elemental"), "elemental");
             lab.BeginDay();
 
             var sample = lab.OpenSamples().First();
             sample.IsSettled = true;
 
-            Assert.AreEqual(LoadRefusal.Accepted, icp.TryLoad(sample));
-            Assert.IsTrue(icp.TryBeginRun());
+            Assert.AreEqual(LoadRefusal.Accepted, elemental.TryLoad(sample));
+            Assert.IsTrue(elemental.TryBeginRun());
 
             float volumeBefore = sample.VolumeMl;
-            lab.Tick(icp.RunSeconds + 1f);
+            lab.Tick(elemental.RunSeconds + 1f);
 
-            Assert.IsNotNull(icp.LastResult, "The instrument must have produced a reading.");
+            Assert.IsNotNull(elemental.LastResult, "The instrument must have produced a reading.");
             Assert.Less(sample.VolumeMl, volumeBefore, "The run must still consume sample volume.");
 
             Assert.IsEmpty(sample.Results,
@@ -182,7 +182,7 @@ namespace Residue.Tests.EditMode
                 "With nothing filed, the terminal has nothing to score.");
 
             // Filing is what the terminal does on receiving the slip.
-            sample.Results.Add(icp.LastResult);
+            sample.Results.Add(elemental.LastResult);
             Assert.AreEqual(1, sample.Results.Count);
             Assert.IsTrue(sample.TryGetLatest("Fe", out _, out _),
                 "Once filed, the reading is part of the record and can be cross-referenced.");

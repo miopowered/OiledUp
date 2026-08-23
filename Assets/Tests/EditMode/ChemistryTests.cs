@@ -13,8 +13,8 @@ namespace Residue.Tests.EditMode
 {
     /// <summary>
     /// The §5.6 suite. These exist to protect the design, not the code: each one guards a specific
-    /// claim the game makes to the player. If one of these goes red, a fault archetype has stopped
-    /// being diagnosable and the chemistry is lying — which §1.1 says we must never do.
+    /// claim the game makes to the player. If one goes red, a fault archetype has stopped being
+    /// diagnosable and the chemistry is lying — which §1.1 says we must never do.
     /// </summary>
     public sealed class ChemistryTests
     {
@@ -44,7 +44,7 @@ namespace Residue.Tests.EditMode
                 .Concat(content.Machines.Values);
 
         // -----------------------------------------------------------------------------------------
-        // 1. A healthy unit reads normal. Anything else punishes the player for nothing.
+        // 1. A serviceable tank reads normal. Anything else condemns good oil for nothing.
         // -----------------------------------------------------------------------------------------
 
         [Test]
@@ -56,7 +56,7 @@ namespace Residue.Tests.EditMode
             {
                 for (int i = 0; i < 250; i++)
                 {
-                    var req = GenerationRequest.Default(profile, "TEST-01", 1);
+                    var req = GenerationRequest.Default(profile, "WERK-1 QUENCH 1", 1);
                     req.ForceHealthy = true;
                     req.HoursSinceOilChange = rng.Range(0f, profile.DefaultOilChangeHours);
 
@@ -67,8 +67,8 @@ namespace Residue.Tests.EditMode
                         Assert.AreEqual(
                             ReadingSeverity.Normal,
                             profile.Evaluate(kv.Key, kv.Value),
-                            $"Healthy sample on '{profile.Id}' (iteration {i}, {req.HoursSinceOilChange:F0} h) " +
-                            $"read {kv.Value:F4} for '{kv.Key}', which is not Normal.");
+                            $"Serviceable oil on '{profile.Id}' (iteration {i}, " +
+                            $"{req.HoursSinceOilChange:F0} h) read {kv.Value:F4} for '{kv.Key}', not Normal.");
                     }
                 }
             }
@@ -76,7 +76,7 @@ namespace Residue.Tests.EditMode
 
         // -----------------------------------------------------------------------------------------
         // 2. Every fault, fully developed, is unambiguously critical somewhere.
-        //    A fault that can top out at Caution is a fault the player can never correctly call.
+        //    A fault that tops out at Caution is one the player can never correctly call.
         // -----------------------------------------------------------------------------------------
 
         [Test]
@@ -101,106 +101,114 @@ namespace Residue.Tests.EditMode
                             kv => profile.Evaluate(kv.Key, kv.Value) == ReadingSeverity.Critical);
 
                         Assert.IsTrue(anyCritical,
-                            $"Fault '{fault.Id}' at full severity on '{profile.Id}' produced nothing Critical " +
-                            $"(iteration {i}). Readings: {Describe(sample.Truth, profile)}");
+                            $"Fault '{fault.Id}' at full severity on '{profile.Id}' produced nothing " +
+                            $"Critical (iteration {i}). Readings: {Describe(sample.Truth, profile)}");
                     }
                 }
             }
         }
 
         // -----------------------------------------------------------------------------------------
-        // 3. Bearing overlay wear vs bushing wear. Both raise copper; only bearing wear raises lead.
+        // 3. Water ingress vs hydraulic carryover. Both drop the flash point; only one adds water.
         //    §4.3 calls this the novice trap, so the discriminator must be reliable, not vibes.
         // -----------------------------------------------------------------------------------------
 
         [Test]
-        public void BearingWear_AndBushingWear_AreSeparableByLeadCopperRatio()
+        public void WaterIngress_AndHydraulicCarryover_AreSeparableByWaterContent()
         {
-            const float discriminator = 0.4f;
+            const float discriminator = 800f; // ppm
             const int trials = 1000;
 
-            var profile = content.Profile("diesel_engine_heavy");
-            var bearing = content.Fault("bearing_overlay_wear");
-            var bushing = content.Fault("bushing_wear");
+            var profile = content.Profile("quench_oil_cold");
+            var water = content.Fault("water_ingress");
+            var hydraulic = content.Fault("hydraulic_carryover");
 
             int correct = 0;
             var rng = new Rng(777);
 
             for (int i = 0; i < trials; i++)
             {
-                bool expectBearing = (i % 2) == 0;
+                bool expectWater = (i % 2) == 0;
                 var req = GenerationRequest.Default(profile, "TEST-03", 1);
-                req.ForcedFault = expectBearing ? bearing : bushing;
+                req.ForcedFault = expectWater ? water : hydraulic;
                 req.CascadeChance = 0f;
 
                 var truth = generator.Generate(req, ref rng).Truth;
 
-                float pb = truth.GetTrue("Pb");
-                float cu = truth.GetTrue("Cu");
-                bool calledBearing = cu > 0f && (pb / cu) > discriminator;
-
-                if (calledBearing == expectBearing) correct++;
+                bool calledWater = truth.GetTrue("Water") > discriminator;
+                if (calledWater == expectWater) correct++;
             }
 
             float accuracy = correct / (float)trials;
             Assert.Greater(accuracy, 0.95f,
-                $"Pb/Cu ratio separated bearing from bushing wear only {accuracy:P1} of the time. " +
-                "The §4.3 novice trap is unfair if the discriminator is not reliable.");
+                $"Water content separated the two only {accuracy:P1} of the time. Both faults drop " +
+                "the flash point, so if water does not discriminate the pair is unfair.");
         }
 
         // -----------------------------------------------------------------------------------------
-        // 4. Gear spalling: a clean ICP and a damning ferrography run on the SAME vial.
-        //    This is the trap that teaches "a clean spectrometer is not a clean sample".
+        // 4. Additive exhaustion: a clean conventional panel and a damning cooling curve on the SAME
+        //    oil. This is the trap that teaches "a clean panel is not a clean oil".
         // -----------------------------------------------------------------------------------------
 
         [Test]
-        public void GearSpalling_LooksCleanOnIcp_AndCriticalOnFerrography()
+        public void AdditiveExhaustion_ReadsCleanOnTheConventionalPanel_AndCriticalOnTheCoolingCurve()
         {
-            var profile = content.Profile("gearbox_industrial");
-            var spalling = content.Fault("gear_spalling");
+            var profile = content.Profile("quench_oil_accelerated");
+            var exhaustion = content.Fault("additive_exhaustion");
             var rng = new Rng(31337);
 
-            for (int i = 0; i < 100; i++)
+            string[] conventional = { "karl_fischer", "viscometer", "flash_point", "tan_titrator", "centrifuge", "elemental" };
+
+            for (int i = 0; i < 60; i++)
             {
                 var req = GenerationRequest.Default(profile, "TEST-04", 1);
-                req.ForcedFault = spalling;
+                req.ForcedFault = exhaustion;
                 req.ForcedSeverity01 = 1f;
                 req.CascadeChance = 0f;
 
                 var sample = generator.Generate(req, ref rng);
+                sample.State.VolumeMl = 500f; // enough for the whole panel in one pass
 
-                var icp = FreshMachine("icp");
-                var ferro = FreshMachine("ferrography");
+                foreach (string id in conventional)
+                {
+                    var machine = FreshMachine(id);
+                    var result = MeasurementPipeline.Run(sample.State, sample.Truth, machine, 1, ref rng);
+                    Assert.IsNotNull(result, $"'{id}' refused the sample.");
 
-                var icpResult = MeasurementPipeline.Run(sample.State, sample.Truth, icp, 1, ref rng);
-                var ferroResult = MeasurementPipeline.Run(sample.State, sample.Truth, ferro, 1, ref rng);
+                    foreach (var kv in result.Values)
+                    {
+                        Assert.AreNotEqual(ReadingSeverity.Critical, profile.Evaluate(kv.Key, kv.Value),
+                            $"'{id}' flagged {kv.Key}={kv.Value:F3} as Critical on iteration {i}. " +
+                            "The trap only works if the conventional panel looks survivable.");
+                    }
 
-                Assert.IsFalse(icpResult.Values.ContainsKey("FeLarge"),
-                    "The ICP must not report large ferrous debris at all — it is blind to it.");
+                    // The manual's CANNOT DETECT page is the fair warning; the data must match it.
+                    foreach (string hidden in new[] { "CRmax", "TCRmax", "CR300", "T400" })
+                        Assert.IsFalse(result.Values.ContainsKey(hidden),
+                            $"'{id}' reported {hidden}. Only the cooling curve tester sees quench performance.");
+                }
 
-                bool icpCritical = icpResult.Values.Any(
-                    kv => profile.Evaluate(kv.Key, kv.Value) == ReadingSeverity.Critical);
-                Assert.IsFalse(icpCritical,
-                    $"ICP flagged gear spalling as Critical on iteration {i}; the trap only works if " +
-                    $"spectroscopy looks survivable. Readings: {Describe(icpResult)}");
+                var curve = FreshMachine("cooling_curve");
+                var curveResult = MeasurementPipeline.Run(sample.State, sample.Truth, curve, 1, ref rng);
 
-                Assert.IsTrue(ferroResult.Values.TryGetValue("FeLarge", out float large),
-                    "Ferrography must report large ferrous debris.");
-                Assert.AreEqual(ReadingSeverity.Critical, profile.Evaluate("FeLarge", large),
-                    $"Ferrography read FeLarge = {large:F1}, which is not Critical on '{profile.Id}'.");
+                Assert.IsTrue(curveResult.Values.TryGetValue("CR300", out float cr300),
+                    "The cooling curve tester must report the rate at 300 C.");
+                Assert.AreEqual(ReadingSeverity.Critical, profile.Evaluate("CR300", cr300),
+                    $"Cooling rate at 300 C read {cr300:F2}, which is not Critical on '{profile.Id}'. " +
+                    "That figure is what decides whether the customer's parts come out hard.");
             }
         }
 
         // -----------------------------------------------------------------------------------------
-        // 5. Contamination must actually bite. A skipped flush has to be able to manufacture a
-        //    false positive on a genuinely healthy unit, or §5.2 is decoration.
+        // 5. Contamination must bite. A skipped flush has to be able to manufacture a false positive
+        //    on genuinely serviceable oil, or §5.2 is decoration.
         // -----------------------------------------------------------------------------------------
 
         [Test]
         public void SkippedFlush_AfterCriticalSamples_ManufacturesAFalsePositive()
         {
-            var profile = content.Profile("diesel_engine_heavy");
-            var coolant = content.Fault("coolant_leak");
+            var profile = content.Profile("quench_oil_cold");
+            var water = content.Fault("water_ingress");
             var titrator = FreshMachine("karl_fischer");
             var rng = new Rng(90210);
 
@@ -208,22 +216,21 @@ namespace Residue.Tests.EditMode
 
             for (int run = 1; run <= 10; run++)
             {
-                var dirty = GenerationRequest.Default(profile, $"DIRTY-{run}", 1);
-                dirty.ForcedFault = coolant;
+                var dirty = GenerationRequest.Default(profile, $"WET-{run}", 1);
+                dirty.ForcedFault = water;
                 dirty.ForcedSeverity01 = 1f;
                 dirty.CascadeChance = 0f;
                 var contaminated = generator.Generate(dirty, ref rng);
                 MeasurementPipeline.Run(contaminated.State, contaminated.Truth, titrator, 1, ref rng);
 
-                // A genuinely healthy unit, measured on the machine nobody flushed.
-                var cleanReq = GenerationRequest.Default(profile, "CLEAN-01", 1);
+                var cleanReq = GenerationRequest.Default(profile, "GOOD-01", 1);
                 cleanReq.ForceHealthy = true;
                 var clean = generator.Generate(cleanReq, ref rng);
 
                 var probe = MeasurementPipeline.Run(clean.State, clean.Truth, titrator, 1, ref rng);
 
                 Assert.AreEqual(ReadingSeverity.Normal, profile.Evaluate("Water", clean.Truth.GetTrue("Water")),
-                    "Sanity: the probe sample must genuinely be healthy.");
+                    "Sanity: the probe sample must genuinely be serviceable.");
 
                 if (profile.Evaluate("Water", probe.Values["Water"]) == ReadingSeverity.Critical)
                 {
@@ -233,50 +240,75 @@ namespace Residue.Tests.EditMode
             }
 
             Assert.Greater(runsUntilFalsePositive, 0,
-                "Ten unflushed critical samples never pushed a healthy sample to Critical. " +
-                "Carryover is too weak for §5.2 to be a real mechanic.");
+                "Ten unflushed wet samples never pushed serviceable oil to Critical. Carryover is too " +
+                "weak for §5.2 to be a real mechanic.");
 
-            // ...and the tell has to work: cleaning must make the same healthy sample read Normal again.
             titrator.Clean();
 
-            var afterReq = GenerationRequest.Default(profile, "CLEAN-02", 1);
+            var afterReq = GenerationRequest.Default(profile, "GOOD-02", 1);
             afterReq.ForceHealthy = true;
             var after = generator.Generate(afterReq, ref rng);
             var afterResult = MeasurementPipeline.Run(after.State, after.Truth, titrator, 1, ref rng);
 
             Assert.AreEqual(ReadingSeverity.Normal, profile.Evaluate("Water", afterResult.Values["Water"]),
-                "Cleaning the machine must restore a trustworthy reading, or the player is being " +
-                "punished for something they could not fix.");
+                "Flushing must restore a trustworthy reading, or the player is being punished for " +
+                "something they could not fix.");
         }
 
         [Test]
         public void BlankRun_RevealsResidue_WithoutConsumingSample()
         {
-            var profile = content.Profile("diesel_engine_heavy");
-            var coolant = content.Fault("coolant_leak");
+            var profile = content.Profile("quench_oil_cold");
+            var water = content.Fault("water_ingress");
             var titrator = FreshMachine("karl_fischer");
             var rng = new Rng(5150);
 
-            var dirtyReq = GenerationRequest.Default(profile, "DIRTY-01", 1);
-            dirtyReq.ForcedFault = coolant;
+            var dirtyReq = GenerationRequest.Default(profile, "WET-01", 1);
+            dirtyReq.ForcedFault = water;
             dirtyReq.ForcedSeverity01 = 1f;
             dirtyReq.CascadeChance = 0f;
             var dirty = generator.Generate(dirtyReq, ref rng);
 
             var blankBefore = MeasurementPipeline.RunBlank(titrator, 1, ref rng);
-            Assert.AreEqual(0f, blankBefore.Values["Water"], 1e-4f, "A fresh machine must blank clean.");
+            Assert.AreEqual(0f, blankBefore.Values["Water"], 1e-4f, "A fresh instrument must blank clean.");
 
             MeasurementPipeline.Run(dirty.State, dirty.Truth, titrator, 1, ref rng);
 
             var blankAfter = MeasurementPipeline.RunBlank(titrator, 1, ref rng);
             Assert.Greater(blankAfter.Values["Water"], 0f,
-                "A blank must reveal residue, otherwise the player has no way to check before trusting a result.");
+                "A blank must reveal residue, otherwise the player has no way to check before " +
+                "trusting a borderline result.");
             Assert.AreEqual(0f, blankAfter.VolumeConsumedMl,
-                "A blank consumes machine time and solvent, never sample volume.");
+                "A blank consumes instrument time and solvent, never sample volume.");
         }
 
         // -----------------------------------------------------------------------------------------
-        // 6. Ground truth must be structurally unable to reach a client.
+        // 6. The root-cause trap: the fault is upstream, not in the tank.
+        // -----------------------------------------------------------------------------------------
+
+        [Test]
+        public void CleanerCarryover_RootCauseIsTheWasherLine_NotTheTank()
+        {
+            var cleaner = content.Fault("cleaner_carryover");
+            Assert.IsNotNull(cleaner, "Cleaner carryover must exist; it is the §4.3 root-cause trap.");
+            Assert.IsNotNull(cleaner.RootCause);
+            Assert.AreEqual("washer_line_carryover", cleaner.RootCause.Id,
+                "Replacing the charge does not fix cleaner carryover. The washer does.");
+        }
+
+        [Test]
+        public void EveryFault_KnowsWhatHappensWhenItIsMissed()
+        {
+            foreach (var fault in content.Faults.Values)
+            {
+                Assert.IsFalse(string.IsNullOrWhiteSpace(fault.MissedConsequence),
+                    $"Fault '{fault.Id}' has no missed-consequence text, so the incident report " +
+                    "cannot tell the player what their verdict actually cost.");
+            }
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // 7. Ground truth must be structurally unable to reach a client.
         // -----------------------------------------------------------------------------------------
 
         [Test]
@@ -293,8 +325,7 @@ namespace Residue.Tests.EditMode
 
             foreach (var p in stateType.GetProperties(BindingFlags.Public | BindingFlags.Instance))
             {
-                Assert.AreNotEqual(truthType, p.PropertyType,
-                    $"SampleState.{p.Name} exposes ground truth.");
+                Assert.AreNotEqual(truthType, p.PropertyType, $"SampleState.{p.Name} exposes ground truth.");
             }
 
             Assert.IsNull(stateType.GetField("TrueValues", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance),
@@ -346,8 +377,7 @@ namespace Residue.Tests.EditMode
             if (candidate == null) return false;
             if (candidate == forbidden) return true;
             if (candidate.IsArray) return Mentions(candidate.GetElementType(), forbidden);
-            if (candidate.IsGenericType)
-                return candidate.GetGenericArguments().Any(a => Mentions(a, forbidden));
+            if (candidate.IsGenericType) return candidate.GetGenericArguments().Any(a => Mentions(a, forbidden));
             return false;
         }
 
@@ -363,8 +393,5 @@ namespace Residue.Tests.EditMode
             string.Join(", ", truth.TrueValues
                 .Where(kv => profile.Evaluate(kv.Key, kv.Value) != ReadingSeverity.Normal)
                 .Select(kv => $"{kv.Key}={kv.Value:F3}({profile.Evaluate(kv.Key, kv.Value)})"));
-
-        private static string Describe(TestResult result) =>
-            string.Join(", ", result.Values.Select(kv => $"{kv.Key}={kv.Value:F2}"));
     }
 }

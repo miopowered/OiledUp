@@ -66,9 +66,15 @@ namespace Residue.Data
         [Tooltip("Cost of filing CRITICAL when this fault is NOT present.")]
         [SerializeField] private float teardownCostIfWrong;
 
-        [Tooltip("The answer to the root-cause bonus (§5.4). For dirt ingress this is the AIR FILTER, " +
-                 "not the component showing the wear. Leave empty if the fault has no distinct root cause.")]
+        [Tooltip("The answer to the root-cause bonus (§5.4). For cleaner carryover this is the WASHER " +
+                 "LINE, not the tank showing the symptom. Leave empty if the fault has no distinct cause.")]
         [SerializeField] private RootCauseDef rootCause;
+
+        [Tooltip("What actually happens when this is passed as NORMAL. Shown in the incident report.\n\n" +
+                 "Lives on the fault rather than in the resolver so that adding a fault with a new " +
+                 "kind of consequence needs no code, and so the worst outcome in the game is a data " +
+                 "value someone can find rather than a branch someone has to remember exists.")]
+        [SerializeField, TextArea(2, 4)] private string missedConsequence;
 
         public string Id => id;
         public string DisplayName => string.IsNullOrEmpty(displayName) ? id : displayName;
@@ -80,6 +86,11 @@ namespace Residue.Data
         public float RepairCost => repairCost;
         public float TeardownCostIfWrong => teardownCostIfWrong;
         public RootCauseDef RootCause => rootCause;
+
+        /// <summary>What happens when this fault is passed as NORMAL. Never shown before resolution.</summary>
+        public string MissedConsequence => string.IsNullOrEmpty(missedConsequence)
+            ? "The tank was left in service and the customer's parts were affected."
+            : missedConsequence;
 
         public bool IsValidOn(EquipmentProfileDef profile)
             => validOn == null || validOn.Count == 0 || validOn.Contains(profile);

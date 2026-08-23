@@ -14,6 +14,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Residue.Data::Residue.Data.ElementDef
   id: Water
   displayName: Water
-  unit: '%'
+  unit: ppm
   category: 1
-  sourceHint: condensation, coolant leak, washdown ingress
+  sourceHint: leaking heat exchangers, washer carryover, condensation in a cold tank.
+    Above 100 C water flashes to steam INSIDE the oil, so the same figure that is
+    a quality problem in a cold bath is a fire and explosion risk in a hot one.

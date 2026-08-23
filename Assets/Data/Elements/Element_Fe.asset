@@ -15,5 +15,6 @@ MonoBehaviour:
   id: Fe
   displayName: Iron
   unit: ppm
-  category: 0
-  sourceHint: gears, cylinder liners, shafts, rolling elements
+  category: 1
+  sourceHint: scale and fines carried in on the parts themselves. Some is normal
+    in any working tank; a climb means filtration is not keeping up.

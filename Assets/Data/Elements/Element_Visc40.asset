@@ -16,4 +16,6 @@ MonoBehaviour:
   displayName: Viscosity @40C
   unit: cSt
   category: 3
-  sourceHint: grade check. Rises with oxidation, falls with fuel dilution
+  sourceHint: the workhorse figure. Rises as the oil oxidises and polymerises; falls
+    when something thinner gets in, such as hydraulic oil. Both directions are bad,
+    so it is scored as a band around the grade nominal rather than a maximum.

@@ -47,11 +47,11 @@ namespace Residue.Gameplay.Simulation
         }
 
         /// <summary>
-        /// The MVP shakedown day. Diesel and gearbox together so both keystone traps are reachable:
-        /// dirt ingress (root cause is the air filter, not the worn part) and gear spalling (which
-        /// the ICP physically cannot see). Seven samples is enough queue pressure that machine
-        /// occupancy starts to bite — §10's single-sample version cannot create the "four samples
-        /// queued behind this one" tension that makes the decision hard.
+        /// The MVP shakedown day. General hardening oil plus cold quench, which is the §6.1 days 1-3
+        /// opening: one fluid family, wide bands, so the panel can be learned before water limits
+        /// start differing by an order of magnitude between samples. Seven samples is enough queue
+        /// pressure that instrument occupancy starts to bite — §10's single-sample version cannot
+        /// create the "four samples queued behind this one" tension that makes the decision hard.
         /// </summary>
         public static ContractPlan Default() => new()
         {
@@ -62,7 +62,7 @@ namespace Residue.Gameplay.Simulation
                 new DayPlan
                 {
                     SampleCount = 7,
-                    ProfileIds = new[] { "diesel_engine_heavy", "gearbox_industrial" },
+                    ProfileIds = new[] { "hardening_oil_general", "quench_oil_cold" },
                     BorderlineCount = 2,
                     HealthyChance = 0.35f,
                     DaySeconds = 900f
@@ -70,7 +70,7 @@ namespace Residue.Gameplay.Simulation
                 new DayPlan
                 {
                     SampleCount = 8,
-                    ProfileIds = new[] { "diesel_engine_heavy", "gearbox_industrial" },
+                    ProfileIds = new[] { "hardening_oil_general", "quench_oil_cold" },
                     BorderlineCount = 3,
                     HealthyChance = 0.30f,
                     DaySeconds = 900f
@@ -78,7 +78,7 @@ namespace Residue.Gameplay.Simulation
                 new DayPlan
                 {
                     SampleCount = 9,
-                    ProfileIds = new[] { "diesel_engine_heavy", "gearbox_industrial", "hydraulic_system" },
+                    ProfileIds = new[] { "hardening_oil_general", "quench_oil_cold", "quench_oil_martempering" },
                     BorderlineCount = 3,
                     HealthyChance = 0.30f,
                     DaySeconds = 900f

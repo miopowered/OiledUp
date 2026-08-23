@@ -6,13 +6,14 @@ namespace Residue.Editor.Content
     // Balance data lives here as CODE, not as hand-written .asset YAML.
     //
     // Why: a ScriptableObject .asset is a wall of GUIDs and fileIDs. You cannot review a balance
-    // change in a pull request, you cannot diff "we doubled the coolant-leak sodium signature", and
+    // change in a pull request, you cannot diff "we doubled the water signature on hot baths", and
     // an agent editing YAML by hand will eventually corrupt a reference. These tables are the source
     // of truth; ContentBootstrap projects them into .asset files, and the same tables build in-memory
     // fixtures for the tests. Change a number here, run Residue > Content > Rebuild Definitions.
     //
-    // The .asset files ARE committed (Unity needs stable GUIDs for scene references) but they are
-    // generated artifacts. Never edit them in the Inspector and expect it to survive a rebuild.
+    // DOMAIN: oil-based heat-treatment process fluids (§4.2). Quench oils, hardening oils and
+    // corrosion-protection oils. Water-based polymer quenchants and aqueous cleaners are out of
+    // scope; a cleaner appears here only as a CONTAMINANT of an oil, never as a fluid we analyse.
     // ---------------------------------------------------------------------------------------------
 
     internal readonly struct ElementRow
@@ -65,7 +66,7 @@ namespace Residue.Editor.Content
 
     internal readonly struct FaultRow
     {
-        public readonly string Id, Name, RootCauseId;
+        public readonly string Id, Name, RootCauseId, MissedConsequence;
         public readonly FaultSeverity Severity;
         public readonly DeltaRow[] Signature;
         public readonly string[] CanCause, ValidOn;
@@ -74,11 +75,13 @@ namespace Residue.Editor.Content
 
         public FaultRow(string id, string name, FaultSeverity severity, DeltaRow[] signature,
                         int daysToFailure, float repairCost, float teardownCostIfWrong,
-                        string rootCauseId, string[] validOn, string[] canCause = null)
+                        string rootCauseId, string[] validOn, string missedConsequence,
+                        string[] canCause = null)
         {
             Id = id; Name = name; Severity = severity; Signature = signature;
             DaysToFailure = daysToFailure; RepairCost = repairCost; TeardownCostIfWrong = teardownCostIfWrong;
-            RootCauseId = rootCauseId; ValidOn = validOn; CanCause = canCause ?? new string[0];
+            RootCauseId = rootCauseId; ValidOn = validOn; MissedConsequence = missedConsequence;
+            CanCause = canCause ?? new string[0];
         }
     }
 
@@ -113,266 +116,443 @@ namespace Residue.Editor.Content
 
     internal static class ContentTables
     {
+        /// <summary>Quantities only the cooling curve tester can see. The §4.3 keystone trap.</summary>
+        public static readonly string[] CoolingCurveOnly = { "CRmax", "TCRmax", "CR300", "T400" };
+
         // -- Elements -----------------------------------------------------------------------------
 
         public static readonly ElementRow[] Elements =
         {
-            new("Fe", "Iron",      "ppm", ElementCategory.WearMetal,  "gears, cylinder liners, shafts, rolling elements"),
-            new("Cu", "Copper",    "ppm", ElementCategory.WearMetal,  "bushings, bearing cages, oil cooler cores, thrust washers"),
-            new("Cr", "Chromium",  "ppm", ElementCategory.WearMetal,  "piston rings, plated liners, hardened shafts"),
-            new("Pb", "Lead",      "ppm", ElementCategory.WearMetal,  "bearing overlay. Appears only once the overlay is breached"),
-            new("Sn", "Tin",       "ppm", ElementCategory.WearMetal,  "bearing overlay, bushing plating"),
-            new("Al", "Aluminium", "ppm", ElementCategory.WearMetal,  "pistons, housings, thrust bearings"),
-            new("Ni", "Nickel",    "ppm", ElementCategory.WearMetal,  "alloy steels, valve train, turbine components"),
+            // --- Condition ---
+            new("Visc40", "Viscosity @40C", "cSt", ElementCategory.FluidProperty,
+                "the workhorse figure. Rises as the oil oxidises and polymerises; falls when " +
+                "something thinner gets in, such as hydraulic oil. Both directions are bad, so it " +
+                "is scored as a band around the grade nominal rather than a maximum."),
 
-            new("FeLarge", "Large Ferrous Debris", "ppm", ElementCategory.WearMetal,
-                "particles above 8 um. Spectrometers CANNOT see these - the plasma does not fully " +
-                "atomise them. Only ferrography or particle counting will find this."),
+            new("Water", "Water", "ppm", ElementCategory.Contaminant,
+                "leaking heat exchangers, washer carryover, condensation in a cold tank. Above " +
+                "100 C water flashes to steam INSIDE the oil, so the same figure that is a quality " +
+                "problem in a cold bath is a fire and explosion risk in a hot one."),
 
-            new("Si",     "Silicon",       "ppm", ElementCategory.Contaminant, "airborne dirt via a failed intake seal, OR silicone seal material"),
-            new("Na",     "Sodium",        "ppm", ElementCategory.Contaminant, "coolant inhibitor, seawater, some detergent additives"),
-            new("K",      "Potassium",     "ppm", ElementCategory.Contaminant, "coolant inhibitor. Sodium WITHOUT potassium is usually not coolant"),
-            new("Water",  "Water",         "%",   ElementCategory.Contaminant, "condensation, coolant leak, washdown ingress"),
-            new("Soot",   "Soot",          "%",   ElementCategory.Contaminant, "incomplete combustion, blowby, late injection"),
-            new("Glycol", "Glycol",        "%",   ElementCategory.Contaminant, "coolant. Confirms a leak that sodium alone only suggests"),
-            new("ISO",    "ISO 4406 Code", "code",ElementCategory.Contaminant, "particle count. The PRIMARY metric on hydraulic systems"),
+            new("Flash", "Flash Point", "C", ElementCategory.FluidProperty,
+                "the temperature at which vapour above the oil will ignite. Falls when anything " +
+                "volatile gets in. A falling flash point is a safety finding first and a quality " +
+                "finding second."),
 
-            new("Zn", "Zinc",       "ppm", ElementCategory.Additive, "anti-wear additive (ZDDP). Falls as the oil is consumed"),
-            new("P",  "Phosphorus", "ppm", ElementCategory.Additive, "anti-wear additive, tracks zinc"),
-            new("Ca", "Calcium",    "ppm", ElementCategory.Additive, "detergent. A mismatch means the wrong oil went in"),
-            new("Mo", "Molybdenum", "ppm", ElementCategory.Additive, "friction modifier. Strong fingerprint for oil brand"),
+            new("TAN", "Total Acid Number", "mgKOH/g", ElementCategory.FluidProperty,
+                "acid built up by oxidation. Climbs steadily with thermal ageing and sharply with " +
+                "localised overheating."),
 
-            new("TBN",    "Total Base Number", "mgKOH/g", ElementCategory.FluidProperty, "remaining acid-neutralising reserve. Falls over oil life"),
-            new("TAN",    "Total Acid Number", "mgKOH/g", ElementCategory.FluidProperty, "acid build-up from oxidation"),
-            new("Visc40", "Viscosity @40C",    "cSt",     ElementCategory.FluidProperty, "grade check. Rises with oxidation, falls with fuel dilution"),
-            new("Visc100","Viscosity @100C",   "cSt",     ElementCategory.FluidProperty, "operating-temperature grade check"),
-            new("Ox",     "Oxidation",         "Abs/cm",  ElementCategory.FluidProperty, "FTIR. Thermal degradation of the base oil"),
-            new("Nit",    "Nitration",         "Abs/cm",  ElementCategory.FluidProperty, "FTIR. Blowby of combustion gases, gas-engine wear"),
-            new("Flash",  "Flash Point",       "C",       ElementCategory.FluidProperty, "drops sharply with fuel dilution")
+            new("Insol", "Insolubles", "%", ElementCategory.Contaminant,
+                "sludge, carbon and scale suspended in the oil. Blankets the part surface during " +
+                "the quench and slows heat extraction."),
+
+            new("Demul", "Demulsibility", "min", ElementCategory.FluidProperty,
+                "minutes for the oil to shed water it has picked up. Fresh oil separates quickly. " +
+                "Surfactant contamination from a washer line destroys this, and the oil then holds " +
+                "water instead of releasing it. Longer is worse."),
+
+            new("Sap", "Saponification No.", "mgKOH/g", ElementCategory.Additive,
+                "a proxy for how much of the ester and additive package is still present. Falls as " +
+                "additives are consumed; a mismatch against the declared grade means the wrong " +
+                "product went into the tank."),
+
+            // --- Quench performance, ISO 9950 cooling curve ---
+            new("CRmax", "Max Cooling Rate", "C/s", ElementCategory.FluidProperty,
+                "the fastest the oil pulls heat out of the probe. The headline quench-speed figure. " +
+                "Only a cooling curve tester measures this."),
+
+            new("TCRmax", "Temp at Max Rate", "C", ElementCategory.FluidProperty,
+                "where in the cooling process the oil is working hardest. Drifts when the vapour " +
+                "blanket stage changes character. Scored as a band."),
+
+            new("CR300", "Cooling Rate @300C", "C/s", ElementCategory.FluidProperty,
+                "the single most important number in the panel. 300 C is where martensite forms, " +
+                "so this is what decides whether the customer's parts come out hard. An oil can " +
+                "pass every conventional test and still have lost this."),
+
+            new("T400", "Time to 400C", "s", ElementCategory.FluidProperty,
+                "how long the part spends in the danger band on the way down. Longer means more " +
+                "chance of soft spots. Rises with sludge and with additive loss."),
+
+            // --- Contamination and additive fingerprint ---
+            new("Na", "Sodium", "ppm", ElementCategory.Contaminant,
+                "salt dragged in from a neighbouring salt-bath line on parts or fixtures. Causes " +
+                "corrosion and staining and shows up in nothing but an elemental scan."),
+
+            new("Fe", "Iron", "ppm", ElementCategory.Contaminant,
+                "scale and fines carried in on the parts themselves. Some is normal in any working " +
+                "tank; a climb means filtration is not keeping up."),
+
+            new("Ca", "Calcium", "ppm", ElementCategory.Additive,
+                "detergent additive. Part of the fingerprint that identifies which product is " +
+                "actually in the tank."),
+
+            new("Zn", "Zinc", "ppm", ElementCategory.Additive,
+                "anti-wear and antioxidant additive. A sharp change means the tank was topped up " +
+                "with something that is not what the paperwork says."),
+
+            new("P", "Phosphorus", "ppm", ElementCategory.Additive,
+                "tracks zinc in most packages. Zinc and phosphorus moving together points at a " +
+                "product change; one moving alone points at depletion.")
         };
 
         // -- Root causes --------------------------------------------------------------------------
 
         public static readonly CauseRow[] Causes =
         {
-            new("normal_wear", "Normal Wear",
-                "Readings consistent with hours in service. No action beyond the scheduled interval."),
-            new("air_filter_failure", "Air Filter / Intake Seal Failure",
-                "Silicon rising WITH aluminium and iron means abrasive dirt is entering through the intake. " +
-                "The worn component is a symptom. Replace it without fixing the filter and the next sample " +
-                "looks identical."),
-            new("coolant_seal_failure", "Coolant Seal / Head Gasket Failure",
-                "Sodium AND potassium together, with water and rising viscosity. Sodium alone is more often " +
-                "an additive artefact or salt spray."),
-            new("breather_condensation", "Breather / Condensation",
-                "Water without sodium, potassium or glycol. Ambient moisture, not coolant."),
-            new("bearing_failure", "Bearing Overlay Failure",
-                "Lead and tin together mean the overlay is already breached and the substrate is exposed. " +
-                "This is late-stage, not early warning."),
-            new("bushing_wear", "Bushing Wear",
-                "Copper without lead. Bronze bushings shed copper long before anything structural fails."),
-            new("injector_fault", "Injector / Fuel System Fault",
-                "Viscosity FALLS and flash point drops. Unburnt fuel is diluting the oil."),
-            new("ring_liner_wear", "Ring / Liner Wear",
-                "Chromium is the discriminator - it comes from the ring face, not the liner."),
-            new("gear_tooth_spalling", "Gear Tooth Spalling",
-                "Large ferrous flakes. A spectrometer reports a nearly clean sample because the particles " +
-                "are too large to atomise. A clean ICP is not a clean sample.")
+            new("normal_service", "Normal Service",
+                "Readings consistent with hours in the tank. No action beyond the scheduled top-up."),
+
+            new("heat_exchanger_leak", "Heat Exchanger / Cooling Coil Leak",
+                "Water rising with a falling flash point and a collapsing demulsibility means the " +
+                "cooling circuit is leaking into the bath. On a bath running above 100 C this is a " +
+                "fire risk, not a quality issue: the water flashes to steam inside the oil and the " +
+                "tank can erupt. Pull the bath, do not schedule it."),
+
+            new("thermal_ageing", "Thermal Ageing",
+                "Viscosity, acid number and insolubles all climbing together, cooling rate easing " +
+                "off. This is the oil doing what oil does over time. Expected; the question is only " +
+                "whether it has gone far enough to matter."),
+
+            new("hydraulic_leak", "Hydraulic System Leak",
+                "Viscosity DOWN and flash point down together. Something thinner has got into the " +
+                "tank. Water does the same thing to flash point but raises water content; if the " +
+                "water figure is clean, look at the hydraulics on the quench press."),
+
+            new("washer_line_carryover", "Washer Line Carryover",
+                "Cleaner surfactant entering the quench tank from the wash stage. Demulsibility " +
+                "collapses, water climbs, and the quench curve is disturbed. THE OIL IS NOT THE " +
+                "FAULT. Replace the charge without fixing the washer and the next sample looks " +
+                "exactly the same."),
+
+            new("additive_exhaustion", "Quench Additive Exhaustion",
+                "The speed-improver package in an accelerated oil has been consumed. Viscosity, " +
+                "water, acid number and insolubles all read normal, because none of them measure " +
+                "what the oil is for. Only a cooling curve shows that the oil has stopped " +
+                "quenching. A clean conventional panel is not a clean oil."),
+
+            new("filtration_failure", "Filtration Failure",
+                "Insolubles climbing with a slowing curve. Sludge and scale are blanketing the " +
+                "parts. The oil itself may be perfectly serviceable once cleaned up."),
+
+            new("salt_bath_dragin", "Salt Bath Drag-in",
+                "Sodium in a quench oil comes from a salt line, carried over on parts or fixtures. " +
+                "Nothing in the condition panel flags it, and the customer will see it as staining " +
+                "and corrosion weeks later."),
+
+            new("wrong_product", "Wrong Product Topped Up",
+                "The additive fingerprint does not match the declared grade. Somebody topped the " +
+                "tank up from the wrong drum. The oil in the tank may be fine on its own terms and " +
+                "still be wrong for the job."),
+
+            new("localised_overheating", "Localised Overheating",
+                "Acid number and insolubles up with viscosity high in the band, in an oil that is " +
+                "not otherwise old. Points at a hot spot: an overloaded charge, a failed agitator, " +
+                "or parts entering far above the intended temperature.")
         };
 
-        // -- Equipment profiles -------------------------------------------------------------------
+        // -- Profiles -----------------------------------------------------------------------------
+        //
+        // Water is the number to compare across these. A cold bath tolerates roughly ten times what
+        // a martempering bath does, for the physical reason in the Water source hint. That spread is
+        // the §1.1.2 pillar: the same figure means different things on different fluids.
+
+        private static ThresholdRow[] CoolingCurve(float crMax, float crMaxNormal, float crMaxCaution,
+                                                   float cr300, float cr300Normal, float cr300Caution,
+                                                   float t400, float t400Normal, float t400Caution)
+            => new[]
+            {
+                new ThresholdRow("CRmax", ThresholdMode.LowerLimit, crMax, 0.07f, crMaxNormal, crMaxCaution),
+                new ThresholdRow("TCRmax", ThresholdMode.DeviationBand, 580f, 0.04f, 0.05f, 0.12f),
+                new ThresholdRow("CR300", ThresholdMode.LowerLimit, cr300, 0.08f, cr300Normal, cr300Caution),
+                new ThresholdRow("T400", ThresholdMode.UpperLimit, t400, 0.12f, t400Normal, t400Caution)
+            };
+
+        private static ThresholdRow[] Fingerprint(float ca, float zn, float p)
+            => new[]
+            {
+                new ThresholdRow("Ca", ThresholdMode.LowerLimit, ca, 0.09f, ca * 0.68f, ca * 0.40f),
+                new ThresholdRow("Zn", ThresholdMode.LowerLimit, zn, 0.09f, zn * 0.68f, zn * 0.40f),
+                new ThresholdRow("P", ThresholdMode.LowerLimit, p, 0.09f, p * 0.68f, p * 0.40f),
+                new ThresholdRow("Na", ThresholdMode.UpperLimit, 8f, 0.35f, 40f, 90f),
+                new ThresholdRow("Fe", ThresholdMode.UpperLimit, 22f, 0.35f, 80f, 180f)
+            };
+
+        private static ThresholdRow[] Join(params ThresholdRow[][] parts)
+        {
+            int n = 0;
+            foreach (var p in parts) n += p.Length;
+
+            var all = new ThresholdRow[n];
+            int i = 0;
+            foreach (var p in parts)
+            {
+                foreach (var row in p) all[i++] = row;
+            }
+            return all;
+        }
 
         public static readonly ProfileRow[] Profiles =
         {
-            new("diesel_engine_heavy", "Heavy Diesel Engine", "15W-40", 500f, new ThresholdRow[]
-            {
-                new("Fe",      ThresholdMode.UpperLimit,    20f,  0.30f, 50f,   100f),
-                new("Cu",      ThresholdMode.UpperLimit,     8f,  0.30f, 20f,    40f),
-                new("Cr",      ThresholdMode.UpperLimit,     3f,  0.35f, 10f,    20f),
-                new("Pb",      ThresholdMode.UpperLimit,     5f,  0.35f, 15f,    30f),
-                new("Sn",      ThresholdMode.UpperLimit,     2f,  0.35f,  8f,    15f),
-                new("Al",      ThresholdMode.UpperLimit,     5f,  0.30f, 15f,    25f),
-                new("Ni",      ThresholdMode.UpperLimit,     1f,  0.40f,  5f,    10f),
-                new("Si",      ThresholdMode.UpperLimit,     6f,  0.30f, 15f,    25f),
-                new("Na",      ThresholdMode.UpperLimit,     5f,  0.40f, 20f,    50f),
-                new("K",       ThresholdMode.UpperLimit,     3f,  0.40f, 20f,    40f),
-                new("Water",   ThresholdMode.UpperLimit,  0.01f,  0.50f, 0.05f,  0.15f),
-                new("Soot",    ThresholdMode.UpperLimit,   0.4f,  0.45f, 1.5f,   3.0f),
-                new("Glycol",  ThresholdMode.UpperLimit,    0f,   0f,    0.01f,  0.05f),
-                new("FeLarge", ThresholdMode.UpperLimit,    1f,  0.50f, 10f,    25f),
-                new("Ox",      ThresholdMode.UpperLimit,    8f,  0.25f, 20f,    30f),
-                new("Nit",     ThresholdMode.UpperLimit,    6f,  0.25f, 20f,    30f),
-                new("TAN",     ThresholdMode.UpperLimit,    1f,  0.30f,  2f,     4f),
-                new("TBN",     ThresholdMode.LowerLimit,   10f,  0.12f,  6f,     3f),
-                new("Zn",      ThresholdMode.LowerLimit, 1150f,  0.10f, 800f,  500f),
-                new("P",       ThresholdMode.LowerLimit, 1050f,  0.10f, 750f,  480f),
-                new("Ca",      ThresholdMode.LowerLimit, 2600f,  0.10f,1800f, 1200f),
-                new("Mo",      ThresholdMode.LowerLimit,   60f,  0.20f,  30f,   15f),
-                new("Flash",   ThresholdMode.LowerLimit,  220f,  0.05f, 200f,  180f),
-                new("Visc100", ThresholdMode.DeviationBand,14.5f,0.04f, 0.05f,  0.12f),
-                new("Visc40",  ThresholdMode.DeviationBand,110f, 0.04f, 0.05f,  0.12f)
-            }),
+            // The tutorial fluid. Wide bands everywhere, so a first-day player can be wrong by a
+            // margin and still read the panel correctly.
+            new("hardening_oil_general", "General Hardening Oil", "ISO VG 22", 6000f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 22f, 0.04f, 0.07f, 0.16f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 90f, 0.35f, 500f, 1200f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 205f, 0.05f, 170f, 150f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.35f, 0.30f, 1.6f, 2.6f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.04f, 0.35f, 0.18f, 0.42f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 12f, 0.25f, 26f, 42f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 3.2f, 0.10f, 2.1f, 1.3f)
+                },
+                CoolingCurve(112f, 90f, 74f, 16f, 12.5f, 9.0f, 5.0f, 7.2f, 9.8f),
+                Fingerprint(1400f, 300f, 280f))),
 
-            // Iron runs far higher in a gearbox and means far less. Water means far more.
-            new("gearbox_industrial", "Industrial Gearbox", "ISO VG 320", 8000f, new ThresholdRow[]
-            {
-                new("Fe",      ThresholdMode.UpperLimit,    45f, 0.30f, 100f,  250f),
-                new("Cu",      ThresholdMode.UpperLimit,     6f, 0.30f,  15f,   30f),
-                new("Cr",      ThresholdMode.UpperLimit,     2f, 0.35f,   8f,   15f),
-                new("Pb",      ThresholdMode.UpperLimit,     4f, 0.35f,  20f,   40f),
-                new("Sn",      ThresholdMode.UpperLimit,     2f, 0.35f,  10f,   20f),
-                new("Al",      ThresholdMode.UpperLimit,     4f, 0.30f,  15f,   25f),
-                new("Ni",      ThresholdMode.UpperLimit,     1f, 0.40f,   5f,   10f),
-                new("Si",      ThresholdMode.UpperLimit,     7f, 0.30f,  15f,   25f),
-                new("Na",      ThresholdMode.UpperLimit,     4f, 0.40f,  25f,   50f),
-                new("K",       ThresholdMode.UpperLimit,     3f, 0.40f,  25f,   50f),
-                new("Water",   ThresholdMode.UpperLimit, 0.005f, 0.50f, 0.02f, 0.05f),
-                new("Glycol",  ThresholdMode.UpperLimit,     0f, 0f,    0.01f, 0.05f),
-                new("FeLarge", ThresholdMode.UpperLimit,     2f, 0.50f,  15f,   35f),
-                new("Ox",      ThresholdMode.UpperLimit,     6f, 0.25f,  20f,   30f),
-                new("TAN",     ThresholdMode.UpperLimit,   0.8f, 0.30f,   2f,    4f),
-                new("Zn",      ThresholdMode.LowerLimit,  400f,  0.12f, 250f,  150f),
-                new("P",       ThresholdMode.LowerLimit,  380f,  0.12f, 240f,  140f),
-                new("Visc40",  ThresholdMode.DeviationBand,320f, 0.04f, 0.05f, 0.12f),
-                new("Visc100", ThresholdMode.DeviationBand,24f,  0.04f, 0.05f, 0.12f)
-            }),
+            new("quench_oil_cold", "Cold Quench Oil", "ISO VG 22", 5000f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 21f, 0.04f, 0.06f, 0.15f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 85f, 0.35f, 400f, 1000f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 200f, 0.05f, 170f, 150f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.35f, 0.30f, 1.5f, 2.5f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.04f, 0.35f, 0.15f, 0.40f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 12f, 0.25f, 25f, 40f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 3.4f, 0.10f, 2.2f, 1.4f)
+                },
+                CoolingCurve(118f, 95f, 78f, 18f, 14f, 10f, 4.6f, 6.5f, 9.0f),
+                Fingerprint(1500f, 320f, 300f))),
 
-            // Extremely tight, and particle count is the primary metric rather than spectroscopy.
-            new("hydraulic_system", "Hydraulic System", "ISO VG 46", 4000f, new ThresholdRow[]
-            {
-                new("Fe",      ThresholdMode.UpperLimit,    5f,  0.30f, 15f,   30f),
-                new("Cu",      ThresholdMode.UpperLimit,    3f,  0.30f, 10f,   20f),
-                new("Cr",      ThresholdMode.UpperLimit,    1f,  0.35f,  5f,   10f),
-                new("Pb",      ThresholdMode.UpperLimit,    1f,  0.35f,  5f,   10f),
-                new("Sn",      ThresholdMode.UpperLimit,    1f,  0.35f,  5f,   10f),
-                new("Al",      ThresholdMode.UpperLimit,    2f,  0.30f,  8f,   15f),
-                new("Si",      ThresholdMode.UpperLimit,    4f,  0.30f, 10f,   20f),
-                new("Na",      ThresholdMode.UpperLimit,    3f,  0.40f, 15f,   30f),
-                new("K",       ThresholdMode.UpperLimit,    2f,  0.40f, 15f,   30f),
-                new("Water",   ThresholdMode.UpperLimit, 0.004f, 0.50f,0.02f, 0.05f),
-                new("ISO",     ThresholdMode.UpperLimit,   15f,  0.08f, 18f,   21f),
-                new("FeLarge", ThresholdMode.UpperLimit,  0.5f,  0.50f,  6f,   15f),
-                new("Ox",      ThresholdMode.UpperLimit,    5f,  0.25f, 18f,   28f),
-                new("TAN",     ThresholdMode.UpperLimit,  0.5f,  0.30f,1.5f,    3f),
-                new("Zn",      ThresholdMode.LowerLimit, 320f,   0.12f,200f,  120f),
-                new("P",       ThresholdMode.LowerLimit, 300f,   0.12f,190f,  110f),
-                new("Visc40",  ThresholdMode.DeviationBand,46f,  0.03f,0.04f, 0.10f)
-            })
+            // Runs at 120-200 C. Water tolerance collapses, because above 100 C it flashes to steam
+            // inside the oil. Viscosity is also far higher, so a hydraulic leak shows up hard.
+            new("quench_oil_martempering", "Martempering Oil (hot bath)", "ISO VG 100", 7000f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 105f, 0.04f, 0.06f, 0.14f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 55f, 0.35f, 120f, 300f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 250f, 0.04f, 220f, 200f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.40f, 0.30f, 1.8f, 2.8f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.05f, 0.35f, 0.20f, 0.45f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 14f, 0.25f, 28f, 44f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 3.0f, 0.10f, 2.0f, 1.2f)
+                },
+                CoolingCurve(78f, 62f, 50f, 11f, 8.5f, 6.0f, 7.5f, 10.5f, 14f),
+                Fingerprint(1300f, 280f, 260f))),
+
+            // Vacuum furnaces pull hard vacuum over the bath, so anything volatile is unacceptable
+            // and the viscosity spec is very tight.
+            new("quench_oil_vacuum", "Vacuum Quench Oil", "ISO VG 15", 8000f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 15f, 0.03f, 0.04f, 0.10f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 40f, 0.35f, 100f, 250f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 230f, 0.04f, 205f, 190f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.25f, 0.30f, 1.2f, 2.0f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.03f, 0.35f, 0.12f, 0.30f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 10f, 0.25f, 22f, 36f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 2.6f, 0.10f, 1.7f, 1.0f)
+                },
+                CoolingCurve(96f, 78f, 64f, 14f, 11f, 8.0f, 5.4f, 7.6f, 10.4f),
+                Fingerprint(900f, 200f, 190f))),
+
+            // Speed-improved. The additive package IS the product, so exhaustion is invisible to
+            // every conventional test and shows only on the curve.
+            new("quench_oil_accelerated", "Accelerated Quench Oil", "ISO VG 22", 4500f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 23f, 0.04f, 0.06f, 0.15f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 85f, 0.35f, 350f, 900f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 195f, 0.05f, 168f, 148f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.40f, 0.30f, 1.5f, 2.5f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.04f, 0.35f, 0.15f, 0.40f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 13f, 0.25f, 25f, 40f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 5.2f, 0.10f, 3.4f, 2.1f)
+                },
+                CoolingCurve(142f, 118f, 98f, 30f, 24f, 17f, 3.4f, 4.8f, 6.6f),
+                Fingerprint(1800f, 520f, 480f))),
+
+            // Not a quenchant. Judged on water separation and film, not on quench speed, so it has
+            // no cooling curve thresholds at all.
+            new("corrosion_protection_oil", "Corrosion Protection Oil", "ISO VG 32", 9000f, Join(
+                new[]
+                {
+                    new ThresholdRow("Visc40", ThresholdMode.DeviationBand, 32f, 0.05f, 0.08f, 0.18f),
+                    new ThresholdRow("Water", ThresholdMode.UpperLimit, 70f, 0.35f, 450f, 1100f),
+                    new ThresholdRow("Flash", ThresholdMode.LowerLimit, 210f, 0.05f, 175f, 155f),
+                    new ThresholdRow("TAN", ThresholdMode.UpperLimit, 0.30f, 0.30f, 1.4f, 2.4f),
+                    new ThresholdRow("Insol", ThresholdMode.UpperLimit, 0.03f, 0.35f, 0.14f, 0.34f),
+                    new ThresholdRow("Demul", ThresholdMode.UpperLimit, 9f, 0.25f, 20f, 34f),
+                    new ThresholdRow("Sap", ThresholdMode.LowerLimit, 4.0f, 0.10f, 2.6f, 1.6f)
+                },
+                Fingerprint(1100f, 380f, 350f)))
         };
 
-        private static readonly string[] AllProfiles =
-            { "diesel_engine_heavy", "gearbox_industrial", "hydraulic_system" };
+        private static readonly string[] AllFluids =
+        {
+            "hardening_oil_general", "quench_oil_cold", "quench_oil_martempering",
+            "quench_oil_vacuum", "quench_oil_accelerated", "corrosion_protection_oil"
+        };
 
-        private static readonly string[] EngineOnly = { "diesel_engine_heavy" };
-        private static readonly string[] GearboxOnly = { "gearbox_industrial" };
+        private static readonly string[] Quenchants =
+        {
+            "hardening_oil_general", "quench_oil_cold", "quench_oil_martempering",
+            "quench_oil_vacuum", "quench_oil_accelerated"
+        };
+
+        private static readonly string[] HotBaths = { "quench_oil_martempering", "quench_oil_vacuum" };
+        private static readonly string[] Accelerated = { "quench_oil_accelerated" };
 
         // -- Faults -------------------------------------------------------------------------------
+        //
+        // A signature must be decisive across the WHOLE healthy range, not just at the typical
+        // value, and which end is dangerous depends on the threshold mode:
+        //
+        //   UpperLimit  the LOW end. Healthy is floored at 35% of nominal, so a mostly-multiplier
+        //               signature barely moves an already-low reading.
+        //   LowerLimit  the HIGH end. Healthy has no upper clamp, so a +3 sigma sample times a
+        //               gentle multiplier can still land in Caution instead of Critical.
+        //
+        // Tuning to the typical value passes most of the time and fails the max-severity test on an
+        // unlucky roll, which is the worst possible way to find out.
 
         public static readonly FaultRow[] Faults =
         {
-            new("bearing_overlay_wear", "Bearing Overlay Wear", FaultSeverity.Imminent,
-                // Lead must clear the CAUTION ceiling on every profile this runs on, and the gearbox
-                // tolerates far more lead than an engine (critical at 40 vs 30). §4.3 is explicit that
-                // Pb and Sn together mean the overlay is already breached, so this has to read
-                // Critical everywhere or the fault is one the player can never correctly call.
-                new DeltaRow[] { new("Pb", 5f, 38f), new("Sn", 5f, 11f), new("Cu", 2.5f, 14f) },
-                daysToFailure: 4, repairCost: 8500f, teardownCostIfWrong: 4200f,
-                rootCauseId: "bearing_failure", validOn: AllProfiles),
-
-            // Reads like bearing wear to a novice, but lead stays flat. Usually only MONITOR.
-            new("bushing_wear", "Bushing Wear", FaultSeverity.Developing,
-                new DeltaRow[] { new("Cu", 5f, 28f), new("Pb", 1.15f) },
-                daysToFailure: 14, repairCost: 1800f, teardownCostIfWrong: 3600f,
-                rootCauseId: "bushing_wear", validOn: AllProfiles),
-
-            new("ring_wear", "Piston Ring Wear", FaultSeverity.Developing,
-                new DeltaRow[] { new("Cr", 5f, 16f), new("Fe", 2.2f, 28f), new("Soot", 1.8f, 0.5f) },
-                daysToFailure: 11, repairCost: 5200f, teardownCostIfWrong: 4200f,
-                rootCauseId: "ring_liner_wear", validOn: EngineOnly),
-
-            // THE KEYSTONE TRAP. Root cause is the air filter, not the component showing the wear.
-            new("dirt_ingress", "Dirt Ingress", FaultSeverity.Developing,
-                new DeltaRow[] { new("Si", 4f, 20f), new("Fe", 2.4f, 32f), new("Al", 2.8f, 11f) },
-                daysToFailure: 9, repairCost: 900f, teardownCostIfWrong: 5400f,
-                rootCauseId: "air_filter_failure", validOn: AllProfiles,
-                canCause: new[] { "ring_wear" }),
-
-            new("coolant_leak", "Coolant Leak", FaultSeverity.Imminent,
+            new("water_ingress", "Water Ingress", FaultSeverity.Imminent,
                 new DeltaRow[]
                 {
-                    new("Na", 6f, 46f), new("K", 5f, 20f), new("Water", 6f, 0.11f),
-                    new("Glycol", 1f, 0.028f), new("Visc100", 1.14f)
+                    new("Water", 8f, 1200f), new("Flash", 0.72f), new("Demul", 2.2f, 12f)
                 },
-                daysToFailure: 5, repairCost: 6400f, teardownCostIfWrong: 4800f,
-                rootCauseId: "coolant_seal_failure", validOn: AllProfiles),
+                daysToFailure: 4, repairCost: 11500f, teardownCostIfWrong: 6200f,
+                rootCauseId: "heat_exchanger_leak", validOn: AllFluids,
+                missedConsequence: "Left in service. Water flashed to steam as the charge went in and the bath erupted. Fire crews attended, the line is down and the incident is with the insurer. This is the one that hurts people, not just parts."),
 
-            // Distinguished from coolant purely by the ABSENCE of sodium, potassium and glycol.
-            new("water_ingress", "Water Ingress (Condensation)", FaultSeverity.Developing,
-                new DeltaRow[] { new("Water", 6f, 0.16f), new("Fe", 1.5f, 12f) },
-                daysToFailure: 15, repairCost: 700f, teardownCostIfWrong: 3200f,
-                rootCauseId: "breather_condensation", validOn: AllProfiles),
+            new("thermal_ageing", "Thermal Ageing", FaultSeverity.Developing,
+                new DeltaRow[]
+                {
+                    new("Visc40", 1.26f), new("TAN", 4f, 2.6f),
+                    new("Insol", 3f, 0.25f), new("CRmax", 0.82f)
+                },
+                daysToFailure: 13, repairCost: 4200f, teardownCostIfWrong: 5400f,
+                rootCauseId: "thermal_ageing", validOn: AllFluids,
+                missedConsequence: "Run past its life. Hardness drifted out of spec across a fortnight of production before anyone connected it to the oil."),
 
-            // The inverted reading: viscosity FALLS.
-            new("fuel_dilution", "Fuel Dilution", FaultSeverity.Developing,
-                new DeltaRow[] { new("Visc100", 0.80f), new("Visc40", 0.78f), new("Flash", 0.74f) },
-                daysToFailure: 10, repairCost: 3100f, teardownCostIfWrong: 3800f,
-                rootCauseId: "injector_fault", validOn: EngineOnly),
+            // Confusable with water on flash point alone. Water content is the discriminator.
+            new("hydraulic_carryover", "Hydraulic Oil Carryover", FaultSeverity.Developing,
+                new DeltaRow[] { new("Visc40", 0.78f), new("Flash", 0.75f) },
+                daysToFailure: 10, repairCost: 3600f, teardownCostIfWrong: 5400f,
+                rootCauseId: "hydraulic_leak", validOn: Quenchants,
+                missedConsequence: "The leak kept diluting the bath. Quench speed drifted and a run of parts came back soft."),
 
-            // THE SECOND TRAP. Sits almost entirely in FeLarge, which the ICP cannot see.
-            new("gear_spalling", "Gear Tooth Spalling", FaultSeverity.Imminent,
-                // Fe barely moves ON PURPOSE. The debris is too large to dissolve or atomise, so the
-                // spectrometer sees a near-normal iron figure while the metal is visibly failing.
-                new DeltaRow[] { new("FeLarge", 1f, 48f), new("Fe", 1.15f, 6f) },
-                daysToFailure: 6, repairCost: 12500f, teardownCostIfWrong: 5600f,
-                rootCauseId: "gear_tooth_spalling", validOn: GearboxOnly)
+            // KEYSTONE. The fault is upstream in the washer, not in the tank.
+            new("cleaner_carryover", "Cleaner Carryover", FaultSeverity.Developing,
+                new DeltaRow[]
+                {
+                    new("Demul", 4f, 38f), new("Water", 4f, 500f), new("CR300", 0.80f)
+                },
+                daysToFailure: 9, repairCost: 1400f, teardownCostIfWrong: 6400f,
+                rootCauseId: "washer_line_carryover", validOn: Quenchants,
+                missedConsequence: "Signed off while the washer kept feeding surfactant into the tank. The oil held water instead of shedding it and the parts stained."),
+
+            // KEYSTONE. Moves nothing but cooling-curve quantities, so the whole conventional panel
+            // reads clean. Do not add a condition-panel element to this signature.
+            new("additive_exhaustion", "Quench Additive Exhaustion", FaultSeverity.Developing,
+                new DeltaRow[]
+                {
+                    new("CR300", 0.42f), new("CRmax", 0.86f), new("T400", 1.6f, 2.4f)
+                },
+                daysToFailure: 11, repairCost: 5800f, teardownCostIfWrong: 5200f,
+                rootCauseId: "additive_exhaustion", validOn: Accelerated,
+                missedConsequence: "Passed on a clean conventional panel. The oil had stopped quenching weeks earlier, and a month of parts failed hardness testing at the customer."),
+
+            new("sludge_loading", "Sludge and Carbon Loading", FaultSeverity.Developing,
+                new DeltaRow[]
+                {
+                    new("Insol", 6f, 0.45f), new("CRmax", 0.72f), new("T400", 2.2f, 6.0f)
+                },
+                daysToFailure: 13, repairCost: 2600f, teardownCostIfWrong: 4800f,
+                rootCauseId: "filtration_failure", validOn: Quenchants,
+                missedConsequence: "Sludge kept building. Parts came out with soft spots where the blanket clung to the surface.",
+                canCause: new[] { "thermal_ageing" }),
+
+            // Nothing in the condition panel flags this. Only an elemental scan sees it.
+            new("salt_dragin", "Salt Bath Drag-in", FaultSeverity.Developing,
+                new DeltaRow[] { new("Na", 6f, 95f), new("Fe", 1.8f, 30f) },
+                daysToFailure: 14, repairCost: 2100f, teardownCostIfWrong: 4600f,
+                rootCauseId: "salt_bath_dragin", validOn: Quenchants,
+                missedConsequence: "Salt kept accumulating. The customer's finished parts corroded in storage and came back as a claim."),
+
+            new("wrong_product", "Wrong Product Topped Up", FaultSeverity.Developing,
+                new DeltaRow[]
+                {
+                    new("Zn", 0.28f), new("P", 0.30f), new("Sap", 0.5f), new("Visc40", 1.18f)
+                },
+                daysToFailure: 8, repairCost: 3100f, teardownCostIfWrong: 5000f,
+                rootCauseId: "wrong_product", validOn: AllFluids,
+                missedConsequence: "The tank stayed on the wrong product. Parts were quenched in an oil that was never qualified for them."),
+
+            new("localised_overheating", "Localised Overheating", FaultSeverity.Imminent,
+                new DeltaRow[]
+                {
+                    new("TAN", 3.2f, 2.6f), new("Insol", 4f, 0.42f), new("Visc40", 1.26f)
+                },
+                daysToFailure: 6, repairCost: 7400f, teardownCostIfWrong: 5600f,
+                rootCauseId: "localised_overheating", validOn: HotBaths,
+                missedConsequence: "The hot spot was never found. The oil coked, the bath had to be dumped and the furnace stripped.")
         };
 
-        // -- Machines -----------------------------------------------------------------------------
+        // -- Instruments --------------------------------------------------------------------------
+        //
+        // Every instrument except the cooling curve tester lists the cooling-curve quantities in
+        // cannotDetect. That is what the operator manual's CANNOT DETECT page renders, and it is the
+        // fair warning that makes the additive-exhaustion trap legitimate rather than a gotcha.
 
         public static readonly MachineRow[] Machines =
         {
-            new("icp", "ICP Spectrometer", 180f, 5f, 12f,
-                measures: new[] { "Fe", "Cu", "Cr", "Pb", "Sn", "Al", "Ni", "Si", "Na", "K", "Zn", "P", "Ca", "Mo" },
-                cannotDetect: new[] { "FeLarge" },
-                noise: 0.03f, drift: 0.004f, carryover: 0.06f,
-                fumeHood: false, preheat: false, purchaseCost: 45000),
-
-            new("ftir", "FTIR Spectrometer", 120f, 3f, 6f,
-                measures: new[] { "Ox", "Nit", "Soot", "Water", "Glycol" },
+            // The new ferrography: definitive, brutally slow, and the only thing that answers the
+            // question that actually matters.
+            new("cooling_curve", "Cooling Curve Tester", 900f, 5f, 60f,
+                measures: new[] { "CRmax", "TCRmax", "CR300", "T400" },
                 cannotDetect: null,
-                noise: 0.06f, drift: 0.003f, carryover: 0.02f,
-                fumeHood: false, preheat: false, purchaseCost: 28000),
-
-            new("viscometer", "Viscometer", 300f, 10f, 4f,
-                measures: new[] { "Visc40", "Visc100" },
-                cannotDetect: null,
-                noise: 0.02f, drift: 0.005f, carryover: 0.04f,
-                fumeHood: false, preheat: true, purchaseCost: 15000),
+                noise: 0.03f, drift: 0.004f, carryover: 0.04f,
+                fumeHood: false, preheat: false, purchaseCost: 52000),
 
             new("karl_fischer", "Karl Fischer Titrator", 240f, 5f, 18f,
                 measures: new[] { "Water" },
-                cannotDetect: null,
+                cannotDetect: CoolingCurveOnly,
                 noise: 0.01f, drift: 0.004f, carryover: 0.18f,
                 fumeHood: false, preheat: false, purchaseCost: 22000),
 
-            new("tan_tbn", "TAN/TBN Titrator", 480f, 8f, 22f,
-                measures: new[] { "TAN", "TBN" },
-                cannotDetect: null,
+            new("viscometer", "Viscometer", 300f, 10f, 6f,
+                measures: new[] { "Visc40" },
+                cannotDetect: CoolingCurveOnly,
+                noise: 0.02f, drift: 0.005f, carryover: 0.05f,
+                fumeHood: false, preheat: true, purchaseCost: 15000),
+
+            new("flash_point", "Flash Point Tester", 300f, 15f, 12f,
+                measures: new[] { "Flash" },
+                cannotDetect: CoolingCurveOnly,
+                noise: 0.02f, drift: 0.003f, carryover: 0.02f,
+                fumeHood: true, preheat: false, purchaseCost: 17000),
+
+            new("tan_titrator", "TAN Titrator", 480f, 8f, 22f,
+                measures: new[] { "TAN", "Sap" },
+                cannotDetect: CoolingCurveOnly,
                 noise: 0.03f, drift: 0.006f, carryover: 0.09f,
                 fumeHood: true, preheat: false, purchaseCost: 19000),
 
-            new("particle_counter", "Particle Counter", 120f, 15f, 9f,
-                measures: new[] { "ISO", "FeLarge" },
-                cannotDetect: null,
+            new("centrifuge", "Centrifuge / Insolubles", 180f, 10f, 8f,
+                measures: new[] { "Insol", "Demul" },
+                cannotDetect: CoolingCurveOnly,
                 noise: 0.05f, drift: 0.004f, carryover: 0.11f,
-                fumeHood: false, preheat: false, purchaseCost: 26000),
+                fumeHood: false, preheat: false, purchaseCost: 13000),
 
-            // Definitive but brutally slow. Answers the gear-spalling question nothing else can.
-            new("ferrography", "Ferrography", 900f, 5f, 45f,
-                measures: new[] { "Fe", "FeLarge" },
-                cannotDetect: null,
-                noise: 0.02f, drift: 0.002f, carryover: 0.03f,
-                fumeHood: false, preheat: false, purchaseCost: 38000)
+            new("elemental", "Elemental Analyser", 180f, 5f, 14f,
+                measures: new[] { "Na", "Fe", "Ca", "Zn", "P" },
+                cannotDetect: CoolingCurveOnly,
+                noise: 0.03f, drift: 0.004f, carryover: 0.06f,
+                fumeHood: false, preheat: false, purchaseCost: 45000)
         };
     }
 }

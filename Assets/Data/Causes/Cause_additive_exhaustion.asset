@@ -1,0 +1,20 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7ff44158b43c4a47bd92bf2f63570d7, type: 3}
+  m_Name: Cause_additive_exhaustion
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.RootCauseDef
+  id: additive_exhaustion
+  displayName: Quench Additive Exhaustion
+  explanation: The speed-improver package in an accelerated oil has been consumed.
+    Viscosity, water, acid number and insolubles all read normal, because none of
+    them measure what the oil is for. Only a cooling curve shows that the oil has
+    stopped quenching. A clean conventional panel is not a clean oil.

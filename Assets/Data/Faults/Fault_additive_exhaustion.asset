@@ -1,0 +1,108 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ef507327515a65144a10282711822bbd, type: 3}
+  m_Name: Fault_additive_exhaustion
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.FaultDef
+  id: additive_exhaustion
+  displayName: Quench Additive Exhaustion
+  severity: 1
+  signature:
+  - element: {fileID: 11400000, guid: d55e9a7d27b5802428c794c70ce571e0, type: 2}
+    multiplier: 0.42
+    flatAdd: 0
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: 351d5ca771b303d45964564a77c1470e, type: 2}
+    multiplier: 0.86
+    flatAdd: 0
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  - element: {fileID: 11400000, guid: 981d415ffb764b54a987d3216a5b6b78, type: 2}
+    multiplier: 1.6
+    flatAdd: 2.4
+    progressionOverSeverity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  canCause: []
+  validOn:
+  - {fileID: 11400000, guid: a498f24c352662841848d8dd9de96510, type: 2}
+  daysToFailure: 11
+  repairCost: 5800
+  teardownCostIfWrong: 5200
+  rootCause: {fileID: 11400000, guid: 0bf8e0b839a84e647b5184edab5d2d1e, type: 2}
+  missedConsequence: Passed on a clean conventional panel. The oil had stopped quenching
+    weeks earlier, and a month of parts failed hardness testing at the customer.
