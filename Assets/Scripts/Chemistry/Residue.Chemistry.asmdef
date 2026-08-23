@@ -1,0 +1,16 @@
+{
+    "name": "Residue.Chemistry",
+    "rootNamespace": "Residue.Chemistry",
+    "references": [
+        "Residue.Data"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

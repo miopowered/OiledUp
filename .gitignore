@@ -112,3 +112,7 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Headless compile-check scratch. Lives outside Assets/ so Unity never imports it.
+/tools/**/bin/
+/tools/**/obj/

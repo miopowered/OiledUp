@@ -1,0 +1,18 @@
+{
+    "name": "Residue.Gameplay",
+    "rootNamespace": "Residue.Gameplay",
+    "references": [
+        "Residue.Data",
+        "Residue.Chemistry",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
