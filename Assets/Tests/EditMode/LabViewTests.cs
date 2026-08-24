@@ -320,6 +320,80 @@ namespace Residue.Tests.EditMode
             Object.DestroyImmediate(runtime.gameObject);
         }
 
+        /// <summary>
+        /// Promise: a bottle you picked up is in your hand, and stays there.
+        /// <para>
+        /// The reconciler used to return early for a locally-held prop, reasoning that the local
+        /// player's hands belong to the <c>LabCommands</c> callbacks. That is true about
+        /// <c>Carried</c> and false about the transform, and the gap between the two was not a race —
+        /// it was permanent.
+        /// </para>
+        /// <para>
+        /// Between pressing the key and the host's next publish, the replicated location still names
+        /// the shelf, so the reconciler parents the prop back to it. When the publish lands and says
+        /// you are holding it, the early return declined to undo that. The result was a bottle
+        /// standing in the rack while the HUD, the interactor and the host all agreed it was in your
+        /// hand — reported from a real session, and invisible to every test that only checked one
+        /// step at a time.
+        /// </para>
+        /// So this asserts the <i>sequence</i>: shelf, then held. A test that only published the held
+        /// location would pass against the broken version.
+        /// </summary>
+        [Test]
+        public void ABottleYouPickedUp_EndsUpInYourHandAndStaysThere()
+        {
+            var runtime = NewRuntime();
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
+
+            var hands = new GameObject("CarrySocket").transform;
+            var previous = VialFeed.Hands;
+            VialFeed.Hands = new StubHands { LocalClientId = 3UL, Socket = hands };
+
+            try
+            {
+                var reconciler = new VialReconciler(runtime);
+                var sample = new SampleId(11);
+
+                // It is on the shelf, which is the state the pickup interrupts.
+                reconciler.Reconcile(new[] { OnRack(sample, slot: 0) });
+                Assert.AreSame(rack.Slot(0), runtime.PropFor(sample).transform.parent);
+
+                // The host says you took it.
+                reconciler.Reconcile(new[] { Held(sample, holder: 3UL) });
+
+                Assert.AreSame(hands, runtime.PropFor(sample).transform.parent,
+                    "The bottle is still on the rack. The interactor thinks it is in your hand, the " +
+                    "host agrees, and the only thing that disagrees is the object you can see.");
+
+                // Idempotent: it runs every frame the bottle stays there.
+                reconciler.Reconcile(new[] { Held(sample, holder: 3UL) });
+                Assert.AreSame(hands, runtime.PropFor(sample).transform.parent);
+                // Occupancy is read off the slot transforms, so taking the bottle has to free the slot
+                // as a consequence of it being re-parented rather than as a second bookkeeping step.
+                Assert.AreEqual(4, rack.FreeSlots,
+                    "The rack is still counting a bottle that is now in somebody's hand, so nobody " +
+                    "else can put one down where it used to be.");
+            }
+            finally
+            {
+                VialFeed.Hands = previous;
+                Object.DestroyImmediate(hands.gameObject);
+                Retire(rack);
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        private sealed class StubHands : IPlayerHands
+        {
+            public ulong LocalClientId { get; set; }
+            public Transform Socket { get; set; }
+
+            public Transform CarrySocket(ulong clientId) => clientId == LocalClientId ? Socket : null;
+        }
+
+        private static VialPlacement Held(SampleId id, ulong holder) =>
+            new(id, "WERK-1 QUENCH 1", 62f, SampleLocation.Held(holder));
+
         private static VialPlacement InCrate(SampleId id, int slot) =>
             new(id, "WERK-1 QUENCH 1", 100f, SampleLocation.InCrate("intake", slot));
 

@@ -95,10 +95,28 @@ namespace Residue.Gameplay.World
 
             if (PropSockets.IsHeldLocally(vial.Location))
             {
-                // Not ours to move — see the type doc. The volume still travels: a vial that has just
-                // come out of an instrument is lighter than it went in, and the player is holding the
-                // one thing that shows it.
-                if (prop != null) prop.SetFillFraction(vial.VolumeMl / VialProp.FullMl);
+                // Put it in your hand and leave it there.
+                //
+                // This used to return without touching the transform, on the grounds that the local
+                // player's hands belong to the LabCommands callbacks. That reasoning was half right
+                // and the half it missed was permanent: between pressing E and the host's next
+                // publish, the replicated location still reads "in the crate", so the loop below
+                // dutifully parents the bottle back to the shelf. When the publish finally lands and
+                // says you are holding it, this branch declined to move it — so it stayed on the
+                // shelf while the interactor believed it was in your hand.
+                //
+                // Re-parenting to the carry socket is safe in a way that re-parenting away from it
+                // would not be: it does not touch PlayerInteractor.Carried, and the host only reports
+                // Held(you) for a request it accepted, which is the same request that set Carried. The
+                // two agree, so this is idempotent every frame after the first.
+                if (prop == null) return;
+
+                var hands = VialFeed.Hands?.CarrySocket(vial.Location.HolderClientId);
+                if (hands != null && prop.transform.parent != hands) prop.AttachTo(hands, interactable: false);
+
+                // The volume still travels: a vial that has just come out of an instrument is lighter
+                // than it went in, and the player is holding the one thing that shows it.
+                prop.SetFillFraction(vial.VolumeMl / VialProp.FullMl);
                 return;
             }
 

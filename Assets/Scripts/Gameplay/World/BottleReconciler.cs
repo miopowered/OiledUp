@@ -95,9 +95,23 @@ namespace Residue.Gameplay.World
 
             if (PropSockets.IsHeldLocally(bottle.Location))
             {
-                // Not ours to move. The count still travels: this is the one thing about a bottle in
-                // your own hands that changes while it is there.
-                if (prop != null) prop.SetCharges(bottle.Charges);
+                // Put it in your hand and keep it there — the same correction VialReconciler makes,
+                // for the same reason. Declining to move a locally-held prop sounds conservative and
+                // is not: between the request being accepted and the host's next publish the location
+                // still names the cradle, so the loop below parents the bottle back to the station,
+                // and then this branch refuses to undo it. The bottle sits on the shelf while the
+                // interactor is certain it is in your hand.
+                //
+                // Safe because it does not touch PlayerInteractor.Carried, and the host only reports
+                // Held(you) for a request it accepted — the same one that set Carried.
+                if (prop == null) return;
+
+                var hands = VialFeed.Hands?.CarrySocket(bottle.Location.HolderClientId);
+                if (hands != null && prop.transform.parent != hands) prop.AttachTo(hands, interactable: false);
+
+                // The count still travels: this is the one thing about a bottle in your own hands
+                // that changes while it is there.
+                prop.SetCharges(bottle.Charges);
                 return;
             }
 
