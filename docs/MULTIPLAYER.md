@@ -167,18 +167,43 @@ Not yet, and the reason:
 
 ---
 
-## Testing before the cloud project exists
+## Two instances on one machine
 
-Development does not block on any of the above. `LocalPlayerIdentity` mints and persists a GUID, so
-the session and rejoin logic runs without Authentication.
+The supported way to test co-op locally. Launch two builds with **different** `-playerId` values:
 
-One trap it exists to avoid: two instances on one machine share `Application.persistentDataPath`, so
-they would read the *same* id file and the host would treat the second window as the first player
-reconnecting — handing it the first player's hands. Pass an override so each instance is a distinct
-person:
-
-```
-"OiledUp.exe" -playerId tester-two
+```powershell
+cd F:\Unity\OiledUp\Output
+Start-Process ".\My project.exe" -ArgumentList '-playerId','tester-one','-screen-fullscreen','0','-screen-width','1280','-screen-height','720'
+Start-Process ".\My project.exe" -ArgumentList '-playerId','tester-two','-screen-fullscreen','0','-screen-width','1280','-screen-height','720'
 ```
 
-or set `RESIDUE_PLAYER_ID` in the environment.
+The connect menu prints the resolved identity in small grey text at the bottom, so you can see at a
+glance which window is which. `RESIDUE_PLAYER_ID` does the same job for a process you cannot pass
+arguments to — the Editor, most usefully, since it must be set before the Editor launches.
+
+### Why the flag exists, and what it has to steer
+
+Two processes on one machine share `Application.persistentDataPath`. **Two separate things are
+cached there**, and the flag has to cover both or it only half works:
+
+1. **The local id file.** Without an override both read the same GUID, and the host treats the second
+   window as the first player *reconnecting* — handing it the first player's hands. That is the
+   stable-id bug from #17, reintroduced by the test harness.
+2. **The UGS Authentication session.** Anonymous sign-in caches its token in the same place, so both
+   instances sign in as the *same cloud player*. The symptom is the second window failing to join
+   with **"player is already a member of the lobby"** — the Lobby service being entirely correct
+   about something nobody meant.
+
+`-playerId` therefore also names an **Authentication profile** (`InitializationOptions.SetProfile`),
+which is what gives anonymous sign-in a session of its own. The name is sanitised to the characters
+profiles allow, because a rejected profile throws out of `InitializeAsync` and would cost the connect
+rather than the testing convenience it was asked for.
+
+The profile is set **only when overridden**. A shipped build on somebody's own machine keeps the
+default profile and the identity it has been using all along — rejoin depends on that id surviving a
+restart (§M4), and quietly profiling every install would break it.
+
+> The Editor shares `persistentDataPath` with a build of the same project, so an Editor client and a
+> build host collide in exactly the same way. Two builds is the cleaner test.
+
+None of this applies when playing with someone else: separate machines, separate data paths.

@@ -1,6 +1,8 @@
 using System;
+using System.Text;
 using System.Threading.Tasks;
 using Residue.Net.Session;
+using Unity.Services.Authentication;
 using Unity.Services.Core;
 using Unity.Services.Core.Environments;
 using UnityEngine;
@@ -150,6 +152,10 @@ namespace Residue.Net.Connect
                 {
                     var options = new InitializationOptions();
                     options.SetEnvironmentName(EnvironmentName());
+
+                    string profile = AuthenticationProfile();
+                    if (profile != null) options.SetProfile(profile);
+
                     await UnityServices.InitializeAsync(options);
                 }
             }
@@ -161,6 +167,41 @@ namespace Residue.Net.Connect
             }
 
             return await UgsPlayerIdentity.ResolveOrLocalAsync();
+        }
+
+        /// <summary>
+        /// An Authentication profile name derived from <c>-playerId</c> / <c>RESIDUE_PLAYER_ID</c>,
+        /// or null when the process was not told to be anyone in particular.
+        /// <para>
+        /// A profile is what gives anonymous sign-in its own cached session. Without one, two
+        /// instances on the same machine share <see cref="Application.persistentDataPath"/>, reuse
+        /// the same cached token, and therefore sign in as the <b>same</b> cloud player — at which
+        /// point the second one to join is told "player is already a member of the lobby", which is
+        /// the Lobby service being entirely correct about a thing nobody meant.
+        /// </para>
+        /// Only set when overridden, so a shipped build on someone's own machine keeps the default
+        /// profile and the identity it has been using all along. Rejoin depends on that id being the
+        /// same across restarts (§M4), and quietly profiling every install would break it.
+        /// </summary>
+        private static string AuthenticationProfile()
+        {
+            string id = LocalPlayerIdentity.OverrideId();
+            if (string.IsNullOrWhiteSpace(id)) return null;
+
+            // Profiles allow letters, digits, dash and underscore, up to 30 characters. A rejected
+            // name throws out of InitializeAsync, which would cost the connect rather than the test
+            // convenience it was asked for.
+            var clean = new StringBuilder(id.Length);
+            foreach (char c in id)
+            {
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_') clean.Append(c);
+                else if (clean.Length > 0 && clean[clean.Length - 1] != '-') clean.Append('-');
+            }
+
+            string profile = clean.ToString().Trim('-');
+            if (profile.Length > 30) profile = profile.Substring(0, 30);
+
+            return profile.Length > 0 ? profile : null;
         }
 
         private static IPlayerIdentity Local()

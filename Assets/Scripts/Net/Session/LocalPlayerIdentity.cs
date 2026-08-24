@@ -101,6 +101,20 @@ namespace Residue.Net.Session
             }
         }
 
+        /// <summary>
+        /// The identity this process was told to be, from <c>-playerId</c> or
+        /// <c>RESIDUE_PLAYER_ID</c>, or null when nobody said.
+        /// <para>
+        /// Public because the override has to reach further than this class. Two instances on one
+        /// machine share <see cref="Application.persistentDataPath"/>, and UGS Authentication caches
+        /// its anonymous session there too — so without steering that as well, both windows sign in
+        /// as the <i>same</i> cloud player and Lobby refuses the second with "player is already a
+        /// member of the lobby". The flag has to name an Authentication profile, not just a local
+        /// file, or it only half works and does so silently.
+        /// </para>
+        /// </summary>
+        public static string OverrideId() => FromCommandLine() ?? FromEnvironment();
+
         // -- Sources ----------------------------------------------------------------------------------
 
         private static string FromCommandLine()
