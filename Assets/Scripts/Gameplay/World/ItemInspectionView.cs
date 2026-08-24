@@ -9,7 +9,8 @@ namespace Residue.Gameplay.World
     {
         [SerializeField] private float rotationSensitivity = 0.22f;
         [SerializeField] private float viewportHeight = 0.42f;
-        [SerializeField] private float minimumDistance = 0.42f;
+        [SerializeField] private float minimumDistance = 0.18f;
+        [SerializeField] private float zoomSensitivity = 0.0015f;
 
         private PlayerController player;
         private PlayerInteractor interactor;
@@ -19,6 +20,9 @@ namespace Residue.Gameplay.World
         private Vector3 previousLocalPosition;
         private Quaternion previousLocalRotation;
         private int openedFrame = -1;
+        private float inspectionDistance;
+        private float minimumZoomDistance;
+        private float maximumZoomDistance;
 
         public bool IsOpen => item != null;
         public Carryable Item => item;
@@ -47,7 +51,13 @@ namespace Residue.Gameplay.World
             var bounds = item.VisualBounds;
             float radius = Mathf.Max(0.08f, bounds.extents.magnitude);
             float halfFov = eye.fieldOfView * 0.5f * Mathf.Deg2Rad;
-            float distance = Mathf.Max(minimumDistance, radius / Mathf.Tan(halfFov * viewportHeight));
+            // Half the former framing distance makes every inspected item appear exactly twice as
+            // large before the player applies any wheel zoom.
+            float distance = Mathf.Max(minimumDistance,
+                radius / Mathf.Tan(halfFov * viewportHeight) * 0.5f);
+            inspectionDistance = distance;
+            minimumZoomDistance = Mathf.Max(eye.nearClipPlane + radius * 0.4f, distance * 0.45f);
+            maximumZoomDistance = distance * 2.5f;
 
             item.transform.SetParent(eye.transform, worldPositionStays: false);
             item.transform.localPosition = new Vector3(0f, 0f, distance);
@@ -56,9 +66,7 @@ namespace Residue.Gameplay.World
 
             // Center the visible geometry, not the prefab pivot (paper and bottles commonly place
             // their pivot at a bottom edge for shelf placement).
-            var centeredBounds = item.VisualBounds;
-            Vector3 targetCenter = eye.ViewportToWorldPoint(new Vector3(0.5f, 0.5f, distance));
-            item.transform.position += targetCenter - centeredBounds.center;
+            CenterAtInspectionDistance();
 
             if (player != null) player.enabled = false;
             PlayerController.SetCursorLocked(false);
@@ -110,7 +118,28 @@ namespace Residue.Gameplay.World
                 Vector2 delta = Mouse.current.delta.ReadValue() * rotationSensitivity;
                 item.transform.Rotate(Vector3.up, -delta.x, Space.World);
                 item.transform.Rotate(eye.transform.right, delta.y, Space.World);
+                CenterAtInspectionDistance();
             }
+
+            if (Mouse.current != null)
+            {
+                float wheel = Mouse.current.scroll.ReadValue().y;
+                if (Mathf.Abs(wheel) > 0.01f)
+                {
+                    inspectionDistance = Mathf.Clamp(
+                        inspectionDistance * Mathf.Exp(-wheel * zoomSensitivity),
+                        minimumZoomDistance, maximumZoomDistance);
+                    CenterAtInspectionDistance();
+                }
+            }
+        }
+
+        private void CenterAtInspectionDistance()
+        {
+            if (item == null || eye == null) return;
+            Vector3 targetCenter = eye.ViewportToWorldPoint(
+                new Vector3(0.5f, 0.5f, inspectionDistance));
+            item.transform.position += targetCenter - item.VisualBounds.center;
         }
     }
 }

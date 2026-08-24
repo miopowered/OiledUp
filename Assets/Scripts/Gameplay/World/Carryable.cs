@@ -20,6 +20,9 @@ namespace Residue.Gameplay.World
         /// <summary>Initial object orientation in the inspection view.</summary>
         public virtual Quaternion InspectionRotation => Quaternion.identity;
 
+        /// <summary>Stable orientation used by the inventory's rendered 2D thumbnail.</summary>
+        public virtual Quaternion InventoryIconRotation => Quaternion.identity;
+
         /// <summary>Extra controls shown while this item is being inspected.</summary>
         public virtual string InspectionHelp => null;
 

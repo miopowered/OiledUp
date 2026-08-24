@@ -35,7 +35,9 @@ namespace Residue.Gameplay.World
         private Label debugLabel;
         private VisualElement inventoryBar;
         private readonly List<VisualElement> inventorySlots = new();
-        private readonly List<Label> inventoryLabels = new();
+        private readonly List<VisualElement> inventoryIcons = new();
+        private readonly List<Texture2D> inventoryTextures = new();
+        private readonly List<string> inventoryTextureKeys = new();
         private VisualElement inspectionOverlay;
         private Label inspectionTitle;
         private Label inspectionBody;
@@ -153,7 +155,7 @@ namespace Residue.Gameplay.World
             // agitation is the mouse, and a player who cannot pick a vial up cannot discover
             // anything else in the game.
             var controls = new Label(
-                "[WASD] move    [E] interact    [1–3] select    [Space] inspect    [LMB drag] rotate");
+                "[WASD] move    [E] interact    [1–3] select    [Space] inspect    [LMB drag] rotate    [Wheel] zoom");
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
@@ -246,8 +248,10 @@ namespace Residue.Gameplay.World
 
         private void BuildInventory()
         {
+            ReleaseInventoryIcons();
             inventorySlots.Clear();
-            inventoryLabels.Clear();
+            inventoryIcons.Clear();
+            inventoryTextureKeys.Clear();
 
             inventoryBar = new VisualElement();
             inventoryBar.style.position = Position.Absolute;
@@ -260,8 +264,8 @@ namespace Residue.Gameplay.World
             for (int i = 0; i < PlayerInventory.SlotCount; i++)
             {
                 var slot = new VisualElement();
-                slot.style.width = 150;
-                slot.style.height = 62;
+                slot.style.width = 72;
+                slot.style.height = 72;
                 slot.style.marginLeft = 4;
                 slot.style.marginRight = 4;
                 slot.style.paddingTop = 7;
@@ -277,20 +281,25 @@ namespace Residue.Gameplay.World
 
                 var number = new Label((i + 1).ToString());
                 Style(number, 11, SignalPalette.Dim);
+                number.style.position = Position.Absolute;
+                number.style.left = 6;
+                number.style.top = 4;
                 slot.Add(number);
 
-                var label = new Label("EMPTY");
-                Style(label, 12, SignalPalette.Dim);
-                label.style.whiteSpace = WhiteSpace.NoWrap;
-                label.style.overflow = Overflow.Hidden;
-                label.style.textOverflow = TextOverflow.Ellipsis;
-                label.style.unityTextAlign = TextAnchor.MiddleCenter;
-                label.style.flexGrow = 1;
-                slot.Add(label);
+                var icon = new VisualElement { pickingMode = PickingMode.Ignore };
+                icon.style.position = Position.Absolute;
+                icon.style.left = 9;
+                icon.style.right = 9;
+                icon.style.top = 9;
+                icon.style.bottom = 9;
+                icon.style.backgroundSize = new BackgroundSize(BackgroundSizeType.Contain);
+                slot.Add(icon);
 
                 inventoryBar.Add(slot);
                 inventorySlots.Add(slot);
-                inventoryLabels.Add(label);
+                inventoryIcons.Add(icon);
+                inventoryTextures.Add(null);
+                inventoryTextureKeys.Add(null);
             }
         }
 
@@ -312,9 +321,26 @@ namespace Residue.Gameplay.World
                 inventorySlots[i].style.borderBottomWidth = selected ? 2 : 1;
                 inventorySlots[i].style.borderLeftWidth = selected ? 2 : 1;
                 inventorySlots[i].style.borderRightWidth = selected ? 2 : 1;
-                inventoryLabels[i].text = item != null ? item.DisplayName : "EMPTY";
-                inventoryLabels[i].style.color = new StyleColor(item != null ? SignalPalette.Ink : SignalPalette.Dim);
+
+                string key = item != null ? $"{item.GetEntityId()}:{item.DisplayName}" : null;
+                if (inventoryTextureKeys[i] == key) continue;
+
+                if (inventoryTextures[i] != null) Destroy(inventoryTextures[i]);
+                inventoryTextures[i] = item != null ? InventoryIconRenderer.Render(item) : null;
+                inventoryTextureKeys[i] = key;
+                inventoryIcons[i].style.backgroundImage = inventoryTextures[i] != null
+                    ? new StyleBackground(inventoryTextures[i])
+                    : new StyleBackground(StyleKeyword.Null);
             }
+        }
+
+        private void OnDestroy() => ReleaseInventoryIcons();
+
+        private void ReleaseInventoryIcons()
+        {
+            for (int i = 0; i < inventoryTextures.Count; i++)
+                if (inventoryTextures[i] != null) Destroy(inventoryTextures[i]);
+            inventoryTextures.Clear();
         }
 
         private void BuildInspectionOverlay()
@@ -366,7 +392,7 @@ namespace Residue.Gameplay.World
             if (!open) return;
             inspectionTitle.text = view.Item.DisplayName;
             inspectionBody.text = view.Item.InspectionText ?? string.Empty;
-            inspectionHelp.text = "Hold LMB + move mouse to rotate    " +
+            inspectionHelp.text = "Hold LMB + move mouse to rotate    Wheel to zoom    " +
                 (string.IsNullOrEmpty(view.Item.InspectionHelp) ? "" : view.Item.InspectionHelp + "    ") +
                 "Space / Esc to close";
         }

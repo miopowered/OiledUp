@@ -32,8 +32,9 @@ namespace Residue.Gameplay.World
 
         // The words live on the generated 3D paper surface, never in the HUD reading overlay.
         public override string InspectionText => null;
-        public override string InspectionHelp => "Arrow keys / wheel to turn pages";
+        public override string InspectionHelp => "Arrow keys to turn pages";
         public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
+        public override Quaternion InventoryIconRotation => InspectionRotation;
 
         private MachineDef Machine
         {
@@ -83,10 +84,6 @@ namespace Residue.Gameplay.World
             else if (Keyboard.current != null && Keyboard.current.leftArrowKey.wasPressedThisFrame)
                 pageSurface.Turn(-1);
 
-            if (Mouse.current == null) return;
-            float wheel = Mouse.current.scroll.ReadValue().y;
-            if (wheel > 0.01f) pageSurface.Turn(-1);
-            else if (wheel < -0.01f) pageSurface.Turn(1);
         }
 
         public override void EndInspection()
