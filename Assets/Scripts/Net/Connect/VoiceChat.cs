@@ -44,6 +44,8 @@ namespace Residue.Net.Connect
         private bool eventsHooked;
         private bool microphoneMuted;
         private bool outputMuted;
+        private string unavailableText = "VOICE UNAVAILABLE";
+        private RelayVoice relayVoice;
 
         /// <summary>Raised when connection, controls, or the speaking roster changes.</summary>
         public event Action Changed;
@@ -52,6 +54,23 @@ namespace Residue.Net.Connect
         public bool IsConnecting => desiredChannel != null && activeChannel == null;
         public bool MicrophoneMuted => microphoneMuted;
         public bool OutputMuted => outputMuted;
+        public string UnavailableText => unavailableText;
+
+        /// <summary>
+        /// Vivox 16 does not ship a Linux client, so Linux uses the existing Relay connection for
+        /// PCM voice instead. Other platforms retain Vivox and its service-side channel features.
+        /// </summary>
+        private static bool UseRelayFallback
+        {
+            get
+            {
+#if UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX
+                return true;
+#else
+                return false;
+#endif
+            }
+        }
 
         /// <summary>
         /// A compact, shape-led roster for the persistent HUD card. The triangle communicates
@@ -87,6 +106,26 @@ namespace Residue.Net.Connect
             Changed?.Invoke();
 
             if (string.IsNullOrEmpty(desiredChannel)) return;
+
+            if (UseRelayFallback)
+            {
+                relayVoice = new RelayVoice();
+                if (relayVoice.Join())
+                {
+                    activeChannel = desiredChannel;
+                    unavailableText = "VOICE UNAVAILABLE";
+                }
+                else
+                {
+                    desiredChannel = null;
+                    unavailableText = relayVoice.Error ?? "VOICE UNAVAILABLE";
+                    relayVoice = null;
+                }
+                Changed?.Invoke();
+                return;
+            }
+
+            unavailableText = "VOICE UNAVAILABLE";
 
             await lifecycle.WaitAsync();
 
@@ -148,6 +187,13 @@ namespace Residue.Net.Connect
             ClearParticipants();
             Changed?.Invoke();
 
+            if (relayVoice != null)
+            {
+                relayVoice.Leave();
+                relayVoice = null;
+                return;
+            }
+
             await lifecycle.WaitAsync();
             var service = VivoxService.Instance;
             try
@@ -173,6 +219,12 @@ namespace Residue.Net.Connect
                 if (keyboard.nKey.wasPressedThisFrame) ToggleOutput();
             }
 
+            if (relayVoice != null)
+            {
+                relayVoice.Tick(microphoneMuted, outputMuted);
+                return;
+            }
+
             if (realtime < nextPositionAt) return;
             nextPositionAt = realtime + PositionIntervalSeconds;
 
@@ -192,16 +244,22 @@ namespace Residue.Net.Connect
         public void ToggleMicrophone()
         {
             microphoneMuted = !microphoneMuted;
-            if (microphoneMuted) VivoxService.Instance.MuteInputDevice();
-            else VivoxService.Instance.UnmuteInputDevice();
+            if (relayVoice == null)
+            {
+                if (microphoneMuted) VivoxService.Instance.MuteInputDevice();
+                else VivoxService.Instance.UnmuteInputDevice();
+            }
             Changed?.Invoke();
         }
 
         public void ToggleOutput()
         {
             outputMuted = !outputMuted;
-            if (outputMuted) VivoxService.Instance.MuteOutputDevice();
-            else VivoxService.Instance.UnmuteOutputDevice();
+            if (relayVoice == null)
+            {
+                if (outputMuted) VivoxService.Instance.MuteOutputDevice();
+                else VivoxService.Instance.UnmuteOutputDevice();
+            }
             Changed?.Invoke();
         }
 

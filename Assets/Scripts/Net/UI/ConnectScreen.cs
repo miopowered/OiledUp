@@ -45,6 +45,7 @@ namespace Residue.Net.UI
         private Label cardLabel;
         private Label voiceLabel;
         private Label speakingLabel;
+        private bool gameplayActive;
 
         private void OnEnable()
         {
@@ -286,18 +287,28 @@ namespace Residue.Net.UI
             var state = connection.State;
             bool live = ConnectStates.IsLive(state);
             bool solo = state == ConnectState.SinglePlayer;
+            bool gameplay = live || solo;
 
             // The menu goes away once the decision is made; the join code does not.
-            panel.style.display = live || solo ? DisplayStyle.None : DisplayStyle.Flex;
-            root.pickingMode = live || solo ? PickingMode.Ignore : PickingMode.Position;
+            panel.style.display = gameplay ? DisplayStyle.None : DisplayStyle.Flex;
+            root.pickingMode = gameplay ? PickingMode.Ignore : PickingMode.Position;
 
-            if (!solo && !live)
+            if (gameplay && !gameplayActive)
+            {
+                // The local player can spawn while the handshake is still on screen. Its OnEnable
+                // locks the cursor, then the connect screen correctly unlocks it again so the menu
+                // remains usable. Lock once more at the actual menu -> game transition or
+                // PlayerController deliberately ignores every mouse delta.
+                PlayerController.SetCursorLocked(true);
+            }
+            else if (!gameplay)
             {
                 // Fully qualified: UnityEngine.UIElements has a Cursor of its own, and this file
                 // has both namespaces open.
                 UnityEngine.Cursor.lockState = CursorLockMode.None;
                 UnityEngine.Cursor.visible = true;
             }
+            gameplayActive = gameplay;
 
             statusLabel.text = connection.Status;
             statusLabel.style.color = new StyleColor(
@@ -328,7 +339,7 @@ namespace Residue.Net.UI
             voiceLabel.text = voice.IsConnected
                 ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
                   $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
-                : voice.IsConnecting ? "VOICE CONNECTING…" : "VOICE UNAVAILABLE";
+                : voice.IsConnecting ? "VOICE CONNECTING…" : voice.UnavailableText;
             string speaking = voice.SpeakingText;
             speakingLabel.text = speaking;
             speakingLabel.style.display = string.IsNullOrEmpty(speaking)
