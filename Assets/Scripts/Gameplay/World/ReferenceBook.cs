@@ -26,8 +26,24 @@ namespace Residue.Gameplay.World
         private MachineDef machine;
 
         public BookKind Kind => kind;
+        public string InventoryId => $"{kind}:{machineId ?? string.Empty}";
 
         public override string DisplayName => BookContent.TitleFor(kind, Machine);
+
+        public override string InspectionText
+        {
+            get
+            {
+                var pages = BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog);
+                var text = new System.Text.StringBuilder();
+                foreach (var page in pages)
+                {
+                    if (text.Length > 0) text.AppendLine().AppendLine();
+                    text.AppendLine(page.Title.ToUpperInvariant()).Append(page.Body);
+                }
+                return text.Length > 0 ? text.ToString() : DisplayName;
+            }
+        }
 
         private MachineDef Machine
         {

@@ -38,6 +38,8 @@ namespace Residue.Gameplay.World
         /// also how a mis-log is caught, so this is the tell the design leans on.
         /// </summary>
         public override string DisplayName => $"{Label} · {SampleId}";
+        public override string InspectionText =>
+            $"SAMPLE {SampleId}\nCustomer label: {Label}\n\nThe handwritten label is the source of truth for checking a booking-in tag.";
 
         public void Bind(SampleId id, string label)
         {

@@ -78,6 +78,9 @@ namespace Residue.Gameplay.World
 
         public static readonly LabGrip OnBook = new(GripKind.Book, SampleId.None, 0);
 
+        public static LabGrip OnBookItem(string bookId) =>
+            new(GripKind.Book, SampleId.None, 0, bookId);
+
         public bool IsEmpty => Kind == GripKind.Empty;
 
         public bool Equals(LabGrip other) =>

@@ -34,6 +34,9 @@ namespace Residue.Gameplay.World
         /// <summary>Set whatever is in your hands down on a surface.</summary>
         PutDown,
 
+        /// <summary>Select one of the items already owned in the three-slot inventory.</summary>
+        SelectInventory,
+
         /// <summary>Shake the carried vial back to homogeneous (§4.5).</summary>
         Agitate,
 
@@ -146,7 +149,8 @@ namespace Residue.Gameplay.World
         public static LabCommand TakeSlip(int ticket) =>
             new(LabCommandKind.TakeSlip, amount: ticket);
 
-        public static LabCommand TakeBook() => new(LabCommandKind.TakeBook);
+        public static LabCommand TakeBook(string bookId = null) =>
+            new(LabCommandKind.TakeBook, bookId);
 
         /// <summary>
         /// A bottle is named in <see cref="FixtureId"/> rather than in <see cref="Text"/> because it
@@ -158,6 +162,10 @@ namespace Residue.Gameplay.World
 
         public static LabCommand PutDown(string surfaceId, int slot) =>
             new(LabCommandKind.PutDown, surfaceId, amount: slot);
+
+        public static LabCommand SelectInventory(LabGrip grip) =>
+            new(LabCommandKind.SelectInventory, ((int)grip.Kind).ToString(), grip.Sample,
+                grip.Ticket, grip.ItemId);
 
         public static LabCommand Agitate() => new(LabCommandKind.Agitate);
 

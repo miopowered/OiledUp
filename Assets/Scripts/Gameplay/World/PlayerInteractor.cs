@@ -20,10 +20,12 @@ namespace Residue.Gameplay.World
     /// when the request lands (see <see cref="LabCommands"/>).
     /// </para>
     /// </summary>
-    public sealed class PlayerInteractor : MonoBehaviour, ILabActor
+    public sealed class PlayerInteractor : MonoBehaviour, ILabActor, ILabInventoryActor
     {
         [SerializeField] private PlayerController player;
         [SerializeField] private Transform carrySocket;
+        [SerializeField] private PlayerInventory inventory;
+        [SerializeField] private ItemInspectionView inspection;
 
         /// <summary>
         /// Where a carried item hangs. Exposed so <c>Residue.Net</c> can answer "show me that
@@ -55,8 +57,12 @@ namespace Residue.Gameplay.World
         private float holdElapsed;
         private float agitateElapsed;
 
-        /// <summary>Whatever is in your hands — a vial, a printout, a manual. One at a time.</summary>
-        public Carryable Carried { get; private set; }
+        /// <summary>The selected inventory item—the only item currently presented in the hands.</summary>
+        public Carryable Carried => inventory != null ? inventory.Selected : null;
+
+        public PlayerInventory Inventory => inventory;
+        public ItemInspectionView Inspection => inspection;
+        public bool InventoryHasSpace => inventory != null && inventory.HasSpace;
 
         /// <summary>The carried item as a vial, or null if you are holding something else.</summary>
         public VialProp CarriedVial => Carried as VialProp;
@@ -138,6 +144,13 @@ namespace Residue.Gameplay.World
         private void Awake()
         {
             if (player == null) player = GetComponent<PlayerController>();
+            if (inventory == null) inventory = GetComponent<PlayerInventory>();
+            if (inventory == null) inventory = gameObject.AddComponent<PlayerInventory>();
+            inventory.Initialize(CarrySocket);
+
+            if (inspection == null) inspection = GetComponent<ItemInspectionView>();
+            if (inspection == null) inspection = gameObject.AddComponent<ItemInspectionView>();
+            inspection.Initialize(player, this);
 
             var map = player != null && player.InputAsset != null
                 ? player.InputAsset.FindActionMap("Player", throwIfNotFound: false)
@@ -169,11 +182,47 @@ namespace Residue.Gameplay.World
 
         private void Update()
         {
+            if (inspection != null && inspection.IsOpen) return;
+
+            TickInventoryInput();
             AcquireTarget();
             TickInteract();
             TickAgitate();
 
             if (Toast != null && Time.time > toastUntil) Toast = null;
+        }
+
+        private void TickInventoryInput()
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard == null || inventory == null) return;
+
+            if (keyboard.digit1Key.wasPressedThisFrame) SelectInventorySlot(0);
+            else if (keyboard.digit2Key.wasPressedThisFrame) SelectInventorySlot(1);
+            else if (keyboard.digit3Key.wasPressedThisFrame) SelectInventorySlot(2);
+
+            if (keyboard.spaceKey.wasPressedThisFrame && Carried != null && inspection != null)
+                inspection.Open(Carried);
+        }
+
+        public void SelectInventorySlot(int index)
+        {
+            if (inventory == null) return;
+            var next = inventory.ItemAt(index);
+            if (next == null)
+            {
+                LabCommands.Attempt(this, LabCommand.SelectInventory(LabGrip.Empty),
+                    _ => inventory.Select(index));
+                return;
+            }
+
+            var grip = GripFor(next);
+            LabCommands.Attempt(this, LabCommand.SelectInventory(grip), _ => inventory.Select(index));
+        }
+
+        public void RefreshInventoryPresentation()
+        {
+            if (inventory != null) inventory.RefreshPresentation();
         }
 
         public void Say(string message, float seconds = 3.5f)
@@ -212,13 +261,7 @@ namespace Residue.Gameplay.World
                 // reprinted is exactly that case.
                 if (Carried == null) return LabGrip.Empty;
 
-                return Carried switch
-                {
-                    VialProp vial => LabGrip.OnVial(vial.SampleId),
-                    PrintoutProp slip => LabGrip.OnSlip(slip.SampleId, slip.Ticket),
-                    SolventBottle bottle => LabGrip.OnBottle(bottle.BottleId),
-                    _ => LabGrip.OnBook
-                };
+                return GripFor(Carried);
             }
         }
 
@@ -228,6 +271,42 @@ namespace Residue.Gameplay.World
         /// that or race it.
         /// </summary>
         public void SetGrip(LabGrip grip) { }
+
+        public int InventoryCapacity => PlayerInventory.SlotCount;
+        public int InventoryCount => inventory != null ? inventory.Count : 0;
+
+        public bool ContainsGrip(LabGrip grip)
+        {
+            if (inventory == null) return false;
+            for (int i = 0; i < PlayerInventory.SlotCount; i++)
+                if (GripFor(inventory.ItemAt(i)) == grip) return true;
+            return false;
+        }
+
+        // Accepted callbacks own local props. The zero-hop path reaches this before that callback.
+        public void StoreGrip(LabGrip grip) { }
+
+        public bool SelectGrip(LabGrip grip)
+        {
+            if (inventory == null) return false;
+            for (int i = 0; i < PlayerInventory.SlotCount; i++)
+            {
+                if (GripFor(inventory.ItemAt(i)) != grip) continue;
+                inventory.Select(i);
+                return true;
+            }
+            return false;
+        }
+
+        private static LabGrip GripFor(Carryable item) => item switch
+        {
+            VialProp vial => LabGrip.OnVial(vial.SampleId),
+            PrintoutProp slip => LabGrip.OnSlip(slip.SampleId, slip.Ticket),
+            SolventBottle bottle => LabGrip.OnBottle(bottle.BottleId),
+            ReferenceBook book => LabGrip.OnBookItem(book.InventoryId),
+            null => LabGrip.Empty,
+            _ => LabGrip.OnBook
+        };
 
         string ILabActor.DisplayName => name;
 
@@ -405,13 +484,14 @@ namespace Residue.Gameplay.World
         /// </summary>
         public void Take(Carryable item)
         {
-            if (item == null || Carried != null) return;
+            if (item == null || inventory == null || !inventory.HasSpace) return;
 
             var command = item switch
             {
                 VialProp vial => LabCommand.TakeVial(vial.SampleId),
                 PrintoutProp slip => LabCommand.TakeSlip(slip.Ticket),
                 SolventBottle bottle => LabCommand.TakeBottle(bottle.BottleId),
+                ReferenceBook book => LabCommand.TakeBook(book.InventoryId),
                 _ => LabCommand.TakeBook()
             };
 
@@ -425,10 +505,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         public bool TryCarry(Carryable item)
         {
-            if (item == null || Carried != null) return false;
-
-            Carried = item;
-            item.AttachTo(CarrySocket, interactable: false);
+            if (item == null || inventory == null || !inventory.Add(item)) return false;
 
             if (item is VialProp vial)
             {
@@ -444,9 +521,7 @@ namespace Residue.Gameplay.World
         /// <summary>Hand the carried item over. Caller is responsible for re-parenting or destroying it.</summary>
         public Carryable ReleaseCarried()
         {
-            var item = Carried;
-            Carried = null;
-            return item;
+            return inventory != null ? inventory.RemoveSelected() : null;
         }
     }
 }

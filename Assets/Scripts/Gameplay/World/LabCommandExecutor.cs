@@ -60,9 +60,10 @@ namespace Residue.Gameplay.World
             {
                 LabCommandKind.TakeVial => TakeVial(actor, command),
                 LabCommandKind.TakeSlip => TakeSlip(actor, command),
-                LabCommandKind.TakeBook => TakeBook(actor),
+                LabCommandKind.TakeBook => TakeBook(actor, command),
                 LabCommandKind.TakeBottle => TakeBottle(actor, command),
                 LabCommandKind.PutDown => PutDown(actor, command),
+                LabCommandKind.SelectInventory => SelectInventory(actor, command),
                 LabCommandKind.Agitate => Agitate(actor),
 
                 LabCommandKind.LoadMachine => LoadMachine(actor, command),
@@ -98,7 +99,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult TakeVial(ILabActor actor, LabCommand command)
         {
-            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
             if (!lab.Samples.TryGet(command.Sample, out var sample))
                 return LabCommandResult.No("No such sample.");
 
@@ -119,13 +120,13 @@ namespace Residue.Gameplay.World
             if (!SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out string refusal))
                 return LabCommandResult.No(refusal);
 
-            actor.SetGrip(LabGrip.OnVial(sample.Id));
+            Store(actor, LabGrip.OnVial(sample.Id));
             return LabCommandResult.Yes(sample.Id);
         }
 
         private LabCommandResult TakeSlip(ILabActor actor, LabCommand command)
         {
-            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
 
             if (!lab.Slips.TryGet(command.Amount, out var slip))
                 return LabCommandResult.No("That slip has already been filed.");
@@ -136,7 +137,7 @@ namespace Residue.Gameplay.World
             if (!lab.Slips.TryClaim(slip.Ticket, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
 
-            actor.SetGrip(LabGrip.OnSlip(slip.Sample, slip.Ticket));
+            Store(actor, LabGrip.OnSlip(slip.Sample, slip.Ticket));
             return LabCommandResult.Ok;
         }
 
@@ -144,10 +145,12 @@ namespace Residue.Gameplay.World
         /// Pick a manual up. Nothing in the lab changes; the host records it only so that a player
         /// holding a book is known to have their hands full, and cannot also be holding a vial.
         /// </summary>
-        private LabCommandResult TakeBook(ILabActor actor)
+        private LabCommandResult TakeBook(ILabActor actor, LabCommand command)
         {
-            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
-            actor.SetGrip(LabGrip.OnBook);
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            Store(actor, string.IsNullOrEmpty(command.FixtureId)
+                ? LabGrip.OnBook
+                : LabGrip.OnBookItem(command.FixtureId));
             return LabCommandResult.Ok;
         }
 
@@ -164,7 +167,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult TakeBottle(ILabActor actor, LabCommand command)
         {
-            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
 
             var bottle = lab.Solvent.Find(command.FixtureId);
             if (bottle == null) return LabCommandResult.No("No such solvent bottle.");
@@ -178,8 +181,41 @@ namespace Residue.Gameplay.World
             if (!lab.Solvent.TryTake(bottle.Id, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
 
-            actor.SetGrip(LabGrip.OnBottle(bottle.Id));
+            Store(actor, LabGrip.OnBottle(bottle.Id));
             return LabCommandResult.Ok;
+        }
+
+        private static bool CanStore(ILabActor actor) =>
+            actor is ILabInventoryActor inventory
+                ? inventory.InventoryCount < inventory.InventoryCapacity
+                : actor.Grip.IsEmpty;
+
+        private static void Store(ILabActor actor, LabGrip grip)
+        {
+            if (actor is ILabInventoryActor inventory) inventory.StoreGrip(grip);
+            else actor.SetGrip(grip);
+        }
+
+        private static LabCommandResult SelectInventory(ILabActor actor, LabCommand command)
+        {
+            if (!(actor is ILabInventoryActor inventory))
+                return LabCommandResult.No("This player has no inventory.");
+            if (!int.TryParse(command.FixtureId, out int rawKind) ||
+                !System.Enum.IsDefined(typeof(GripKind), rawKind))
+                return LabCommandResult.No("No such inventory item.");
+
+            var kind = (GripKind)rawKind;
+            var grip = kind switch
+            {
+                GripKind.Vial => LabGrip.OnVial(command.Sample),
+                GripKind.Slip => LabGrip.OnSlip(command.Sample, command.Amount),
+                GripKind.Bottle => LabGrip.OnBottle(command.Text),
+                GripKind.Book => LabGrip.OnBookItem(command.Text),
+                _ => LabGrip.Empty
+            };
+            return inventory.SelectGrip(grip)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No("That item is not in your inventory.");
         }
 
         private LabCommandResult PutDown(ILabActor actor, LabCommand command)
@@ -290,7 +326,7 @@ namespace Residue.Gameplay.World
         {
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
-            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
             if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
 
             var id = machine.Unload();
@@ -299,7 +335,7 @@ namespace Residue.Gameplay.World
             if (lab.Samples.TryGet(id, out var sample))
                 SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out _);
 
-            actor.SetGrip(LabGrip.OnVial(id));
+            Store(actor, LabGrip.OnVial(id));
             return LabCommandResult.Yes(id);
         }
 

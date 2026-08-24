@@ -417,6 +417,17 @@ namespace Residue.Net
             {
                 Lab.Slips.ReleaseAllHeldBy(clientId);
                 Lab.Solvent.ReleaseAllHeldBy(clientId);
+
+                // Inventory can hold three vials while the legacy session summary names only the
+                // selected hand. Release by authoritative location so stowed samples cannot remain
+                // owned by a connection that no longer exists.
+                foreach (var sample in Lab.Samples.All)
+                {
+                    if (sample.Location.Kind != SampleLocationKind.Held ||
+                        sample.Location.HolderClientId != clientId) continue;
+                    SampleLifecycle.TryMove(sample,
+                        SampleLocation.OnSurface(SampleRack.DefaultRackId, -1), out _);
+                }
                 PublishAll();
             }
 
