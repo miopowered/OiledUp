@@ -9,7 +9,7 @@ Goal: a single player can complete a full lab day and receive clear win/loss fee
 - [x] Terminal, reference book, economy, and reputation
 - [x] Contract timing that allows consequences to resolve
 - [ ] [Target feedback and held-item camera](https://github.com/miopowered/OiledUp/issues/36)
-- [ ] [Three-slot inventory, unified HUD, and item inspection](https://github.com/miopowered/OiledUp/issues/63)
+- [x] [Three-slot inventory, unified HUD, and item inspection](https://github.com/miopowered/OiledUp/issues/63)
 
 ## Project
 
