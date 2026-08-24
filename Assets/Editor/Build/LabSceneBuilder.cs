@@ -12,6 +12,8 @@ using Unity.Netcode.Transports.UTP;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 using UnityEngine.UIElements;
 
@@ -43,7 +45,9 @@ namespace Residue.Editor.Build
         private const string PrefabFolder = "Assets/Prefabs";
         private const string UiFolder = "Assets/UI";
         private const string PaletteMaterial = "Assets/Art/Materials/M_Palette_Opaque.mat";
+        private const string EmissivePaletteMaterial = "Assets/Art/Materials/M_Palette_Emissive.mat";
         private const string CatalogPath = "Assets/Data/ContentCatalog.asset";
+        private const string VolumeProfilePath = "Assets/Settings/LabVolumeProfile.asset";
 
         // Room is laid out on the §5.5 half-metre grid.
         private const float RoomWidth = 10f;
@@ -98,11 +102,12 @@ namespace Residue.Editor.Build
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
 
             var palette = AssetDatabase.LoadAssetAtPath<Material>(PaletteMaterial);
+            var emissivePalette = AssetDatabase.LoadAssetAtPath<Material>(EmissivePaletteMaterial);
             var catalog = AssetDatabase.LoadAssetAtPath<ContentCatalog>(CatalogPath);
 
-            if (palette == null || catalog == null)
+            if (palette == null || emissivePalette == null || catalog == null)
             {
-                Debug.LogError("[LabSceneBuilder] Palette material or content catalog still missing. Aborting.");
+                Debug.LogError("[LabSceneBuilder] Palette materials or content catalog still missing. Aborting.");
                 return;
             }
 
@@ -114,11 +119,12 @@ namespace Residue.Editor.Build
                 "Assets/InputSystem_Actions.inputactions");
 
             var screenMaterial = EnsureScreenMaterial();
+            var volumeProfile = EnsureLabVolumeProfile();
             var printoutPrefab = BuildPrintoutPrefab(palette);
 
             var books = new List<ReferenceBook>();
 
-            BuildEnvironment(scene, palette);
+            BuildEnvironment(scene, palette, emissivePalette, volumeProfile);
             BuildRuntime(scene, catalog, vialPrefab, printoutPrefab, bottlePrefab);
             var stations = BuildStations(scene, palette, screenMaterial, books);
             var player = BuildPlayer(scene, palette, inputAsset, panelSettings);
@@ -147,7 +153,8 @@ namespace Residue.Editor.Build
 
         // -- Environment -------------------------------------------------------------------------------
 
-        private static void BuildEnvironment(Scene scene, Material palette)
+        private static void BuildEnvironment(Scene scene, Material palette, Material emissivePalette,
+                                             VolumeProfile volumeProfile)
         {
             var root = NewRoot(scene, "Environment");
 
@@ -202,6 +209,10 @@ namespace Residue.Editor.Build
             var lightRoot = NewRoot(scene, "Lighting");
             float[] lampX = { -3f, 0f, 3f };
             float[] lampZ = { -2.4f, 1.6f };
+            var luminaireMesh = SaveMesh(ProcMesh.Box("Lab_FluorescentLuminaire",
+                new Vector3(1.45f, 0.035f, 0.24f), PaletteUv.Family.NeutralCold, 15));
+            var ballastMesh = SaveMesh(ProcMesh.Box("Lab_FluorescentBallast",
+                new Vector3(1.55f, 0.055f, 0.30f), PaletteUv.Family.Steel, 5));
 
             foreach (float x in lampX)
             {
@@ -211,14 +222,28 @@ namespace Residue.Editor.Build
                     lamp.transform.SetParent(lightRoot.transform, false);
                     lamp.transform.position = new Vector3(x, RoomHeight - 0.35f, z);
 
+                    AddChild(lamp, "DIN_Leuchtenwanne", ballastMesh, palette,
+                        new Vector3(0f, 0.035f, 0f), addCollider: false);
+                    AddChild(lamp, "Leuchtstoffroehre_4000K", luminaireMesh, emissivePalette,
+                        Vector3.zero, addCollider: false);
+
                     var point = lamp.AddComponent<Light>();
                     point.type = LightType.Point;
                     point.range = 7.5f;
-                    point.intensity = 2.6f;
-                    point.color = new Color(0.98f, 0.97f, 0.92f);
+                    point.intensity = 2.35f;
+                    point.color = new Color(0.90f, 1f, 0.94f);
                     point.shadows = LightShadows.None; // greybox: shadow cost is not worth it yet
                 }
             }
+
+            var post = NewRoot(scene, "PostProcessing_Labor");
+            var volume = post.AddComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 10f;
+            volume.sharedProfile = volumeProfile;
+
+            var ambience = NewRoot(scene, "Raumton_Oellabor");
+            ambience.AddComponent<LabAmbience>();
 
             // Cold, dim ambient. §2.4's look is flat geometry plus soft fill, not dramatic lighting.
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
@@ -604,6 +629,11 @@ namespace Residue.Editor.Build
             camera.fieldOfView = 70f;
             cameraGo.AddComponent<AudioListener>();
             cameraGo.tag = "MainCamera";
+
+            var cameraData = camera.GetUniversalAdditionalCameraData();
+            cameraData.renderPostProcessing = true;
+            cameraData.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
+            cameraData.antialiasingQuality = AntialiasingQuality.High;
 
             var carry = new GameObject("CarrySocket");
             carry.transform.SetParent(rigGo.transform, false);
@@ -1260,6 +1290,34 @@ namespace Residue.Editor.Build
             material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
             EditorUtility.SetDirty(material);
             return material;
+        }
+
+        /// <summary>
+        /// A restrained grade: clinical rather than cinematic. Only instrument emissives bloom;
+        /// colour is cool and slightly drained; the vignette is just enough to remove the template
+        /// render's weightless edges. The profile deliberately omits blur, depth of field, grain and
+        /// chromatic aberration so labels and oil readings remain crisp (§2.4).
+        /// </summary>
+        private static VolumeProfile EnsureLabVolumeProfile()
+        {
+            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(VolumeProfilePath);
+            if (profile == null)
+            {
+                profile = ScriptableObject.CreateInstance<VolumeProfile>();
+                profile.name = "LabVolumeProfile";
+                AssetDatabase.CreateAsset(profile, VolumeProfilePath);
+            }
+
+            foreach (var component in new List<VolumeComponent>(profile.components))
+                Object.DestroyImmediate(component, true);
+            profile.components.Clear();
+
+            LabPresentation.ConfigureProfile(profile);
+            foreach (var component in profile.components)
+                AssetDatabase.AddObjectToAsset(component, profile);
+
+            EditorUtility.SetDirty(profile);
+            return profile;
         }
 
         private static Mesh SaveMesh(Mesh mesh)

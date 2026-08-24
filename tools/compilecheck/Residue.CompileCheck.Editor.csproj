@@ -54,6 +54,10 @@
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll')" Private="false" />
     <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll')" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.RenderPipelines.Core.Runtime.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.RenderPipelines.Core.Runtime.dll')" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.RenderPipelines.Universal.Runtime.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.RenderPipelines.Universal.Runtime.dll')" Private="false" />
 
     <!--
       This project compiles Assets/Scripts as well, so it needs everything the runtime check needs.
