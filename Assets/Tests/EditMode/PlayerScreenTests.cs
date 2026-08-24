@@ -188,6 +188,8 @@ namespace Residue.Tests.EditMode
             Assert.IsTrue(pages.gameObject.activeSelf);
             Assert.IsNotNull(pages.GetComponent<Renderer>().sharedMaterial.mainTexture,
                 "The reference words must be a texture on the physical page renderer.");
+            Assert.Greater(pages.GetComponent<MeshFilter>().sharedMesh.bounds.size.y, 0.02f,
+                "The replacement book must have physical edge thickness, not be another 2D plane.");
             book.EndInspection();
             Assert.IsTrue(pages.gameObject.activeSelf,
                 "Inspection only moves the item into focus; it must not create or hide its text pages.");

@@ -23,6 +23,9 @@ namespace Residue.Gameplay.World
         /// <summary>Stable orientation used by the inventory's rendered 2D thumbnail.</summary>
         public virtual Quaternion InventoryIconRotation => Quaternion.identity;
 
+        /// <summary>Allows a carryable to exclude obsolete/helper renderers from its slot thumbnail.</summary>
+        public virtual bool IncludeInInventoryIcon(Renderer renderer) => renderer != null;
+
         /// <summary>Extra controls shown while this item is being inspected.</summary>
         public virtual string InspectionHelp => null;
 
@@ -30,6 +33,9 @@ namespace Residue.Gameplay.World
         public virtual void BeginInspection() { }
         public virtual void TickInspection() { }
         public virtual void EndInspection() { }
+
+        /// <summary>Lets an item capture an inspection click before it becomes drag rotation.</summary>
+        public virtual bool HandleInspectionPointer(Camera camera, Vector2 screenPosition) => false;
 
         /// <summary>World-space bounds used to fit the object into the inspection camera.</summary>
         public Bounds VisualBounds
@@ -68,7 +74,7 @@ namespace Residue.Gameplay.World
         }
 
         /// <summary>Only the selected inventory slot renders in the first-person hand.</summary>
-        public void SetHeldVisible(bool visible)
+        public virtual void SetHeldVisible(bool visible)
         {
             foreach (var renderer in GetComponentsInChildren<Renderer>(true)) renderer.enabled = visible;
         }

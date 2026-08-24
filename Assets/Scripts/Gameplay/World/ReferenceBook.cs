@@ -1,6 +1,5 @@
 using Residue.Data;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 namespace Residue.Gameplay.World
 {
@@ -24,6 +23,7 @@ namespace Residue.Gameplay.World
         private MachineDef machine;
         private InspectableBookSurface pageSurface;
         private bool pageContentReady;
+        private Renderer[] legacyRenderers;
 
         public BookKind Kind => kind;
         public string InventoryId => $"{kind}:{machineId ?? string.Empty}";
@@ -32,7 +32,7 @@ namespace Residue.Gameplay.World
 
         // The words live on the generated 3D paper surface, never in the HUD reading overlay.
         public override string InspectionText => null;
-        public override string InspectionHelp => "Arrow keys to turn pages";
+        public override string InspectionHelp => "Click a folded page corner to turn";
         public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
         public override Quaternion InventoryIconRotation => InspectionRotation;
 
@@ -51,9 +51,13 @@ namespace Residue.Gameplay.World
 
         private void Awake()
         {
+            // Capture the authored closed-cover renderer before the replacement page model exists.
+            // Its collider remains useful for pickup; only its obsolete visuals are removed.
+            legacyRenderers = GetComponentsInChildren<Renderer>(true);
             // Give the item its physical pages immediately. The catalog may not have completed its
             // own Awake yet, so this first pass at least writes the cover/title onto the paper.
             EnsurePageSurface(forceContentRefresh: true);
+            HideLegacyBook();
         }
 
         private void Start()
@@ -76,19 +80,27 @@ namespace Residue.Gameplay.World
             EnsurePageSurface(forceContentRefresh: false);
         }
 
-        public override void TickInspection()
-        {
-            if (pageSurface == null) return;
-            if (Keyboard.current != null && Keyboard.current.rightArrowKey.wasPressedThisFrame)
-                pageSurface.Turn(1);
-            else if (Keyboard.current != null && Keyboard.current.leftArrowKey.wasPressedThisFrame)
-                pageSurface.Turn(-1);
-
-        }
-
         public override void EndInspection()
         {
             // The physical pages and their text remain part of the item in the world and in-hand.
+        }
+
+        public override bool HandleInspectionPointer(Camera camera, Vector2 screenPosition) =>
+            pageSurface != null && pageSurface.TryPressPageCorner(camera, screenPosition);
+
+        public override void SetHeldVisible(bool visible)
+        {
+            base.SetHeldVisible(visible);
+            HideLegacyBook();
+        }
+
+        public override bool IncludeInInventoryIcon(Renderer renderer)
+        {
+            if (renderer == null) return false;
+            if (legacyRenderers == null) return true;
+            for (int i = 0; i < legacyRenderers.Length; i++)
+                if (legacyRenderers[i] == renderer) return false;
+            return true;
         }
 
         private void EnsurePageSurface(bool forceContentRefresh)
@@ -104,6 +116,14 @@ namespace Residue.Gameplay.World
             }
 
             pageSurface.Show(true);
+            HideLegacyBook();
+        }
+
+        private void HideLegacyBook()
+        {
+            if (legacyRenderers == null) return;
+            for (int i = 0; i < legacyRenderers.Length; i++)
+                if (legacyRenderers[i] != null) legacyRenderers[i].enabled = false;
         }
     }
 }

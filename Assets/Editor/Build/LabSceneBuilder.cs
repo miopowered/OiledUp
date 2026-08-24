@@ -287,7 +287,6 @@ namespace Residue.Editor.Build
             Scene scene, Material palette, Material screenMaterial, List<ReferenceBook> books)
         {
             var root = NewRoot(scene, "Stations");
-            var bookMesh = SaveMesh(BuildBookMesh("Book_Volume"));
 
             var lightMesh = SaveMesh(ProcMesh.Box("Machine_Light", new Vector3(0.1f, 0.025f, 0.015f),
                 PaletteUv.Family.Signal, 13));
@@ -368,7 +367,7 @@ namespace Residue.Editor.Build
                 // machine's GetComponentsInChildren, so the machine's collider bounds swallow it —
                 // which makes targeting diagnostics lie and would make any bounds-based selection
                 // pick the wrong object.
-                var bookGo = AddBook(root, $"Manual_{MachineIds[i]}", bookMesh, palette,
+                var bookGo = AddBook(root, $"Manual_{MachineIds[i]}",
                     Vector3.zero, BookKind.MachineManual, MachineIds[i]);
                 bookGo.transform.position = machineGo.transform.position +
                     new Vector3(visual.Size.x * 0.5f + 0.13f, 0.015f, 0f);
@@ -428,11 +427,11 @@ namespace Residue.Editor.Build
 
             // Shelf books are parented to the shelf, which is fine: the shelf has no Interactable,
             // so nothing's bounds are polluted by them.
-            books.Add(AddBook(shelfGo, "Elements", bookMesh, palette,
+            books.Add(AddBook(shelfGo, "Elements",
                 new Vector3(-0.28f, 0.04f, 0f), BookKind.ElementIndex, null));
-            books.Add(AddBook(shelfGo, "Diagnostics", bookMesh, palette,
+            books.Add(AddBook(shelfGo, "Diagnostics",
                 new Vector3(0f, 0.04f, 0f), BookKind.DiagnosticGuide, null));
-            books.Add(AddBook(shelfGo, "Thresholds", bookMesh, palette,
+            books.Add(AddBook(shelfGo, "Thresholds",
                 new Vector3(0.28f, 0.04f, 0f), BookKind.ThresholdTables, null));
 
             return (terminal, crate);
@@ -536,18 +535,15 @@ namespace Residue.Editor.Build
             return b.ToMesh(name);
         }
 
-        private static Mesh BuildBookMesh(string name)
-        {
-            return new ProcMesh.Builder()
-                .Box(new Vector3(0f, 0.014f, 0f), new Vector3(0.16f, 0.028f, 0.22f), PaletteUv.Family.NeutralCold, 9)
-                .Box(new Vector3(-0.083f, 0.014f, 0f), new Vector3(0.008f, 0.030f, 0.225f), PaletteUv.Family.DeepBlue, 6)
-                .ToMesh(name);
-        }
-
-        private static ReferenceBook AddBook(GameObject parent, string name, Mesh mesh, Material palette,
+        private static ReferenceBook AddBook(GameObject parent, string name,
                                              Vector3 localPosition, BookKind kind, string machineId)
         {
-            var go = AddChild(parent, $"Book_{name}", mesh, palette, localPosition, addCollider: true);
+            var go = new GameObject($"Book_{name}");
+            go.transform.SetParent(parent.transform, false);
+            go.transform.localPosition = localPosition;
+            var collider = go.AddComponent<BoxCollider>();
+            collider.center = new Vector3(0f, 0.014f, 0f);
+            collider.size = new Vector3(0.36f, 0.028f, 0.24f);
             var book = go.AddComponent<ReferenceBook>();
 
             var so = new SerializedObject(book);

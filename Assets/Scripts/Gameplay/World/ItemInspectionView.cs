@@ -23,6 +23,7 @@ namespace Residue.Gameplay.World
         private float inspectionDistance;
         private float minimumZoomDistance;
         private float maximumZoomDistance;
+        private bool pointerCapturedByItem;
 
         public bool IsOpen => item != null;
         public Carryable Item => item;
@@ -82,6 +83,7 @@ namespace Residue.Gameplay.World
             item.transform.localRotation = previousLocalRotation;
             var closed = item;
             item = null;
+            pointerCapturedByItem = false;
             closed.EndInspection();
 
             if (player != null) player.enabled = true;
@@ -113,7 +115,13 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            if (Mouse.current != null && Mouse.current.leftButton.isPressed)
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
+                pointerCapturedByItem = item.HandleInspectionPointer(
+                    eye, Mouse.current.position.ReadValue());
+            if (Mouse.current != null && Mouse.current.leftButton.wasReleasedThisFrame)
+                pointerCapturedByItem = false;
+
+            if (Mouse.current != null && Mouse.current.leftButton.isPressed && !pointerCapturedByItem)
             {
                 Vector2 delta = Mouse.current.delta.ReadValue() * rotationSensitivity;
                 item.transform.Rotate(Vector3.up, -delta.x, Space.World);

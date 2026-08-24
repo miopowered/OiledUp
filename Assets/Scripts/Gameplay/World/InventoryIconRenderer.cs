@@ -93,6 +93,7 @@ namespace Residue.Gameplay.World
             var copies = new List<Renderer>();
             foreach (var source in item.GetComponentsInChildren<MeshRenderer>(true))
             {
+                if (!item.IncludeInInventoryIcon(source)) continue;
                 var filter = source.GetComponent<MeshFilter>();
                 if (filter == null || filter.sharedMesh == null) continue;
 
