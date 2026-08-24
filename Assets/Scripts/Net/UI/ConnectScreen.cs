@@ -43,6 +43,8 @@ namespace Residue.Net.UI
         private Label identityLabel;
         private Label codeLabel;
         private Label cardLabel;
+        private Label voiceLabel;
+        private Label speakingLabel;
 
         private void OnEnable()
         {
@@ -54,12 +56,14 @@ namespace Residue.Net.UI
             Build();
 
             if (connection != null) connection.Changed += Refresh;
+            if (connection != null) connection.Voice.Changed += Refresh;
             Refresh();
         }
 
         private void OnDisable()
         {
             if (connection != null) connection.Changed -= Refresh;
+            if (connection != null) connection.Voice.Changed -= Refresh;
         }
 
         // -- Build -------------------------------------------------------------------------------------
@@ -245,6 +249,20 @@ namespace Residue.Net.UI
             cardLabel.style.color = new StyleColor(ConnectPalette.Code);
             holder.Add(cardLabel);
 
+            voiceLabel = new Label();
+            voiceLabel.pickingMode = PickingMode.Ignore;
+            voiceLabel.style.fontSize = 10;
+            voiceLabel.style.marginTop = 4;
+            voiceLabel.style.color = new StyleColor(SignalPalette.Dim);
+            holder.Add(voiceLabel);
+
+            speakingLabel = new Label();
+            speakingLabel.pickingMode = PickingMode.Ignore;
+            speakingLabel.style.fontSize = 12;
+            speakingLabel.style.marginTop = 3;
+            speakingLabel.style.color = new StyleColor(ConnectPalette.Code);
+            holder.Add(speakingLabel);
+
             return holder;
         }
 
@@ -305,6 +323,17 @@ namespace Residue.Net.UI
                 ? $"JOIN CODE  {JoinCode.ForReading(code)}"
                 : "CONNECTED";
             card.style.display = live ? DisplayStyle.Flex : DisplayStyle.None;
+
+            var voice = connection.Voice;
+            voiceLabel.text = voice.IsConnected
+                ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
+                  $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
+                : voice.IsConnecting ? "VOICE CONNECTING…" : "VOICE UNAVAILABLE";
+            string speaking = voice.SpeakingText;
+            speakingLabel.text = speaking;
+            speakingLabel.style.display = string.IsNullOrEmpty(speaking)
+                ? DisplayStyle.None
+                : DisplayStyle.Flex;
 
             var identity = connection.Identity;
             identityLabel.text = identity != null && identity.IsReady

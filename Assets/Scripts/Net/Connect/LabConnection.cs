@@ -62,6 +62,7 @@ namespace Residue.Net.Connect
         [SerializeField] private string relayRegion = "";
 
         private readonly LobbyHeartbeat heartbeat = new();
+        private readonly VoiceChat voice = new();
 
         private Lobby lobby;
         private bool ownsLobby;
@@ -87,6 +88,9 @@ namespace Residue.Net.Connect
         public bool IsBusy => ConnectStates.IsBusy(State);
         public bool IsLive => ConnectStates.IsLive(State);
 
+        /// <summary>Proximity voice state and its local mute/deafen controls.</summary>
+        public VoiceChat Voice => voice;
+
         private static UnityTransport Transport =>
             NetworkManager.Singleton != null
                 ? NetworkManager.Singleton.NetworkConfig.NetworkTransport as UnityTransport
@@ -108,7 +112,11 @@ namespace Residue.Net.Connect
             Application.wantsToQuit += OnWantsToQuit;
         }
 
-        private void Update() => heartbeat.Tick(Time.realtimeSinceStartupAsDouble);
+        private void Update()
+        {
+            heartbeat.Tick(Time.realtimeSinceStartupAsDouble);
+            voice.Tick(Time.realtimeSinceStartup);
+        }
 
         private void OnDestroy()
         {
@@ -121,6 +129,7 @@ namespace Residue.Net.Connect
             // forget: there is no frame left to await in, and an abandoned lobby that outlives the
             // Editor session by thirty seconds beats a hung domain reload.
             heartbeat.Release();
+            _ = voice.LeaveAsync();
             var closing = lobby;
             bool owned = ownsLobby;
             lobby = null;
@@ -279,6 +288,8 @@ namespace Residue.Net.Connect
                 return;
             }
 
+            _ = voice.JoinAsync(created.Id, Identity.DisplayName);
+
             JoinCodeText = created.LobbyCode;
             Set(ConnectState.Hosting, $"Hosting — join code {JoinCode.ForReading(JoinCodeText)}");
 
@@ -404,6 +415,7 @@ namespace Residue.Net.Connect
         private async Task TearDownAsync()
         {
             heartbeat.Release();
+            await voice.LeaveAsync();
 
             var manager = NetworkManager.Singleton;
             if (manager != null)
@@ -487,6 +499,7 @@ namespace Residue.Net.Connect
             if (manager == null || clientId != manager.LocalClientId) return;
             if (manager.IsServer) return;   // the host's own connect; already Hosting
 
+            _ = voice.JoinAsync(lobby.Id, Identity.DisplayName);
             Set(ConnectState.Joined);
         }
 
