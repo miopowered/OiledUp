@@ -143,7 +143,7 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
-            if (player.Carried != null) return "Hands full";
+            if (!player.InventoryHasSpace) return "Inventory full";
             return IsBlank
                 ? $"Take blank slip — {MachineName}"
                 : $"Take printout — {RecordTag}";
@@ -151,33 +151,28 @@ namespace Residue.Gameplay.World
 
         public override string UseHint => "read slip";
 
+        public override string InspectionText => BuildReadingText();
+
         /// <summary>Glance at the slip without walking to the desk. Reading is not filing.</summary>
         public override void UseInHand(PlayerInteractor player)
         {
+            player.Say(BuildReadingText(), 6f);
+        }
+
+        private string BuildReadingText()
+        {
             var reading = Result;
             if (reading == null)
-            {
-                // Two different states, said differently. "Blank" is a slip with nothing on it;
-                // a key that has not resolved is a slip whose numbers are still in the post, and
-                // telling the player it was blank would be a lie they would act on.
-                player.Say(ResultKey == 0
-                    ? "The slip is blank."
-                    : "The numbers on this slip have not come through yet.");
-                return;
-            }
+                return ResultKey == 0
+                    ? "This paper is blank."
+                    : "The numbers on this paper have not come through yet.";
 
             var text = new System.Text.StringBuilder();
-            text.Append(reading.IsBlank ? $"{MachineName} blank: " : $"{RecordTag} · {MachineName}: ");
-
-            int shown = 0;
-            foreach (var kv in reading.Values)
-            {
-                if (shown++ >= 6) { text.Append("…"); break; }
-                text.Append($"{kv.Key} {kv.Value:0.###}   ");
-            }
-
-            if (shown == 0) text.Append("no values reported");
-            player.Say(text.ToString(), 6f);
+            text.AppendLine(reading.IsBlank ? $"{MachineName} — BLANK" : $"{RecordTag} — {MachineName}");
+            text.AppendLine();
+            foreach (var kv in reading.Values) text.AppendLine($"{kv.Key,-10} {kv.Value:0.###}");
+            if (reading.Values.Count == 0) text.Append("No values reported.");
+            return text.ToString();
         }
     }
 }

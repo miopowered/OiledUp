@@ -20,14 +20,21 @@ namespace Residue.Gameplay.World
         [Tooltip("MachineDef id, for a per-instrument manual. Ignored by the other kinds.")]
         [SerializeField] private string machineId;
 
-        [Tooltip("Only a fallback. The reading player's own view always wins.")]
-        [SerializeField] private BookScreen screen;
-
         private MachineDef machine;
+        private InspectableBookSurface pageSurface;
+        private bool pageContentReady;
+        private Renderer[] legacyRenderers;
 
         public BookKind Kind => kind;
+        public string InventoryId => $"{kind}:{machineId ?? string.Empty}";
 
         public override string DisplayName => BookContent.TitleFor(kind, Machine);
+
+        // The words live on the generated 3D paper surface, never in the HUD reading overlay.
+        public override string InspectionText => null;
+        public override string InspectionHelp => "Click a folded page corner to turn";
+        public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
+        public override Quaternion InventoryIconRotation => InspectionRotation;
 
         private MachineDef Machine
         {
@@ -42,48 +49,81 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public void Configure(BookKind bookKind, string targetMachineId, BookScreen reader)
+        private void Awake()
+        {
+            // Capture the authored closed-cover renderer before the replacement page model exists.
+            // Its collider remains useful for pickup; only its obsolete visuals are removed.
+            legacyRenderers = GetComponentsInChildren<Renderer>(true);
+            // Give the item its physical pages immediately. The catalog may not have completed its
+            // own Awake yet, so this first pass at least writes the cover/title onto the paper.
+            EnsurePageSurface(forceContentRefresh: true);
+            HideLegacyBook();
+        }
+
+        private void Start()
+        {
+            // All scene Awakes have now run, so authored reference content is available. This is the
+            // final rasterisation; opening inspection never creates or rewrites the pages.
+            EnsurePageSurface(forceContentRefresh: true);
+        }
+
+        public void Configure(BookKind bookKind, string targetMachineId)
         {
             kind = bookKind;
             machineId = targetMachineId;
-            screen = reader;
             name = $"Book_{bookKind}{(string.IsNullOrEmpty(targetMachineId) ? "" : "_" + targetMachineId)}";
+            if (pageSurface != null) EnsurePageSurface(forceContentRefresh: true);
         }
 
-        public override string UseHint => "read";
-
-        /// <summary>
-        /// Which reading view this book should open in.
-        /// <para>
-        /// A book is passed around, so the view cannot be a property of the book — two players
-        /// carrying two volumes to two corners of the room each need their own pages. The serialized
-        /// field survives only as a fallback for a scene that still keeps a single shared view at the
-        /// root; the reader wins whenever they have one.
-        /// </para>
-        /// <para>
-        /// Public because the precedence is otherwise only observable through a live
-        /// <c>UIDocument</c>, which no edit-mode test has.
-        /// </para>
-        /// </summary>
-        public BookScreen ReaderFor(PlayerInteractor player)
+        public override void BeginInspection()
         {
-            var mine = player != null ? player.Manual : null;
-            return mine != null ? mine : screen;
+            EnsurePageSurface(forceContentRefresh: false);
         }
 
-        public override void UseInHand(PlayerInteractor player)
+        public override void EndInspection()
         {
-            var reader = ReaderFor(player);
-            if (reader == null)
+            // The physical pages and their text remain part of the item in the world and in-hand.
+        }
+
+        public override bool HandleInspectionPointer(Camera camera, Vector2 screenPosition) =>
+            pageSurface != null && pageSurface.TryPressPageCorner(camera, screenPosition);
+
+        public override void SetHeldVisible(bool visible)
+        {
+            base.SetHeldVisible(visible);
+            HideLegacyBook();
+        }
+
+        public override bool IncludeInInventoryIcon(Renderer renderer)
+        {
+            if (renderer == null) return false;
+            if (legacyRenderers == null) return true;
+            for (int i = 0; i < legacyRenderers.Length; i++)
+                if (legacyRenderers[i] == renderer) return false;
+            return true;
+        }
+
+        private void EnsurePageSurface(bool forceContentRefresh)
+        {
+            if (pageSurface == null) pageSurface = GetComponent<InspectableBookSurface>();
+            if (pageSurface == null) pageSurface = gameObject.AddComponent<InspectableBookSurface>();
+
+            if (forceContentRefresh || !pageContentReady)
             {
-                // §9: an object that refuses without saying why reads as broken. Rare enough to be a
-                // build fault rather than a rule, but silence would send the player looking for one.
-                if (player != null) player.Say("Nowhere to read that.");
-                return;
+                pageSurface.SetContent(DisplayName,
+                    BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog));
+                pageContentReady = true;
             }
 
-            var catalog = LabRuntime.Instance?.Catalog;
-            reader.Open(DisplayName, BookContent.Build(kind, Machine, catalog));
+            pageSurface.Show(true);
+            HideLegacyBook();
+        }
+
+        private void HideLegacyBook()
+        {
+            if (legacyRenderers == null) return;
+            for (int i = 0; i < legacyRenderers.Length; i++)
+                if (legacyRenderers[i] != null) legacyRenderers[i].enabled = false;
         }
     }
 }

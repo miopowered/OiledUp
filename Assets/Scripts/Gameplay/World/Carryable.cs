@@ -3,8 +3,7 @@ using UnityEngine;
 namespace Residue.Gameplay.World
 {
     /// <summary>
-    /// Anything the player can hold. You have one pair of hands, so every carryable competes with
-    /// every other — a vial in your hand is a printout you are not carrying to the desk.
+    /// Anything the player can store, select, hold and inspect through the same interaction contract.
     /// <para>
     /// That competition is the point. §5.5 is about the cost of moving things around a room, and it
     /// only exists if carrying capacity is genuinely scarce.
@@ -14,6 +13,42 @@ namespace Residue.Gameplay.World
     {
         /// <summary>Shown in prompts and toasts.</summary>
         public abstract string DisplayName { get; }
+
+        /// <summary>Optional text shown beside the physical object during inspection.</summary>
+        public virtual string InspectionText => DisplayName;
+
+        /// <summary>Initial object orientation in the inspection view.</summary>
+        public virtual Quaternion InspectionRotation => Quaternion.identity;
+
+        /// <summary>Stable orientation used by the inventory's rendered 2D thumbnail.</summary>
+        public virtual Quaternion InventoryIconRotation => Quaternion.identity;
+
+        /// <summary>Allows a carryable to exclude obsolete/helper renderers from its slot thumbnail.</summary>
+        public virtual bool IncludeInInventoryIcon(Renderer renderer) => renderer != null;
+
+        /// <summary>Extra controls shown while this item is being inspected.</summary>
+        public virtual string InspectionHelp => null;
+
+        /// <summary>Lifecycle hooks for physical inspection presentation.</summary>
+        public virtual void BeginInspection() { }
+        public virtual void TickInspection() { }
+        public virtual void EndInspection() { }
+
+        /// <summary>Lets an item capture an inspection click before it becomes drag rotation.</summary>
+        public virtual bool HandleInspectionPointer(Camera camera, Vector2 screenPosition) => false;
+
+        /// <summary>World-space bounds used to fit the object into the inspection camera.</summary>
+        public Bounds VisualBounds
+        {
+            get
+            {
+                var renderers = GetComponentsInChildren<Renderer>(true);
+                if (renderers.Length == 0) return new Bounds(transform.position, Vector3.one * 0.2f);
+                var bounds = renderers[0].bounds;
+                for (int i = 1; i < renderers.Length; i++) bounds.Encapsulate(renderers[i].bounds);
+                return bounds;
+            }
+        }
 
         /// <summary>
         /// Park this item in a socket.
@@ -38,10 +73,16 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public override string Prompt(PlayerInteractor player) =>
-            player.Carried == null ? $"Take {DisplayName}" : "Hands full";
+        /// <summary>Only the selected inventory slot renders in the first-person hand.</summary>
+        public virtual void SetHeldVisible(bool visible)
+        {
+            foreach (var renderer in GetComponentsInChildren<Renderer>(true)) renderer.enabled = visible;
+        }
 
-        public override bool CanInteract(PlayerInteractor player) => player.Carried == null;
+        public override string Prompt(PlayerInteractor player) =>
+            player.InventoryHasSpace ? $"Take {DisplayName}" : "Inventory full";
+
+        public override bool CanInteract(PlayerInteractor player) => player.InventoryHasSpace;
 
         /// <summary>
         /// Picking something up is a request, not a grab — see <see cref="PlayerInteractor.Take"/>.

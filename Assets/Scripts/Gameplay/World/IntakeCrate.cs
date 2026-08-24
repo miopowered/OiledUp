@@ -139,14 +139,14 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
-            if (player.Carried != null) return "Hands full";
+            if (!player.InventoryHasSpace) return "Inventory full";
             return Remaining > 0
                 ? $"Take next sample ({Remaining} in crate)"
                 : "Crate empty";
         }
 
         public override bool CanInteract(PlayerInteractor player) =>
-            player.Carried == null && Remaining > 0;
+            player.InventoryHasSpace && Remaining > 0;
 
         /// <summary>
         /// Hand out the next vial. The crate picks which one — one pair of hands, one bottle at a

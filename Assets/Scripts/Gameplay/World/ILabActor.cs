@@ -52,4 +52,14 @@ namespace Residue.Gameplay.World
         /// </summary>
         void SetGrip(LabGrip grip);
     }
+
+    /// <summary>Optional authoritative inventory extension for actors with stowed items.</summary>
+    public interface ILabInventoryActor : ILabActor
+    {
+        int InventoryCapacity { get; }
+        int InventoryCount { get; }
+        bool ContainsGrip(LabGrip grip);
+        void StoreGrip(LabGrip grip);
+        bool SelectGrip(LabGrip grip);
+    }
 }

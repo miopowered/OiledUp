@@ -47,6 +47,9 @@ namespace Residue.Gameplay.World
         /// or guess — to find out how many flushes they are carrying.
         /// </summary>
         public override string DisplayName => $"Solvent bottle ({Charges}/{Capacity})";
+        public override string InspectionText => IsEmpty
+            ? "SOLVENT\nEMPTY\n\nRefill at the wash station."
+            : $"SOLVENT\n{Charges} / {Capacity} flushes remaining";
 
         public void Bind(string bottleId, int capacity)
         {

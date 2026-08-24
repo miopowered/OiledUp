@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.UIElements;
+using System.Collections.Generic;
 
 namespace Residue.Gameplay.World
 {
@@ -32,6 +33,15 @@ namespace Residue.Gameplay.World
         private Label statusLabel;
         private Label handsLabel;
         private Label debugLabel;
+        private VisualElement inventoryBar;
+        private readonly List<VisualElement> inventorySlots = new();
+        private readonly List<VisualElement> inventoryIcons = new();
+        private readonly List<Texture2D> inventoryTextures = new();
+        private readonly List<string> inventoryTextureKeys = new();
+        private VisualElement inspectionOverlay;
+        private Label inspectionTitle;
+        private Label inspectionBody;
+        private Label inspectionHelp;
         private VisualElement root;
 
         private void Awake()
@@ -134,7 +144,7 @@ namespace Residue.Gameplay.World
             toastLabel = new Label();
             Style(toastLabel, 14, SignalPalette.Ink);
             toastLabel.style.position = Position.Absolute;
-            toastLabel.style.bottom = 48;
+            toastLabel.style.bottom = 126;
             toastLabel.style.left = 0;
             toastLabel.style.right = 0;
             toastLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
@@ -145,7 +155,7 @@ namespace Residue.Gameplay.World
             // agitation is the mouse, and a player who cannot pick a vial up cannot discover
             // anything else in the game.
             var controls = new Label(
-                "[WASD] move    [E] interact / hold    [LMB] use held item    [Shift] run    [Esc] close");
+                "[WASD] move    [E] interact    [1–3] select    [Space] inspect    [LMB drag] rotate    [Wheel] zoom");
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
@@ -155,9 +165,14 @@ namespace Residue.Gameplay.World
             handsLabel = new Label();
             Style(handsLabel, 13, SignalPalette.Ink);
             handsLabel.style.position = Position.Absolute;
-            handsLabel.style.left = 16;
-            handsLabel.style.bottom = 32;
+            handsLabel.style.left = 0;
+            handsLabel.style.right = 0;
+            handsLabel.style.bottom = 94;
+            handsLabel.style.unityTextAlign = TextAnchor.MiddleCenter;
             root.Add(handsLabel);
+
+            BuildInventory();
+            BuildInspectionOverlay();
 
             // Interaction diagnostics. Deliberately monospaced-ish and magenta-tinted so it can
             // never be mistaken for game UI.
@@ -206,6 +221,9 @@ namespace Residue.Gameplay.World
 
             toastLabel.text = interactor.Toast ?? string.Empty;
 
+            UpdateInventory();
+            UpdateInspection();
+
             // Tell the player what the thing in their hands does, since a carried item cannot be
             // looked at and therefore never shows a prompt of its own.
             var carried = interactor.Carried;
@@ -213,8 +231,8 @@ namespace Residue.Gameplay.World
             {
                 string hint = carried.UseHint;
                 handsLabel.text = hint == null
-                    ? $"holding: {carried.DisplayName}"
-                    : $"holding: {carried.DisplayName}    [LMB] {hint}";
+                    ? $"in hands: {carried.DisplayName}    [Space] inspect"
+                    : $"in hands: {carried.DisplayName}    [LMB] {hint}    [Space] inspect";
             }
             else
             {
@@ -226,6 +244,157 @@ namespace Residue.Gameplay.World
                 : string.Empty;
 
             UpdateStatus();
+        }
+
+        private void BuildInventory()
+        {
+            ReleaseInventoryIcons();
+            inventorySlots.Clear();
+            inventoryIcons.Clear();
+            inventoryTextureKeys.Clear();
+
+            inventoryBar = new VisualElement();
+            inventoryBar.style.position = Position.Absolute;
+            inventoryBar.style.left = Length.Percent(50);
+            inventoryBar.style.bottom = 22;
+            inventoryBar.style.translate = new Translate(Length.Percent(-50), 0);
+            inventoryBar.style.flexDirection = FlexDirection.Row;
+            root.Add(inventoryBar);
+
+            for (int i = 0; i < PlayerInventory.SlotCount; i++)
+            {
+                var slot = new VisualElement();
+                slot.style.width = 72;
+                slot.style.height = 72;
+                slot.style.marginLeft = 4;
+                slot.style.marginRight = 4;
+                slot.style.paddingTop = 7;
+                slot.style.paddingLeft = 9;
+                slot.style.paddingRight = 9;
+                slot.style.overflow = Overflow.Hidden;
+                slot.style.backgroundColor = new StyleColor(new Color(0.04f, 0.05f, 0.06f, 0.82f));
+                slot.style.borderTopWidth = 1;
+                slot.style.borderBottomWidth = 1;
+                slot.style.borderLeftWidth = 1;
+                slot.style.borderRightWidth = 1;
+                Round(slot, 3);
+
+                var number = new Label((i + 1).ToString());
+                Style(number, 11, SignalPalette.Dim);
+                number.style.position = Position.Absolute;
+                number.style.left = 6;
+                number.style.top = 4;
+                slot.Add(number);
+
+                var icon = new VisualElement { pickingMode = PickingMode.Ignore };
+                icon.style.position = Position.Absolute;
+                icon.style.left = 9;
+                icon.style.right = 9;
+                icon.style.top = 9;
+                icon.style.bottom = 9;
+                icon.style.backgroundSize = new BackgroundSize(BackgroundSizeType.Contain);
+                slot.Add(icon);
+
+                inventoryBar.Add(slot);
+                inventorySlots.Add(slot);
+                inventoryIcons.Add(icon);
+                inventoryTextures.Add(null);
+                inventoryTextureKeys.Add(null);
+            }
+        }
+
+        private void UpdateInventory()
+        {
+            var inventory = interactor.Inventory;
+            if (inventory == null) return;
+
+            for (int i = 0; i < inventorySlots.Count; i++)
+            {
+                bool selected = i == inventory.SelectedIndex;
+                var item = inventory.ItemAt(i);
+                var edge = new StyleColor(selected ? SignalPalette.Accent : new Color(1f, 1f, 1f, 0.18f));
+                inventorySlots[i].style.borderTopColor = edge;
+                inventorySlots[i].style.borderBottomColor = edge;
+                inventorySlots[i].style.borderLeftColor = edge;
+                inventorySlots[i].style.borderRightColor = edge;
+                inventorySlots[i].style.borderTopWidth = selected ? 2 : 1;
+                inventorySlots[i].style.borderBottomWidth = selected ? 2 : 1;
+                inventorySlots[i].style.borderLeftWidth = selected ? 2 : 1;
+                inventorySlots[i].style.borderRightWidth = selected ? 2 : 1;
+
+                string key = item != null ? $"{item.GetEntityId()}:{item.DisplayName}" : null;
+                if (inventoryTextureKeys[i] == key) continue;
+
+                if (inventoryTextures[i] != null) Destroy(inventoryTextures[i]);
+                inventoryTextures[i] = item != null ? InventoryIconRenderer.Render(item) : null;
+                inventoryTextureKeys[i] = key;
+                inventoryIcons[i].style.backgroundImage = inventoryTextures[i] != null
+                    ? new StyleBackground(inventoryTextures[i])
+                    : new StyleBackground(StyleKeyword.Null);
+            }
+        }
+
+        private void OnDestroy() => ReleaseInventoryIcons();
+
+        private void ReleaseInventoryIcons()
+        {
+            for (int i = 0; i < inventoryTextures.Count; i++)
+                if (inventoryTextures[i] != null) Destroy(inventoryTextures[i]);
+            inventoryTextures.Clear();
+        }
+
+        private void BuildInspectionOverlay()
+        {
+            inspectionOverlay = new VisualElement();
+            inspectionOverlay.style.position = Position.Absolute;
+            inspectionOverlay.style.left = 0;
+            inspectionOverlay.style.right = 0;
+            inspectionOverlay.style.top = 0;
+            inspectionOverlay.style.bottom = 0;
+            // Keep the world quiet without veiling the inspected mesh: book text now lives on the
+            // physical page texture and must remain readable through this overlay.
+            inspectionOverlay.style.backgroundColor = new StyleColor(new Color(0.015f, 0.018f, 0.02f, 0.18f));
+            inspectionOverlay.style.display = DisplayStyle.None;
+            inspectionOverlay.pickingMode = PickingMode.Ignore;
+            root.Add(inspectionOverlay);
+
+            inspectionTitle = new Label();
+            Style(inspectionTitle, 20, SignalPalette.Ink);
+            inspectionTitle.style.position = Position.Absolute;
+            inspectionTitle.style.left = 28;
+            inspectionTitle.style.top = 24;
+            inspectionOverlay.Add(inspectionTitle);
+
+            inspectionBody = new Label();
+            Style(inspectionBody, 14, SignalPalette.Ink);
+            inspectionBody.style.position = Position.Absolute;
+            inspectionBody.style.left = 28;
+            inspectionBody.style.bottom = 54;
+            inspectionBody.style.width = Length.Percent(34);
+            inspectionBody.style.whiteSpace = WhiteSpace.Normal;
+            inspectionOverlay.Add(inspectionBody);
+
+            inspectionHelp = new Label();
+            Style(inspectionHelp, 12, SignalPalette.Dim);
+            inspectionHelp.style.position = Position.Absolute;
+            inspectionHelp.style.left = 0;
+            inspectionHelp.style.right = 0;
+            inspectionHelp.style.bottom = 20;
+            inspectionHelp.style.unityTextAlign = TextAnchor.MiddleCenter;
+            inspectionOverlay.Add(inspectionHelp);
+        }
+
+        private void UpdateInspection()
+        {
+            var view = interactor.Inspection;
+            bool open = view != null && view.IsOpen;
+            inspectionOverlay.style.display = open ? DisplayStyle.Flex : DisplayStyle.None;
+            if (!open) return;
+            inspectionTitle.text = view.Item.DisplayName;
+            inspectionBody.text = view.Item.InspectionText ?? string.Empty;
+            inspectionHelp.text = "Hold LMB + move mouse to rotate    Wheel to zoom    " +
+                (string.IsNullOrEmpty(view.Item.InspectionHelp) ? "" : view.Item.InspectionHelp + "    ") +
+                "Space / Esc to close";
         }
 
         /// <summary>

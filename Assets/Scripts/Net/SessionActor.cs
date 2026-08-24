@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Residue.Gameplay.World;
 using Residue.Net.Session;
 using UnityEngine;
@@ -27,10 +28,11 @@ namespace Residue.Net
     /// nothing here worth carrying across the gap.
     /// </para>
     /// </summary>
-    public sealed class SessionActor : ILabActor
+    public sealed class SessionActor : ILabActor, ILabInventoryActor
     {
         private readonly PlayerSession session;
         private LabGrip grip = LabGrip.Empty;
+        private readonly List<LabGrip> inventory = new(PlayerInventory.SlotCount);
 
         public SessionActor(PlayerSession session)
         {
@@ -53,11 +55,43 @@ namespace Residue.Net
         public Vector3 Position => session.Pose.Position;
 
         public LabGrip Grip => grip;
+        public int InventoryCapacity => PlayerInventory.SlotCount;
+        public int InventoryCount => inventory.Count;
+
+        public bool ContainsGrip(LabGrip candidate) => inventory.Contains(candidate);
+
+        public void StoreGrip(LabGrip next)
+        {
+            if (next.IsEmpty || inventory.Contains(next) || inventory.Count >= InventoryCapacity) return;
+            inventory.Add(next);
+            SelectGrip(next);
+        }
+
+        public bool SelectGrip(LabGrip next)
+        {
+            if (next.IsEmpty)
+            {
+                grip = LabGrip.Empty;
+                session.Held = HeldItem.None;
+                return true;
+            }
+            if (!inventory.Contains(next)) return false;
+            grip = next;
+            session.Held = Describe(next);
+            return true;
+        }
 
         public void SetGrip(LabGrip next)
         {
-            grip = next;
-            session.Held = Describe(next);
+            if (next.IsEmpty)
+            {
+                inventory.Remove(grip);
+                grip = inventory.Count > 0 ? inventory[0] : LabGrip.Empty;
+                session.Held = Describe(grip);
+                return;
+            }
+
+            if (!SelectGrip(next)) StoreGrip(next);
         }
 
         /// <summary>
