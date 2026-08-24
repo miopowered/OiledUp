@@ -32,7 +32,20 @@ namespace Residue.Gameplay.Simulation
     public sealed class ConsequenceReport
     {
         public SampleId Sample;
-        public string EquipmentTag;
+
+        /// <summary>
+        /// The tank the player <i>filed this under</i>, not the one printed on the bottle.
+        /// <para>
+        /// <see cref="SampleState.RecordTag"/> already states the rule — a mis-logged vial is "filed,
+        /// cross-referenced and reported under the tank the player named" — and this is the report.
+        /// Naming the paper label here would put it on a screen, which is the one place §5.1 says it
+        /// must never appear: the mis-log's only tell is walking back to the bottle, and a summary
+        /// that prints the true tag hands the correction over for free. It also happens to read
+        /// better. If you booked the oil in as the wrong tank, the incident file names the wrong tank.
+        /// </para>
+        /// </summary>
+        public string RecordTag;
+
         public Verdict Filed;
         public ConsequenceOutcome Outcome;
 
@@ -70,7 +83,7 @@ namespace Residue.Gameplay.Simulation
             var report = new ConsequenceReport
             {
                 Sample = state.Id,
-                EquipmentTag = state.EquipmentTag,
+                RecordTag = state.RecordTag,
                 Filed = verdict,
                 FaultName = fault != null ? fault.DisplayName : "No fault found",
                 ActualRootCause = fault?.RootCause != null ? fault.RootCause.DisplayName : null
@@ -88,12 +101,12 @@ namespace Residue.Gameplay.Simulation
                     if (report.RootCauseCorrect)
                     {
                         report.MoneyDelta += tuning.RootCauseBonus;
-                        report.Headline = $"{state.EquipmentTag}: taken out of service in time. Cause confirmed " +
+                        report.Headline = $"{state.RecordTag}: taken out of service in time. Cause confirmed " +
                                           $"as {report.ActualRootCause}. Full payout plus diagnostic bonus.";
                     }
                     else
                     {
-                        report.Headline = $"{state.EquipmentTag}: taken out of service in time — " +
+                        report.Headline = $"{state.RecordTag}: taken out of service in time — " +
                                           $"{fault.DisplayName}. " +
                                           (state.FiledRootCause != null
                                               ? $"Filed cause was wrong; it was {report.ActualRootCause}."
@@ -105,7 +118,7 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.FalsePositive;
                     report.MoneyDelta = -tuning.UnnecessaryTeardownCost;
                     report.ReputationDelta = tuning.FalsePositiveReputation;
-                    report.Headline = $"{state.EquipmentTag}: tank dumped and recharged on your call. " +
+                    report.Headline = $"{state.RecordTag}: tank dumped and recharged on your call. " +
                                       "The oil tested serviceable. Line downtime and the fresh charge are ours.";
                     break;
 
@@ -113,7 +126,7 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.MonitorOnImminent;
                     report.MoneyDelta = -fault.RepairCost * tuning.MonitorOnImminentMultiplier;
                     report.ReputationDelta = tuning.MonitorOnImminentReputation;
-                    report.Headline = $"{state.EquipmentTag}: kept quenching on your advice and it should not " +
+                    report.Headline = $"{state.RecordTag}: kept quenching on your advice and it should not " +
                                       $"have been. {fault.DisplayName}. {fault.MissedConsequence}";
                     break;
 
@@ -121,7 +134,7 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.MonitorDeveloping;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.RequeueSample = true;
-                    report.Headline = $"{state.EquipmentTag}: kept in service and scheduled for another draw. " +
+                    report.Headline = $"{state.RecordTag}: kept in service and scheduled for another draw. " +
                                       "The numbers are worse this cycle.";
                     break;
 
@@ -129,7 +142,7 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.MonitorUnnecessary;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.ReputationDelta = -0.5f;
-                    report.Headline = $"{state.EquipmentTag}: redrawn at your request, still within spec.";
+                    report.Headline = $"{state.RecordTag}: redrawn at your request, still within spec.";
                     break;
 
                 case Verdict.Normal when hasFault:
@@ -139,7 +152,7 @@ namespace Residue.Gameplay.Simulation
 
                     // The consequence text lives on the fault, so the worst outcome in the game is a
                     // data value someone can find rather than a branch someone has to remember.
-                    report.Headline = $"{state.EquipmentTag}: PASSED AS FIT TO QUENCH. {fault.DisplayName}. " +
+                    report.Headline = $"{state.RecordTag}: PASSED AS FIT TO QUENCH. {fault.DisplayName}. " +
                                       $"{fault.MissedConsequence} Named in the incident file.";
                     break;
 
@@ -147,7 +160,7 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.CorrectNormal;
                     report.MoneyDelta = tuning.BasePayout;
                     report.ReputationDelta = tuning.CorrectNormalReputation;
-                    report.Headline = $"{state.EquipmentTag}: cleared as fit for service. Routine payout.";
+                    report.Headline = $"{state.RecordTag}: cleared as fit for service. Routine payout.";
                     break;
             }
 

@@ -1,3 +1,4 @@
+using Residue.Gameplay.Simulation;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -51,10 +52,13 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
+            // The blank flag rather than the reading it came off: a prompt is asked every frame, and
+            // on a client the numbers are a lookup that may not have resolved yet. Neither is a good
+            // reason to caption a blank slip as a sample one.
             if (player.Carried is PrintoutProp printout)
-                return printout.Result != null && printout.Result.IsBlank
+                return printout.IsBlank
                     ? $"File blank slip ({printout.MachineName})"
-                    : $"File results — {printout.EquipmentTag}";
+                    : $"File results — {printout.RecordTag}";
 
             // You do not type up a report one-handed with a sample in the other. Racks exist for
             // exactly this, so name them rather than just refusing.
@@ -118,7 +122,12 @@ namespace Residue.Gameplay.World
         /// </summary>
         private void FileResults(PlayerInteractor player, PrintoutProp printout)
         {
-            if (printout.Result == null)
+            // The ticket, not the reading. This used to refuse a slip whose Result was null, which was
+            // a fair test of "blank paper" while only the host held slips — and became a trap the
+            // moment a client did, because a client's slip holds no TestResult at all until somebody
+            // reads it. A slip with no ticket is the only one that names nothing; everything else is
+            // the host's to accept or refuse.
+            if (printout.Ticket == ResultSlips.NoTicket)
             {
                 player.Say("That slip is blank.");
                 return;
@@ -127,17 +136,28 @@ namespace Residue.Gameplay.World
             LabCommands.Attempt(player, LabCommand.FileSlip(printout.Ticket), result =>
             {
                 player.ReleaseCarried();
-                Destroy(printout.gameObject);
+
+                // Through the runtime, so the prop table lets go of it at the same moment the object
+                // does. On a client the reconciler would destroy it a publish later anyway, once the
+                // host dropped the row; doing it here keeps the hand-over instant on both sides.
+                var lab = LabRuntime.Instance;
+                if (lab != null) lab.RetireSlip(printout.Ticket);
+                else Destroy(printout.gameObject);
 
                 // A solvent blank or a certified standard belongs to the instrument rather than to a
                 // sample, so it has no record to join and the host simply took the paper.
-                var sample = LabRuntime.Instance != null
-                    ? LabRuntime.Instance.SampleFor(result.Sample)
-                    : null;
+                //
+                // The three-way phrasing is the client's doing. SampleFor reads a LabState, so it is
+                // null for every slip a joined player files — and the old two-way version therefore
+                // told them they had filed a blank whatever they were holding. The paper knows which
+                // it is; the record tag is the part only a host can add.
+                var sample = lab != null ? lab.SampleFor(result.Sample) : null;
 
-                player.Say(sample != null
-                    ? $"{sample.RecordTag}: {printout.MachineName} results filed."
-                    : $"{printout.MachineName} blank slip filed.");
+                player.Say(printout.IsBlank
+                    ? $"{printout.MachineName} blank slip filed."
+                    : sample != null
+                        ? $"{sample.RecordTag}: {printout.MachineName} results filed."
+                        : $"{printout.MachineName} results filed.");
             });
         }
     }

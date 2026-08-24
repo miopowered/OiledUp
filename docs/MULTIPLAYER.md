@@ -83,6 +83,11 @@ Setup alone will not make co-op work. Remaining, in order:
 - [x] **Results on a client.** Measured values replicate, so the terminal is a real terminal on a
       client and an instrument's own screen shows the numbers it just produced. See below for the
       shape and for what is still host-only.
+- [x] **Results slips on a client.** The paper exists in every process. Only the record travels —
+      §3.2 keeps a slip a local prop for the same reason it keeps a vial one — and `SlipReconciler`
+      rebuilds the trays from it each frame. Filing a result was host-only until this landed, which
+      is a hole in the middle of the loop: two people run instruments in parallel and only one could
+      do the paperwork.
 - [ ] **Vivox proximity voice.**
 
 ---
@@ -105,12 +110,43 @@ Working today, identically to the host:
   their calibration certificates, re-open a record in doubt, order solvent and ampoules, and file a
   verdict — all from the same terminal the host uses, drawn by the same code.
 - Read the numbers off an instrument's own screen when a run finishes.
+- Take the results slip out of an instrument's tray, read it in hand, rack it, and file it at the
+  desk. See other players carrying paper around, and lose the race for a slip two of you reached for.
+
+- Read the end-of-day report, and the closing screen when the run ends. Everybody worked the shift,
+  so everybody sees the reckoning. It shows between shifts at every desk at once and comes off all of
+  them when somebody starts the next day.
 
 Not yet, and the reason:
 
 | Blocked | Why |
 |---|---|
-| Reading the end-of-day report | **`ConsequenceReport` does not replicate.** It is the one screen in the game that names a fault (§4.3), and it does so after the consequence has landed. Putting that on the wire is a deliberate decision about ground truth and deserves its own change rather than riding along with the results table. Ending the day works from either desk; a joined one says where the summary is drawn. |
+| — | Nothing at the desk. |
+
+### Why the report is allowed to name a fault
+
+`ConsequenceReport` is the one screen in the game that says what was actually wrong (§4.3), so
+replicating it looks like a hard-rule-2 problem. It is not, quite: the fault is named only *after*
+the verdict has been scored and the money has moved, which is the same argument that lets the host's
+own screen print it. Content is not the risk — timing is.
+
+Two things put a sample back in play, and a report naming the fault on one of them is the answer to a
+question the game has not finished asking:
+
+- **MONITOR on a developing fault requeues the unit** (§5.4), and the re-draw carries the *same*
+  fault further along. So a report that puts its own unit back in play crosses **without the
+  diagnosis** — `ReportView.From` withholds any headline naming the fault or its root cause.
+- **A record re-opened after a recalibration** (§5.3) goes back to `Measured` and can be re-filed.
+  This one needs no rule: a report exists only for a sample `TryResolve` accepted, and `Resolved` has
+  no outgoing edge in the lifecycle table, so a reported record can never come back. That dependency
+  is pinned by `NetworkViewTests.AReportedRecord_CanNeverComeBackIntoPlay`.
+
+And the rows are on the wire **only between shifts**. `LabState.LastReports` outlives the day it
+describes; `BeginDay` raises `DayInProgress` before it generates the re-draws, so publishing nothing
+while a day is open closes the window strictly before the sample walks back in.
+
+The headline names the tank the vial was *filed under*, never the paper label — a mis-log still has
+exactly one tell and it is on the bottle (§5.1).
 
 ### How vial props work
 
@@ -164,6 +200,42 @@ Not yet, and the reason:
    published. It captions a sample run with the sample id: the paper label reaches a client through
    `VialView` and must never reach a screen (§5.1), and the typed tag would caption a client's screen
    differently from the host's.
+
+### How results slips work
+
+1. **A `SlipView` names its reading rather than carrying one.** The row is a ticket, a
+   `ResultView.Key`, the sample, the blank flag, what is printed across the top, and a
+   `SampleLocation`. The numbers travel once, as the `ReadingView` rows already under that key. A
+   copy on the slip as well would be a second wire path to the same figures, and the day the two
+   disagreed the paper in a player's hand and the panel at the desk would quote different results for
+   one run.
+2. **`ResultSlips` gained a location.** It was already the host's record of which slips exist and who
+   is holding one; it now also holds *where*, because "not in anyone's hands" is not enough to draw
+   with. `LabCommandExecutor` records the rack hole a put-down names, and a dropped player's paper
+   goes back to the tray that printed it — a carry socket is destroyed with its avatar, taking the
+   prop parented to it.
+3. **`InMachine` means two different sockets.** An instrument holds a vial in its sample path, where
+   the station mediates access (§5.4), and paper in an output tray, which is exactly the thing you
+   walk up and take. `PropSockets.ForSlip` resolves the tray through `LabRuntime.RegisterTray` and
+   delegates everything else — a rack hole, a pair of hands — to the shared lookup, because a slip on
+   a rack is competing for the same shelf space a bottle is (§5.5).
+4. **A slip is consumed by filing**, which neither of the other local props is: a vial is spent and a
+   bottle is refilled, but only paper stops existing because somebody used it correctly. The host
+   discards the ticket, the row stops appearing, and `SlipReconciler` destroys it. That is also what
+   makes the reconcile-by-set-difference rule load-bearing rather than tidy: a stale slip is a second
+   chance to file the same numbers.
+5. **Two players reaching for the same tray** is settled by `ResultSlips.TryClaim`, so the loser gets
+   a refusal and their `Carried` stays empty. Their *room* agrees a publish later: there is one prop
+   per ticket, and it is re-parented into the winner's hands with its colliders off, so the loser
+   cannot keep aiming at a pick-up the host is bound to refuse.
+6. **`SlipFeed` is the seam** — the fifth of its kind, after `LabCommands.Router`,
+   `LabView.Replicated`, `VialFeed.Source` and `RecordFeed.Source`. `Residue.Net.ReplicatedSlips`
+   fills in both halves at startup: the snapshot, and the by-key lookup a `PrintoutProp` uses to
+   resolve its numbers the one time somebody glances at it.
+7. **An outstanding slip keeps its run on the wire.** `LabNetwork` publishes every unfiled slip's
+   result alongside each instrument's own. Without that, carrying a slip away and running the machine
+   again took its numbers off the wire — the run is not filed and is no longer `LastResult` — and the
+   client's copy of the paper would go blank while the host's still read.
 
 ---
 

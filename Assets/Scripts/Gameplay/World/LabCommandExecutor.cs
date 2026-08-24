@@ -207,7 +207,11 @@ namespace Residue.Gameplay.World
                 }
 
                 case GripKind.Slip:
-                    lab.Slips.Release(grip.Ticket);
+                    // The shelf is named, not just the hand emptied. Every other process draws the
+                    // paper from this record (see ResultSlips), so a release that only said "nobody is
+                    // holding it" would put the slip back in the instrument's tray on every screen
+                    // except the one belonging to the player who racked it.
+                    lab.Slips.Release(grip.Ticket, SampleLocation.OnSurface(surface, command.Amount));
                     break;
 
                 case GripKind.Bottle:

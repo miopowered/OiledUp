@@ -56,5 +56,22 @@ namespace Residue.Net.Views
             if (!string.IsNullOrEmpty(value)) packed.CopyFromTruncated(value);
             return packed;
         }
+
+        /// <summary>
+        /// 509 bytes of payload, for a whole sentence rather than a name: the end-of-day headline
+        /// (<see cref="ReportView"/>) runs to about 260 characters at its worst — a tank tag, a
+        /// fault, and the <c>MissedConsequence</c> the content tables write for it — and the
+        /// consequence text is authored, so the budget has to leave an author room to be vivid.
+        /// <para>
+        /// Reports are the one list on this wire that exists only between shifts and is a dozen rows
+        /// long, so a generous row is cheap here in a way it would not be for a reading.
+        /// </para>
+        /// </summary>
+        public static FixedString512Bytes Fixed512(string value)
+        {
+            var packed = new FixedString512Bytes();
+            if (!string.IsNullOrEmpty(value)) packed.CopyFromTruncated(value);
+            return packed;
+        }
     }
 }

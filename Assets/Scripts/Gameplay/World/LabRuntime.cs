@@ -90,6 +90,13 @@ namespace Residue.Gameplay.World
         private VialReconciler vials;
 
         /// <summary>
+        /// Keeps this process's results slips in step with the host's. Client-only for the reason
+        /// <see cref="vials"/> is: a process that simulates prints its own paper as its own runs
+        /// finish, through <see cref="SpawnPrintout"/>.
+        /// </summary>
+        private SlipReconciler slips;
+
+        /// <summary>
         /// Keeps the solvent bottles where the host says they are. Unlike <see cref="vials"/> this
         /// runs on every process — a host has no separate bottle spawner to duplicate, so both sides
         /// share one. Built on first use rather than in <c>Awake</c>, so an edit-mode test that never
@@ -140,6 +147,7 @@ namespace Residue.Gameplay.World
             if (!SimulatesLocally)
             {
                 vials = new VialReconciler(this);
+                slips = new SlipReconciler(this);
                 Debug.Log("[LabRuntime] Client process — the lab is replicated, not simulated.", this);
                 return;
             }
@@ -208,6 +216,15 @@ namespace Residue.Gameplay.World
         private static readonly Dictionary<string, IVialSlots> slotted = new();
 
         /// <summary>
+        /// Output trays, by the same fixture id. A third table rather than a second use of
+        /// <see cref="slotted"/>, because an instrument is both — it holds a vial in its sample path
+        /// and paper in its tray, and those are two different sockets under one id. Asking
+        /// <see cref="IVialSlots"/> for "slot 0 of karl_fischer-0" has to keep meaning the sample
+        /// path, or a client would park a printout inside the titrator.
+        /// </summary>
+        private static readonly Dictionary<string, Transform> trays = new();
+
+        /// <summary>
         /// Announce a fixture so the host can tell whether a player is standing at it. Called from
         /// <c>OnEnable</c> by anything a command can be aimed at.
         /// </summary>
@@ -232,6 +249,30 @@ namespace Residue.Gameplay.World
             slotted[fixtureId] = slots;
         }
 
+        /// <summary>
+        /// Announce where a fixture's printed paper lands. Only an instrument has one, and it is a
+        /// bare transform rather than an <see cref="IVialSlots"/> because a tray holds exactly one
+        /// slip — there is no slot to number and no occupancy to ask about.
+        /// </summary>
+        public static void RegisterTray(string fixtureId, Transform tray)
+        {
+            if (string.IsNullOrEmpty(fixtureId) || tray == null) return;
+            trays[fixtureId] = tray;
+        }
+
+        /// <summary>
+        /// The output tray placed under that id, or null if this scene has none. Null is a real
+        /// answer and the reconciler treats it as "leave the prop alone".
+        /// </summary>
+        public static Transform TrayFor(string fixtureId)
+        {
+            if (string.IsNullOrEmpty(fixtureId)) return null;
+
+            // Unity's ==, because a destroyed transform is a live C# reference and parenting to one
+            // throws rather than doing nothing.
+            return trays.TryGetValue(fixtureId, out var tray) && tray != null ? tray : null;
+        }
+
         /// <summary>Withdraw a fixture. Ignores the call if something else has since claimed the id.</summary>
         public static void ForgetFixture(string fixtureId, Transform placed)
         {
@@ -240,6 +281,7 @@ namespace Residue.Gameplay.World
 
             fixtures.Remove(fixtureId);
             slotted.Remove(fixtureId);
+            trays.Remove(fixtureId);
         }
 
         /// <summary>
@@ -280,9 +322,10 @@ namespace Residue.Gameplay.World
             }
             else
             {
-                // No lab means no simulation to advance, but there are still bottles in the room and
-                // the host has an opinion about where they are.
+                // No lab means no simulation to advance, but there are still bottles and slips in the
+                // room and the host has an opinion about where they are.
                 vials?.Tick();
+                slips?.Tick();
             }
 
             // Solvent bottles are reconciled either way — see BottleReconciler for why this one is
@@ -350,6 +393,18 @@ namespace Residue.Gameplay.World
             else DestroyImmediate(prop.gameObject);
         }
 
+        // -- Results slips ----------------------------------------------------------------------------
+        //
+        // Keyed by ticket rather than by SampleId: a blank and a certified standard belong to no
+        // sample at all, and two runs of the same oil print two slips that have to be told apart.
+
+        private readonly Dictionary<int, PrintoutProp> slipProps = new();
+
+        public IReadOnlyDictionary<int, PrintoutProp> SlipProps => slipProps;
+
+        public PrintoutProp SlipPropFor(int ticket) =>
+            slipProps.TryGetValue(ticket, out var slip) ? slip : null;
+
         /// <summary>
         /// Drop a results slip into an instrument's output tray. Not pooled: a printout exists
         /// until someone files it or replaces it, and there are only ever a handful.
@@ -358,9 +413,11 @@ namespace Residue.Gameplay.World
         /// was given. That ticket is how it is named later — a client filing a slip says which one,
         /// never what it says, so the numbers that reach a record are always the host's own.
         /// </para>
+        /// Host-only: it needs a <see cref="LabState"/> to issue the ticket out of. The client's half
+        /// is <see cref="SpawnSlip"/>, which is handed a ticket the host already minted.
         /// </summary>
         public PrintoutProp SpawnPrintout(SampleId sampleId, TestResult result, string machineInstanceId,
-                                          string machineName, string equipmentTag, Transform socket)
+                                          string machineName, string recordTag, Transform socket)
         {
             if (printoutPrefab == null || result == null || socket == null) return null;
             if (Lab == null) return null;
@@ -368,9 +425,63 @@ namespace Residue.Gameplay.World
             int ticket = Lab.Slips.Issue(sampleId, machineInstanceId, result);
 
             var printout = Instantiate(printoutPrefab, socket);
-            printout.Bind(ticket, sampleId, result, machineName, equipmentTag);
+            printout.Bind(ticket, sampleId, result, machineName, recordTag);
             printout.AttachTo(socket);
+
+            slipProps[ticket] = printout;
             return printout;
+        }
+
+        /// <summary>
+        /// Build the paper from the facts about a slip, rather than from a <see cref="TestResult"/>
+        /// nobody but the host has.
+        /// <para>
+        /// The client's counterpart to <see cref="SpawnPrintout"/>, and the pair are deliberately
+        /// <i>not</i> merged the way the two vial spawners are: a host mints the ticket as a side
+        /// effect of printing, and a client is told one. Sharing a signature would mean one of the two
+        /// passing a ticket it does not have yet.
+        /// </para>
+        /// The numbers are not passed because the slip does not carry them — it names its run with
+        /// <paramref name="resultKey"/> and looks the values up through <see cref="SlipFeed.Numbers"/>
+        /// if anybody actually reads it. See <see cref="SlipPlacement"/>.
+        /// </summary>
+        public PrintoutProp SpawnSlip(int ticket, int resultKey, SampleId sample, bool isBlank,
+                                      string machineName, string recordTag, Transform socket,
+                                      bool interactable = true)
+        {
+            if (ticket == 0 || printoutPrefab == null || socket == null) return null;
+            if (slipProps.TryGetValue(ticket, out var existing) && existing != null) return existing;
+
+            var slip = Instantiate(printoutPrefab, socket);
+            slip.Bind(ticket, resultKey, sample, isBlank, machineName, recordTag);
+            slip.AttachTo(socket, interactable);
+
+            slipProps[ticket] = slip;
+            return slip;
+        }
+
+        /// <summary>
+        /// Destroy the paper for a slip that no longer exists, and forget it.
+        /// <para>
+        /// A slip is <b>consumed by filing</b>, which a bottle never is — so unlike
+        /// <see cref="RetireVial"/> this is called on a host as well as on a client, from the two
+        /// places the paper stops existing: the desk when it is filed, and the tray when a second run
+        /// prints over it. One retire path means the prop table cannot be left holding a destroyed
+        /// object on the side that has a <c>LabState</c>.
+        /// </para>
+        /// Anyone holding it is left holding nothing: Unity's null semantics make
+        /// <c>PlayerInteractor.Carried</c> read as empty the moment the object goes.
+        /// </summary>
+        public void RetireSlip(int ticket)
+        {
+            if (!slipProps.TryGetValue(ticket, out var prop)) return;
+            slipProps.Remove(ticket);
+            if (prop == null) return;
+
+            // Destroy is a play-mode call and logs an error in the Editor's edit mode, where the
+            // reconciler is exercised by tests.
+            if (Application.isPlaying) Destroy(prop.gameObject);
+            else DestroyImmediate(prop.gameObject);
         }
 
         // -- Solvent bottles --------------------------------------------------------------------------

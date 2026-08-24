@@ -12,8 +12,10 @@ namespace Residue.Net.Views
     /// test is making that call against this number. A client working from a stale balance would be
     /// making the §4.5 decision blind.
     /// </para>
-    /// Running totals (<c>TotalEarned</c>, <c>TotalLost</c>) stay host-side. They are end-of-run
-    /// summary material, not something a player acts on mid-shift.
+    /// The running totals used to stay host-side, on the grounds that they were end-of-run summary
+    /// material. They still are — and the end-of-run summary now has to be drawable at a joined desk
+    /// (#39), because a run ends for everybody at once and a player who worked the whole contract
+    /// should not be handed a shorter ending than the person who happened to press Host.
     /// </summary>
     public struct EconomyView : INetworkSerializable, IEquatable<EconomyView>
     {
@@ -53,6 +55,18 @@ namespace Residue.Net.Views
 
         public float ReferenceStandardUnitCost;
 
+        /// <summary>
+        /// What the outpost opened with, and what has moved through the books since. Only the closing
+        /// screen reads these — <see cref="Money"/> is the number every mid-shift decision is made
+        /// against — but they are what turn "£4,120" into "£4,120 from £10,000", which is the
+        /// difference between a balance and a verdict on the run.
+        /// </summary>
+        public float StartingMoney;
+
+        public float TotalEarned;
+
+        public float TotalLost;
+
         /// <summary>Project host state for replication. The only place the economy projection is written.</summary>
         public static EconomyView From(Economy economy, EconomyTuning tuning = null)
         {
@@ -67,7 +81,10 @@ namespace Residue.Net.Views
                 ReferenceStandards = economy.ReferenceStandards,
                 CalibrationCost = balance.CalibrationCost,
                 SolventUnitCost = balance.SolventUnitCost,
-                ReferenceStandardUnitCost = balance.ReferenceStandardCost
+                ReferenceStandardUnitCost = balance.ReferenceStandardCost,
+                StartingMoney = balance.StartingMoney,
+                TotalEarned = economy.TotalEarned,
+                TotalLost = economy.TotalLost
             };
         }
 
@@ -80,6 +97,9 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref CalibrationCost);
             serializer.SerializeValue(ref SolventUnitCost);
             serializer.SerializeValue(ref ReferenceStandardUnitCost);
+            serializer.SerializeValue(ref StartingMoney);
+            serializer.SerializeValue(ref TotalEarned);
+            serializer.SerializeValue(ref TotalLost);
         }
 
         public bool Equals(EconomyView other) =>
@@ -89,7 +109,10 @@ namespace Residue.Net.Views
             ReferenceStandards == other.ReferenceStandards &&
             CalibrationCost.Equals(other.CalibrationCost) &&
             SolventUnitCost.Equals(other.SolventUnitCost) &&
-            ReferenceStandardUnitCost.Equals(other.ReferenceStandardUnitCost);
+            ReferenceStandardUnitCost.Equals(other.ReferenceStandardUnitCost) &&
+            StartingMoney.Equals(other.StartingMoney) &&
+            TotalEarned.Equals(other.TotalEarned) &&
+            TotalLost.Equals(other.TotalLost);
 
         public override bool Equals(object obj) => obj is EconomyView o && Equals(o);
 

@@ -80,5 +80,29 @@ namespace Residue.Gameplay.World
                     return null;
             }
         }
+
+        /// <summary>
+        /// Where a results slip in this location belongs, and whether the player may target it there.
+        /// <para>
+        /// Separate from <see cref="For"/> rather than folded into it, because the two disagree about
+        /// <see cref="SampleLocationKind.InMachine"/> and the disagreement is the design. An
+        /// instrument holds a vial in its sample path, where the station mediates access (§5.4) and
+        /// nobody reaches through the door; it holds paper in an output tray, which is exactly the
+        /// thing you walk up and take. One method answering both would have to pick, and either answer
+        /// is wrong for one of them.
+        /// </para>
+        /// Everywhere else they agree and this delegates, because a slip racked in a rack hole is
+        /// competing for the same shelf space a bottle is (§5.5) and had better use the same slot.
+        /// </summary>
+        public static Transform ForSlip(SampleLocation location, Transform existing, out bool reachable)
+        {
+            if (location.Kind == SampleLocationKind.InMachine)
+            {
+                reachable = true;
+                return LabRuntime.TrayFor(location.ContainerId);
+            }
+
+            return For(location, existing, out reachable);
+        }
     }
 }

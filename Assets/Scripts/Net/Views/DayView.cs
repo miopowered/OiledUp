@@ -1,5 +1,6 @@
 using System;
 using Residue.Gameplay.Simulation;
+using Unity.Collections;
 using Unity.Netcode;
 
 namespace Residue.Net.Views
@@ -30,6 +31,21 @@ namespace Residue.Net.Views
         /// <summary>Contract finished, or the money ran out (§1.2).</summary>
         public bool IsRunOver;
 
+        /// <summary>
+        /// Which contract this is and how many days it runs, for the line the end-of-run screen
+        /// closes on — "CONTRACT COMPLETE — Shakedown, 20 days."
+        /// <para>
+        /// They ride on the clock because the clock is the only thing that already knows which day of
+        /// what this is, and because a run ends for everyone at once: a joined player who worked the
+        /// whole contract and is told only their balance got half an ending. Two fields that never
+        /// change during a run, on a variable that is written anyway.
+        /// </para>
+        /// </summary>
+        public FixedString32Bytes ContractName;
+
+        /// <summary>Contracted days. See <see cref="ContractName"/>.</summary>
+        public int ContractLength;
+
         /// <summary>Project host state for replication. The only place the day projection is written.</summary>
         public static DayView From(LabState lab) => lab == null
             ? default
@@ -39,7 +55,9 @@ namespace Residue.Net.Views
                 SecondsRemaining = lab.DaySecondsRemaining,
                 DayInProgress = lab.DayInProgress,
                 ShiftOver = lab.ShiftOver,
-                IsRunOver = lab.IsRunOver
+                IsRunOver = lab.IsRunOver,
+                ContractName = ViewText.Fixed32(lab.Plan != null ? lab.Plan.DisplayName : null),
+                ContractLength = lab.Plan != null ? lab.Plan.Length : 0
             };
 
         public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
@@ -49,6 +67,8 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref DayInProgress);
             serializer.SerializeValue(ref ShiftOver);
             serializer.SerializeValue(ref IsRunOver);
+            serializer.SerializeValue(ref ContractName);
+            serializer.SerializeValue(ref ContractLength);
         }
 
         public bool Equals(DayView other) =>
@@ -56,7 +76,9 @@ namespace Residue.Net.Views
             SecondsRemaining.Equals(other.SecondsRemaining) &&
             DayInProgress == other.DayInProgress &&
             ShiftOver == other.ShiftOver &&
-            IsRunOver == other.IsRunOver;
+            IsRunOver == other.IsRunOver &&
+            ContractName.Equals(other.ContractName) &&
+            ContractLength == other.ContractLength;
 
         public override bool Equals(object obj) => obj is DayView o && Equals(o);
 

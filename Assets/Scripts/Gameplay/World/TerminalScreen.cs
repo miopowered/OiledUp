@@ -15,7 +15,10 @@ namespace Residue.Gameplay.World
     /// This screen is where the game actually happens. Everything it shows comes from
     /// <see cref="SampleState"/> — measured values, thresholds, the player's own notes — and
     /// nothing from ground truth. The fault name appears exactly once: in the end-of-day report,
-    /// after the consequence has already landed (§4.3).
+    /// after the consequence has already landed (§4.3). That report is drawn at every desk in the
+    /// lab, host or joined — everybody worked the shift — which is a decision about <i>when</i> a
+    /// diagnosis may cross rather than about what it contains; see
+    /// <c>Residue.Net.Views.ReportView</c>.
     /// </para>
     /// <para>
     /// There is one of these <i>per player</i>, not one per terminal. Everything it shows is read
@@ -33,7 +36,22 @@ namespace Residue.Gameplay.World
 
         private SampleId selected = SampleId.None;
         private RootCauseDef pendingCause;
-        private IReadOnlyList<ConsequenceReport> reportOverlay;
+
+        /// <summary>
+        /// An END DAY sent from this desk has been accepted and the day has not closed here yet.
+        /// <para>
+        /// Only a client ever sees this as anything but a single frame. The host ends the day inside
+        /// the call, but a joined desk learns about it from a replicated clock that arrives on its own
+        /// schedule — so the flag is what keeps the screen refreshing until the answer lands, instead
+        /// of leaving the player looking at a queue that has already closed.
+        /// </para>
+        /// </summary>
+        private bool endingTheDay;
+
+        /// <summary>What the last rebuild drew, so <see cref="Update"/> knows whether to keep it fresh.</summary>
+        private bool summaryOnScreen;
+
+        private float nextRefresh;
 
         public bool IsOpen { get; private set; }
 
@@ -79,7 +97,27 @@ namespace Residue.Gameplay.World
         private void Update()
         {
             if (!IsOpen) return;
-            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) Close();
+
+            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+            {
+                Close();
+                return;
+            }
+
+            // Keep the day summary current, and nothing else. On a joined desk the day can close and
+            // re-open without this player touching anything — somebody else pressed the button — and
+            // the reports arrive as a list write whose ordering against the reply to END DAY is not
+            // promised, so the first draw after a press can legitimately be a frame early.
+            //
+            // Only while the summary is up, or on its way. Rebuilding the rest of the terminal on a
+            // timer would clear the text field under a player halfway through typing a tank tag, and
+            // §5.1's booking-in step is the last thing that should be fighting a refresh.
+            if (!RecordFeed.IsReplicated) return;
+            if (!summaryOnScreen && !endingTheDay) return;
+
+            if (Time.unscaledTime < nextRefresh) return;
+            nextRefresh = Time.unscaledTime + 0.25f;
+            Rebuild();
         }
 
         public void Open()
@@ -98,7 +136,8 @@ namespace Residue.Gameplay.World
         public void Close()
         {
             IsOpen = false;
-            reportOverlay = null;
+            endingTheDay = false;
+            summaryOnScreen = false;
 
             var root = Root;
             if (root != null) root.style.display = DisplayStyle.None;
@@ -164,16 +203,18 @@ namespace Residue.Gameplay.World
 
             root.Add(Header(records));
 
-            var host = HostLab;
-            if (reportOverlay != null && host != null) { root.Add(ReportPanel(host)); return; }
-
-            // The one thing a joined desk cannot draw. A ConsequenceReport names the fault (§4.3) and
-            // nothing puts one on the wire, so the summary stays where the lab is rather than being
-            // half-reconstructed here.
-            if (!records.IsLive)
+            // Between shifts the desk shows the day's reckoning and nothing else, on every screen in
+            // the lab at once. Derived from the clock rather than remembered from whoever pressed END
+            // DAY: the day is closed for everybody, so a player who was across the room when it
+            // happened walks up to the same summary, and it drops from every desk the moment somebody
+            // starts the next day. Guarded on the day counter so the very first open — before any day
+            // has begun — is still the queue.
+            summaryOnScreen = records.Day > 0 && !records.DayInProgress;
+            if (summaryOnScreen)
             {
-                root.Add(Tiny("Joined terminal — the end-of-day report is drawn on the host's screen.",
-                    SignalPalette.Dim));
+                endingTheDay = false;
+                root.Add(ReportPanel(records));
+                return;
             }
 
             var body = Row();
@@ -254,15 +295,11 @@ namespace Residue.Gameplay.World
             money.style.marginRight = 16;
             right.Add(money);
 
-            var endDay = new Button(() => Ask(LabCommand.EndDay(), null, () =>
-            {
-                // The reports are read back off the lab rather than returned by the command: a
-                // client has no LabState to read them from and the day summary is replicated
-                // separately, so making the command carry them would put a list of consequences on
-                // the wire for the one process that already has it.
-                var host = HostLab;
-                reportOverlay = host != null ? host.LastReports : null;
-            }))
+            // The reports are read back off the snapshot rather than returned by the command. A
+            // client has no LabState to read them from and the summary is replicated separately, so
+            // making the command carry them would put a list of consequences on the wire twice — and
+            // the day closing is a fact about the lab, not about whoever pressed the button.
+            var endDay = new Button(() => Ask(LabCommand.EndDay(), null, () => endingTheDay = true))
             { text = "END DAY" };
             StyleButton(endDay, SignalPalette.Accent);
             right.Add(endDay);
@@ -937,21 +974,41 @@ namespace Residue.Gameplay.World
             return button;
         }
 
-        private VisualElement ReportPanel(LabState lab)
+        /// <summary>
+        /// The day's reckoning (§4.3, §5.4): what each settled verdict cost or paid, and — once — what
+        /// was actually wrong.
+        /// <para>
+        /// Drawn from <see cref="LabRecords"/> rather than from <see cref="LabState"/>, so it is the
+        /// same panel at every desk in the lab. A host fills those reports straight off its own lab;
+        /// a client fills them from rows the host published, which is a decision about timing rather
+        /// than about content — see <c>Residue.Net.Views.ReportView</c> for the rule and why the fault
+        /// name is safe here and nowhere else.
+        /// </para>
+        /// </summary>
+        private VisualElement ReportPanel(LabRecords records)
         {
+            var reports = records.Reports ?? new List<ConsequenceReport>();
+
             var panel = Panel();
             panel.style.flexGrow = 1f;
             panel.style.marginTop = 12;
-            panel.Add(SectionTitle($"END OF DAY {lab.Day}"));
+            panel.Add(SectionTitle($"END OF DAY {records.Day}"));
 
             var scroll = new ScrollView();
             scroll.style.flexGrow = 1f;
 
-            if (reportOverlay.Count == 0)
-                scroll.Add(Dim("Nothing came due today."));
+            if (reports.Count == 0)
+            {
+                // "Nothing came due" and "the host has not said yet" are different facts, and only one
+                // of them is reachable at a desk that simulates. §5.4 delays every consequence, so a
+                // day with no reports is ordinary and must not read as a broken screen.
+                scroll.Add(Dim(RecordFeed.IsReplicated && endingTheDay
+                    ? "Closing the day…"
+                    : "Nothing came due today."));
+            }
 
             float net = 0f;
-            foreach (var report in reportOverlay)
+            foreach (var report in reports)
             {
                 net += report.MoneyDelta;
 
@@ -987,7 +1044,7 @@ namespace Residue.Gameplay.World
             panel.Add(scroll);
 
             var total = new Label($"NET  {(net >= 0 ? "+" : "−")}£{Mathf.Abs(net):N0}    " +
-                                  $"BALANCE £{lab.Economy.Money:N0}");
+                                  $"BALANCE £{records.Money:N0}");
             total.style.fontSize = 15;
             total.style.marginTop = 8;
             total.style.color = new StyleColor(net >= 0 ? SignalPalette.Normal : SignalPalette.Critical);
@@ -995,13 +1052,15 @@ namespace Residue.Gameplay.World
 
             // §1.2: a run ends on contract completion or financial failure. Without this the
             // fixed-length contract never resolves and the game has no win or loss state at all.
-            if (lab.IsRunOver)
+            if (records.IsRunOver)
             {
-                bool bankrupt = lab.Economy.IsBankrupt;
+                // Economy.IsBankrupt is exactly this comparison, so it derives from the balance every
+                // desk already has rather than needing a flag of its own on the wire.
+                bool bankrupt = records.Money < 0f;
 
                 var verdict = new Label(bankrupt
                     ? "OUTPOST CLOSED — the account is overdrawn."
-                    : $"CONTRACT COMPLETE — {lab.Plan.DisplayName}, {lab.Plan.Length} days.");
+                    : $"CONTRACT COMPLETE — {records.ContractName}, {records.ContractLength} days.");
                 verdict.style.fontSize = 17;
                 verdict.style.unityFontStyleAndWeight = FontStyle.Bold;
                 verdict.style.marginTop = 10;
@@ -1010,9 +1069,9 @@ namespace Residue.Gameplay.World
                 panel.Add(verdict);
 
                 var summary = new Label(
-                    $"Closing balance £{lab.Economy.Money:N0} from £{lab.Tuning.StartingMoney:N0} · " +
-                    $"reputation {lab.Economy.Reputation:F0} · " +
-                    $"earned £{lab.Economy.TotalEarned:N0}, lost £{lab.Economy.TotalLost:N0}");
+                    $"Closing balance £{records.Money:N0} from £{records.StartingMoney:N0} · " +
+                    $"reputation {records.Reputation:F0} · " +
+                    $"earned £{records.TotalEarned:N0}, lost £{records.TotalLost:N0}");
                 summary.style.fontSize = 13;
                 summary.style.marginTop = 4;
                 summary.style.whiteSpace = WhiteSpace.Normal;
@@ -1022,7 +1081,7 @@ namespace Residue.Gameplay.World
                 return panel;
             }
 
-            var next = new Button(() => Ask(LabCommand.StartNextDay(), null, () => reportOverlay = null))
+            var next = new Button(() => Ask(LabCommand.StartNextDay(), null))
             { text = "START NEXT DAY" };
             StyleButton(next, SignalPalette.Accent);
             next.style.marginTop = 8;

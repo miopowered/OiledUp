@@ -57,7 +57,15 @@ namespace Residue.Gameplay.World
         //
         // Registered as a container too, because MachineInstance.TryLoad records the vial at
         // InMachine(instanceId, 0) and a client has to be able to turn that back into a socket.
-        private void OnEnable() => LabRuntime.RegisterFixture(machineInstanceId, transform, this);
+        //
+        // And as a tray, separately, because a slip printed here is recorded at InMachine(instanceId)
+        // as well — the same location naming two different sockets on one instrument. See
+        // LabRuntime.RegisterTray for why they cannot share a table.
+        private void OnEnable()
+        {
+            LabRuntime.RegisterFixture(machineInstanceId, transform, this);
+            LabRuntime.RegisterTray(machineInstanceId, printoutSocket != null ? printoutSocket : transform);
+        }
 
         private void OnDisable() => LabRuntime.ForgetFixture(machineInstanceId, transform);
 
@@ -357,8 +365,12 @@ namespace Residue.Gameplay.World
             // leave the old numbers filable by a stale request long after the slip was gone.
             if (currentPrintout != null && currentPrintout.transform.parent == tray)
             {
+                // Through the runtime rather than Destroy, so the ticket, the prop table and the
+                // object all stop existing together. A raw Destroy left the host's slip table holding
+                // a reference to a torn-down prop, which is exactly the stale entry the client's
+                // reconciler would trip over if the two sides ever shared this path.
                 lab.Lab.Slips.Discard(currentPrintout.Ticket);
-                Destroy(currentPrintout.gameObject);
+                lab.RetireSlip(currentPrintout.Ticket);
             }
 
             currentPrintout = lab.SpawnPrintout(
@@ -366,7 +378,10 @@ namespace Residue.Gameplay.World
                 result,
                 completed.InstanceId,
                 completed.Def != null ? completed.Def.DisplayName : "Instrument",
-                sample != null ? sample.EquipmentTag : result.IsReference ? "CERT STANDARD" : "BLANK",
+                // RecordTag, not EquipmentTag: an instrument prints the run under the name the lab
+                // gave it. Printing the paper label would let a slip held at the desk resolve a
+                // mis-log for free, which is the §5.1 walk this is supposed to cost.
+                sample != null ? sample.RecordTag : result.IsReference ? "CERT STANDARD" : "BLANK",
                 tray);
         }
 

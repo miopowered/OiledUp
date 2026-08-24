@@ -22,6 +22,12 @@ namespace Residue.Gameplay.Simulation
     /// the wrong numbers. A ticket keeps the paper and its values together for exactly as long as the
     /// paper exists.
     /// </para>
+    /// <para>
+    /// <b>It is also where a slip physically is.</b> §3.2 keeps the paper a local prop, so the prop
+    /// on any one machine proves nothing about the lab; the tray, the rack hole or the pair of hands
+    /// it is in is a fact the host owns, and this is the only record of it. That is what lets a slip
+    /// reach a client's room at all — see <c>Residue.Net.Views.SlipView</c>.
+    /// </para>
     /// Ground truth never touches this: a <see cref="TestResult"/> is measured values only, already
     /// polluted by residue, noise and drift, which is the whole reason it is the thing that gets
     /// filed.
@@ -34,7 +40,7 @@ namespace Residue.Gameplay.Simulation
         /// <summary>Nobody is carrying it. <c>ulong.MaxValue</c> matches <c>PlayerSession.NoClientId</c>.</summary>
         private const ulong NoHolder = ulong.MaxValue;
 
-        /// <summary>One printed slip: where it came from, and what it says.</summary>
+        /// <summary>One printed slip: where it came from, what it says, and where it is now.</summary>
         public readonly struct Slip
         {
             public readonly int Ticket;
@@ -47,12 +53,17 @@ namespace Residue.Gameplay.Simulation
 
             public readonly TestResult Result;
 
-            public Slip(int ticket, SampleId sample, string machineInstanceId, TestResult result)
+            /// <summary>Where the paper physically is — see <see cref="ResultSlips"/>.</summary>
+            public readonly SampleLocation Location;
+
+            public Slip(int ticket, SampleId sample, string machineInstanceId, TestResult result,
+                        SampleLocation location)
             {
                 Ticket = ticket;
                 Sample = sample;
                 MachineInstanceId = machineInstanceId;
                 Result = result;
+                Location = location;
             }
         }
 
@@ -61,7 +72,17 @@ namespace Residue.Gameplay.Simulation
             public SampleId Sample;
             public string MachineInstanceId;
             public TestResult Result;
-            public ulong HeldBy = NoHolder;
+
+            /// <summary>
+            /// Where the paper is. Replaces the plain holder id this used to keep: with slips
+            /// replicating, "not held by anyone" stopped being enough — a client has to be told which
+            /// tray or which rack hole to draw it in, and a second field beside the holder would be
+            /// two records of one fact.
+            /// </summary>
+            public SampleLocation Location;
+
+            public ulong HeldBy =>
+                Location.Kind == SampleLocationKind.Held ? Location.HolderClientId : NoHolder;
         }
 
         private readonly Dictionary<int, Entry> open = new();
@@ -83,7 +104,8 @@ namespace Residue.Gameplay.Simulation
             {
                 Sample = sample,
                 MachineInstanceId = machineInstanceId,
-                Result = result
+                Result = result,
+                Location = InTray(machineInstanceId)
             };
             return ticket;
         }
@@ -92,13 +114,47 @@ namespace Residue.Gameplay.Simulation
         {
             if (open.TryGetValue(ticket, out var entry))
             {
-                slip = new Slip(ticket, entry.Sample, entry.MachineInstanceId, entry.Result);
+                slip = new Slip(ticket, entry.Sample, entry.MachineInstanceId, entry.Result,
+                                entry.Location);
                 return true;
             }
 
             slip = default;
             return false;
         }
+
+        /// <summary>
+        /// Every slip that exists, for whoever has to draw them — the publisher, in practice.
+        /// <para>
+        /// Fills a caller's list rather than returning one: this is read four times a second on the
+        /// host, and an iterator per publish is a garbage collection nobody asked for. Ordered by
+        /// ticket so a positional list on the wire does not churn when the dictionary reuses a slot
+        /// freed by a filed slip.
+        /// </para>
+        /// </summary>
+        public void CollectInto(List<Slip> into)
+        {
+            if (into == null) return;
+            into.Clear();
+
+            foreach (var pair in open)
+            {
+                var entry = pair.Value;
+                into.Add(new Slip(pair.Key, entry.Sample, entry.MachineInstanceId, entry.Result,
+                                  entry.Location));
+            }
+
+            into.Sort((a, b) => a.Ticket.CompareTo(b.Ticket));
+        }
+
+        /// <summary>
+        /// The tray a slip was printed into. <see cref="SampleLocationKind.InMachine"/> is shared with
+        /// a vial loaded in the sample path, and the two are told apart by what is standing in the
+        /// location rather than by the kind — a slip resolves to the instrument's output tray and is
+        /// takeable there, where a vial resolves to its holder and is not (§5.4).
+        /// </summary>
+        private static SampleLocation InTray(string machineInstanceId) =>
+            SampleLocation.InMachine(machineInstanceId, 0);
 
         /// <summary>
         /// Take a slip into a player's hands. Refuses one somebody else is already carrying — with
@@ -122,7 +178,7 @@ namespace Residue.Gameplay.Simulation
                 return false;
             }
 
-            entry.HeldBy = clientId;
+            entry.Location = SampleLocation.Held(clientId);
             return true;
         }
 
@@ -130,18 +186,32 @@ namespace Residue.Gameplay.Simulation
         public bool IsHeldBy(int ticket, ulong clientId) =>
             open.TryGetValue(ticket, out var entry) && entry.HeldBy == clientId;
 
-        /// <summary>Put it down again — on a rack, or back where it was when its holder dropped out.</summary>
-        public void Release(int ticket)
+        /// <summary>
+        /// Put it down somewhere in particular — a rack hole the player chose. The location is
+        /// recorded rather than merely cleared because it is what every other process draws the paper
+        /// from; a slip that only knew it was <i>not</i> in anyone's hands would snap back to the tray
+        /// on every screen but the one that put it down.
+        /// </summary>
+        public void Release(int ticket, SampleLocation where)
         {
-            if (open.TryGetValue(ticket, out var entry)) entry.HeldBy = NoHolder;
+            if (open.TryGetValue(ticket, out var entry)) entry.Location = where;
         }
 
-        /// <summary>Release everything one connection was carrying. For a disconnect.</summary>
+        /// <summary>
+        /// Release everything one connection was carrying. For a disconnect.
+        /// <para>
+        /// Not a courtesy, for the reason <c>PlayerSession</c> gives about vials: a slip left marked
+        /// held by a connection that no longer exists is a result nobody can ever file. Going back to
+        /// the tray also puts the paper somewhere that still exists — a dropped player's carry socket
+        /// is destroyed with their avatar, taking the prop parented to it.
+        /// </para>
+        /// </summary>
         public void ReleaseAllHeldBy(ulong clientId)
         {
-            foreach (var entry in open.Values)
+            foreach (var pair in open)
             {
-                if (entry.HeldBy == clientId) entry.HeldBy = NoHolder;
+                var entry = pair.Value;
+                if (entry.HeldBy == clientId) entry.Location = InTray(entry.MachineInstanceId);
             }
         }
 

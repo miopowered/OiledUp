@@ -456,6 +456,334 @@ namespace Residue.Tests.EditMode
             Object.DestroyImmediate(runtime.gameObject);
         }
 
+        // -- Results slips ------------------------------------------------------------------------
+        //
+        // Paper is the third kind of local prop (§3.2), and the one with a life cycle the other two do
+        // not have: a slip is CONSUMED by filing. A vial is spent and a bottle is refilled; only this
+        // one stops existing because somebody used it correctly, which makes the destroy case the
+        // mechanic rather than tidy-up.
+
+        private const string TrayMachineId = "karl_fischer-0";
+
+        /// <summary>
+        /// Promise: a slip is in one place, and a client that is told where puts it there.
+        /// <para>
+        /// This is what makes filing a result possible from a joined seat at all. A printout is
+        /// spawned host-side when a run finishes and nothing carried it, so a client's instrument
+        /// trays were empty: they could read the numbers off a machine's screen and never walk them to
+        /// the desk. Two players run instruments in parallel and only one could do the paperwork.
+        /// </para>
+        /// So this asserts the same three moves the vial reconciler makes — appeared, moved, stopped
+        /// appearing — with the third one carrying more weight here, because "stopped appearing" is
+        /// how a filed slip is retired and a stale one is a second chance to file the same numbers.
+        /// </summary>
+        [Test]
+        public void AClientsSlips_FollowThePaperItIsToldAbout()
+        {
+            var runtime = NewRuntime();
+            var tray = NewTray(TrayMachineId);
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
+
+            var reconciler = new SlipReconciler(runtime);
+            const int ticket = 3;
+
+            // Printed.
+            reconciler.Reconcile(new[] { InTray(ticket, resultKey: 11) });
+            var prop = runtime.SlipPropFor(ticket);
+            Assert.IsNotNull(prop, "A slip the host printed has no paper in the room.");
+            Assert.AreSame(tray.Tray, prop.transform.parent,
+                "The slip is not in the instrument's output tray, so there is nothing to walk to the desk.");
+            Assert.AreEqual(11, prop.ResultKey,
+                "The slip has to name its run, or a client can never read what is on it.");
+            Assert.AreEqual("WERK-1 QUENCH 1", prop.RecordTag,
+                "The tag printed on the paper is what tells the player which record this belongs to.");
+            Assert.IsTrue(prop.GetComponent<Collider>().enabled,
+                "A slip in a tray is exactly the thing you walk up and take; §5.4's mediated access " +
+                "is about the vial inside the instrument, not the paper it hands out.");
+
+            // Racked. Paper competes with bottles for the same shelf space (§5.5), so it has to take
+            // the hole rather than float over it.
+            reconciler.Reconcile(new[] { OnRack(ticket, resultKey: 11, slot: 2) });
+            Assert.AreSame(rack.Slot(2), runtime.SlipPropFor(ticket).transform.parent,
+                "Somebody set the slip down and this client is still showing it in the tray.");
+            Assert.AreEqual(3, rack.FreeSlots,
+                "A slip in a rack has to occupy the hole, or a vial will be stacked on top of it.");
+
+            // Filed. The host discards the ticket, so the row stops appearing rather than tombstoning.
+            reconciler.Reconcile(System.Array.Empty<SlipPlacement>());
+            Assert.IsNull(runtime.SlipPropFor(ticket),
+                "A filed slip is still lying in the rack. Picking it up would offer to file numbers " +
+                "that are already on the record.");
+
+            Retire(tray);
+            Retire(rack);
+            Object.DestroyImmediate(runtime.gameObject);
+        }
+
+        /// <summary>
+        /// Promise: a slip you picked up is in your hand, and stays there.
+        /// <para>
+        /// The same bug <see cref="ABottleYouPickedUp_EndsUpInYourHandAndStaysThere"/> guards, written
+        /// out again for paper because it is the kind of mistake a new reconciler reintroduces by
+        /// copying the shape and not the reasoning. Between pressing the key and the host's next
+        /// publish the replicated location still names the tray, so the reconciler parents the slip
+        /// back into the instrument; an early return for a locally-held prop then declines to undo it,
+        /// and the paper sits in the tray for ever while the interactor is certain it is in your hand.
+        /// </para>
+        /// So this asserts the <i>sequence</i>: tray, then held. A test that only published the held
+        /// location would pass against the broken version.
+        /// </summary>
+        [Test]
+        public void ASlipYouPickedUp_EndsUpInYourHandAndStaysThere()
+        {
+            var runtime = NewRuntime();
+            var tray = NewTray(TrayMachineId);
+
+            var hands = new GameObject("CarrySocket").transform;
+            var previous = VialFeed.Hands;
+            VialFeed.Hands = new StubHands { LocalClientId = 3UL, Socket = hands };
+
+            try
+            {
+                var reconciler = new SlipReconciler(runtime);
+                const int ticket = 5;
+
+                reconciler.Reconcile(new[] { InTray(ticket, resultKey: 2) });
+                Assert.AreSame(tray.Tray, runtime.SlipPropFor(ticket).transform.parent);
+
+                reconciler.Reconcile(new[] { Held(ticket, resultKey: 2, holder: 3UL) });
+                Assert.AreSame(hands, runtime.SlipPropFor(ticket).transform.parent,
+                    "The slip is still in the tray. The interactor thinks it is in your hand, the host " +
+                    "agrees, and the only thing that disagrees is the object you can see.");
+
+                // Idempotent: it runs every frame the paper stays there.
+                reconciler.Reconcile(new[] { Held(ticket, resultKey: 2, holder: 3UL) });
+                Assert.AreSame(hands, runtime.SlipPropFor(ticket).transform.parent);
+            }
+            finally
+            {
+                VialFeed.Hands = previous;
+                Object.DestroyImmediate(hands.gameObject);
+                Retire(tray);
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Promise: when two players reach for the same tray, the paper ends up in exactly one pair of
+        /// hands.
+        /// <para>
+        /// A slip is consumed by filing, so a duplicate is not a cosmetic glitch — it is two players
+        /// each believing they can put the same numbers on a record. The host arbitrates
+        /// (<c>ResultSlips.TryClaim</c> refuses a slip somebody else already holds) and the loser's
+        /// callback never runs, so their <c>Carried</c> stays empty. What this checks is the other
+        /// half: that the loser's <i>room</i> agrees, showing the paper in the winner's hands rather
+        /// than leaving a second copy in the tray.
+        /// </para>
+        /// The colliders are the specific assertion. There is one prop per ticket, so a slip that
+        /// stayed targetable in somebody else's hands would let the loser press it again and be
+        /// refused a second time — a request the game invited them to make, which hard rule 3 forbids.
+        /// </summary>
+        [Test]
+        public void ASlipSomebodyElseTook_MovesToTheirHandsAndCannotBeTargeted()
+        {
+            var runtime = NewRuntime();
+            var tray = NewTray(TrayMachineId);
+
+            var mine = new GameObject("MyHands").transform;
+            var theirs = new GameObject("TheirHands").transform;
+
+            var previous = VialFeed.Hands;
+            VialFeed.Hands = new TwoPlayerHands { LocalClientId = 1UL, Mine = mine, Theirs = theirs };
+
+            try
+            {
+                var reconciler = new SlipReconciler(runtime);
+                const int ticket = 8;
+
+                reconciler.Reconcile(new[] { InTray(ticket, resultKey: 4) });
+                var prop = runtime.SlipPropFor(ticket);
+                Assert.AreSame(tray.Tray, prop.transform.parent);
+
+                // The host answered the other player first.
+                reconciler.Reconcile(new[] { Held(ticket, resultKey: 4, holder: 2UL) });
+
+                Assert.AreSame(theirs, runtime.SlipPropFor(ticket).transform.parent,
+                    "The tray still shows a slip the host has already given to somebody else. Two " +
+                    "players are looking at one piece of paper.");
+                Assert.AreEqual(1, runtime.SlipProps.Count,
+                    "There must be exactly one prop per ticket; a second is a second chance to file " +
+                    "the same numbers.");
+
+                foreach (var collider in prop.GetComponentsInChildren<Collider>(true))
+                {
+                    Assert.IsFalse(collider.enabled,
+                        "You can still aim at paper in another player's hands, so the game will keep " +
+                        "offering a pick-up the host is bound to refuse.");
+                }
+            }
+            finally
+            {
+                VialFeed.Hands = previous;
+                Object.DestroyImmediate(mine.gameObject);
+                Object.DestroyImmediate(theirs.gameObject);
+                Retire(tray);
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Promise: an instrument hands its paper out and keeps its vial.
+        /// <para>
+        /// Both are recorded at <c>InMachine(instanceId)</c>, and the two must resolve differently or
+        /// one of them is wrong: a vial is inside the sample path where the station mediates access
+        /// (§5.4), and a slip is in an output tray, which is exactly the thing you walk up and take.
+        /// A single socket lookup serving both would either park printouts inside the titrator or make
+        /// the tray unreachable — and an unreachable tray is a result nobody can file.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ASlipInATray_IsTakeableWhereAVialInTheSameInstrumentIsNot()
+        {
+            var tray = NewTray(TrayMachineId);
+            var sampleSocket = NewContainer(TrayMachineId + "-path", 1);
+
+            try
+            {
+                var inMachine = SampleLocation.InMachine(TrayMachineId, 0);
+
+                var paper = PropSockets.ForSlip(inMachine, null, out bool paperReachable);
+                Assert.AreSame(tray.Tray, paper, "A printout belongs in the output tray, not the sample path.");
+                Assert.IsTrue(paperReachable, "A tray you cannot reach into is a result nobody can file.");
+
+                var glass = SampleLocation.InMachine(TrayMachineId + "-path", 0);
+                PropSockets.For(glass, null, out bool glassReachable);
+                Assert.IsFalse(glassReachable,
+                    "§5.4: a vial comes back out by pressing the instrument, not by grabbing through " +
+                    "its door.");
+            }
+            finally
+            {
+                Retire(tray);
+                Retire(sampleSocket);
+            }
+        }
+
+        /// <summary>
+        /// Promise: a client's slip shows the host's numbers, and holds none of its own.
+        /// <para>
+        /// §3.1 forbids a client computing a test result, and a client permitted to <i>post</i> one
+        /// would be the same hole with an extra step — so the paper names its run by
+        /// <c>ResultView.Key</c> and looks the values up in the one list every published reading
+        /// already travels in. That is also what stops the slip in a player's hand and the panel at
+        /// the desk quoting different figures for the same run: there is one wire path, not two.
+        /// </para>
+        /// The lookup is asked once and then remembered, because a finished run's numbers never
+        /// change and the prompt on the paper is drawn every frame you are looking at it.
+        /// </summary>
+        [Test]
+        public void AReplicatedSlip_NamesItsReadingRatherThanCarryingOne()
+        {
+            var go = new GameObject("Printout_UnderTest");
+            var slip = go.AddComponent<PrintoutProp>();
+
+            var previous = SlipFeed.Numbers;
+            int asked = 0;
+
+            try
+            {
+                slip.Bind(ticket: 2, resultKey: 42, sampleId: new SampleId(7), isBlank: false,
+                          machineName: "Karl Fischer", recordTag: "WERK-1 QUENCH 1");
+
+                SlipFeed.Numbers = null;
+                Assert.IsNull(slip.Result,
+                    "A replicated slip must not carry values of its own; with nothing to look them up " +
+                    "in, it knows nothing.");
+
+                SlipFeed.Numbers = (int key, out TestResult result) =>
+                {
+                    asked++;
+                    result = key == 42 ? new TestResult { Values = { ["water_ppm"] = 310f } } : null;
+                    return result != null;
+                };
+
+                Assert.IsNotNull(slip.Result);
+                Assert.AreEqual(310f, slip.Result.Values["water_ppm"], 1e-3f,
+                    "The numbers on the paper have to be the host's own, fetched by key.");
+                Assert.AreEqual(1, asked,
+                    "A finished run's numbers never change, and the prompt is drawn every frame the " +
+                    "player is looking at the slip.");
+            }
+            finally
+            {
+                SlipFeed.Numbers = previous;
+                Object.DestroyImmediate(go);
+            }
+        }
+
+        private sealed class TwoPlayerHands : IPlayerHands
+        {
+            public ulong LocalClientId { get; set; }
+            public Transform Mine { get; set; }
+            public Transform Theirs { get; set; }
+
+            public Transform CarrySocket(ulong clientId) => clientId == LocalClientId ? Mine : Theirs;
+        }
+
+        private static SlipPlacement InTray(int ticket, int resultKey) =>
+            new(ticket, resultKey, new SampleId(7), false, "Karl Fischer", "WERK-1 QUENCH 1",
+                SampleLocation.InMachine(TrayMachineId, 0));
+
+        private static SlipPlacement OnRack(int ticket, int resultKey, int slot) =>
+            new(ticket, resultKey, new SampleId(7), false, "Karl Fischer", "WERK-1 QUENCH 1",
+                SampleLocation.OnSurface(SampleRack.DefaultRackId, slot));
+
+        private static SlipPlacement Held(int ticket, int resultKey, ulong holder) =>
+            new(ticket, resultKey, new SampleId(7), false, "Karl Fischer", "WERK-1 QUENCH 1",
+                SampleLocation.Held(holder));
+
+        /// <summary>
+        /// An instrument, as far as paper is concerned: a fixture and the output tray under it,
+        /// registered the way <c>MachineStation.OnEnable</c> would be. The tray is a child socket
+        /// rather than the station itself — that is what the scene builder wires, and it is what makes
+        /// the two <c>InMachine(instanceId)</c> lookups resolve to different places.
+        /// </summary>
+        private readonly struct TrayFixture
+        {
+            public readonly string InstanceId;
+            public readonly Transform Station;
+            public readonly Transform Tray;
+
+            public TrayFixture(string instanceId, Transform station, Transform tray)
+            {
+                InstanceId = instanceId;
+                Station = station;
+                Tray = tray;
+            }
+        }
+
+        private static TrayFixture NewTray(string instanceId)
+        {
+            var go = new GameObject($"Machine_{instanceId}");
+            var tray = new GameObject("PrintoutSocket").transform;
+            tray.SetParent(go.transform, false);
+
+            LabRuntime.RegisterFixture(instanceId, go.transform);
+            LabRuntime.RegisterTray(instanceId, tray);
+            return new TrayFixture(instanceId, go.transform, tray);
+        }
+
+        /// <summary>
+        /// Withdraw and destroy an instrument. The fixture and tray tables are static and outlive a
+        /// test, so a registration left behind would be a destroyed transform the next test resolved
+        /// an id to.
+        /// </summary>
+        private static void Retire(TrayFixture machine)
+        {
+            LabRuntime.ForgetFixture(machine.InstanceId, machine.Station);
+            Object.DestroyImmediate(machine.Station.gameObject);
+        }
+
         private static BottlePlacement BottleAtStation(string id, int charges, int slot) =>
             new(id, charges, SolventStore.BottleCapacity,
                 SampleLocation.OnSurface(WashStation.FixtureId, slot));
@@ -465,8 +793,8 @@ namespace Residue.Tests.EditMode
                 SampleLocation.OnSurface(SampleRack.DefaultRackId, slot));
 
         /// <summary>
-        /// A <see cref="LabRuntime"/> with the two prop prefabs and no lab — the shape a client is in.
-        /// <c>Awake</c> does not run in edit mode, so nothing here has to be undone.
+        /// A <see cref="LabRuntime"/> with the three prop prefabs and no lab — the shape a client is
+        /// in. <c>Awake</c> does not run in edit mode, so nothing here has to be undone.
         /// </summary>
         private static LabRuntime NewRuntime()
         {
@@ -483,9 +811,19 @@ namespace Residue.Tests.EditMode
             bottleGo.transform.SetParent(go.transform, false);
             bottleGo.SetActive(false);
 
+            var slipGo = new GameObject("PrintoutPrefab");
+            slipGo.transform.SetParent(go.transform, false);
+            slipGo.SetActive(false);
+
+            // Paper is the one prop whose colliders a test asserts on: whether you may aim at a slip
+            // is how "somebody else has it" is expressed in the room. Carryable.AttachTo switches them,
+            // so there has to be one to switch.
+            slipGo.AddComponent<BoxCollider>();
+
             var so = new UnityEditor.SerializedObject(runtime);
             so.FindProperty("vialPrefab").objectReferenceValue = vialGo.AddComponent<VialProp>();
             so.FindProperty("bottlePrefab").objectReferenceValue = bottleGo.AddComponent<SolventBottle>();
+            so.FindProperty("printoutPrefab").objectReferenceValue = slipGo.AddComponent<PrintoutProp>();
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return runtime;

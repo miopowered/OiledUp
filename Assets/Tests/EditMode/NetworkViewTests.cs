@@ -214,6 +214,61 @@ namespace Residue.Tests.EditMode
             }
         }
 
+        /// <summary>
+        /// Promise: a printout names its run the way the record does, not the way the bottle does.
+        /// <para>
+        /// Paper is not a screen, so <see cref="TheLabelReachesTheBottleAndNoScreen"/> does not cover
+        /// it — but a slip is carried to the terminal and read beside the record it is about to be
+        /// filed against, which makes it the one prop that can hold both halves of the §5.1
+        /// comparison at once. It reports what the lab believes; walking back to the rack is still
+        /// the only way to learn what the courier wrote.
+        /// </para>
+        /// <para>
+        /// A name sweep cannot catch this one. The field is called <c>RecordTag</c> either way; only
+        /// the value it is projected from decides whether the tell survives.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void APrintoutSaysTheTypedTag_NotTheOneOnTheBottle()
+        {
+            var rng = new Rng(20260824);
+            var profile = content.Profiles["quench_oil_cold"];
+            var generator = new SampleGenerator(content.AllFaults);
+
+            const string label = "WERK-1 QUENCH 1";
+            const string typed = "WERK-9 BATH Z";
+
+            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng),
+                typed).State;
+
+            Assert.IsTrue(sample.IsMislogged, "Test needs a genuine mismatch to be about anything.");
+
+            var paperwork = new ResultSlips();
+            int ticket = paperwork.Issue(sample.Id, "karl_fischer-1",
+                new TestResult { MachineId = "karl_fischer" });
+
+            var printed = new List<ResultSlips.Slip>();
+            paperwork.CollectInto(printed);
+
+            // Projected exactly as LabNetwork.GatherSlips does it, so this fails if that line is ever
+            // "corrected" back to the label.
+            var view = SlipView.From(printed.Single(s => s.Ticket == ticket), resultKey: 0,
+                "Karl Fischer", sample.RecordTag);
+
+            Assert.AreEqual(typed, view.RecordTag.ToString(),
+                "A slip has to name a record, or a client cannot tell which one to file it against.");
+
+            foreach (string member in MemberNames(typeof(SlipView)))
+            {
+                object value = typeof(SlipView).GetField(member)?.GetValue(view)
+                               ?? typeof(SlipView).GetProperty(member)?.GetValue(view);
+
+                Assert.AreNotEqual(sample.EquipmentTag, value?.ToString(),
+                    $"SlipView.{member} carries the paper label to the desk. A player holding this " +
+                    "beside the terminal gets their own mis-log corrected for free (§5.1).");
+            }
+        }
+
         [Test]
         public void Views_NameNothingThatOnlyTheHostMayKnow()
         {
@@ -269,6 +324,12 @@ namespace Residue.Tests.EditMode
                 }
             }
 
+            // ReportView is scanned like everything else and passes on its own terms: it is the one
+            // view allowed to carry a diagnosis, and it carries it inside a finished sentence rather
+            // than in a field named after the answer. That is not a loophole — a member called
+            // FaultName would be a second copy of something already said, sitting there for the next
+            // screen to draw out of context. What actually keeps that type honest is timing, which a
+            // name sweep cannot see: see NoReplicatedReport_NamesAFaultOnASampleStillInPlay.
             Assert.IsEmpty(offenders,
                 "These view members are named after state a client must never hold:\n  " +
                 string.Join("\n  ", offenders));
@@ -446,6 +507,243 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
+        // 2b. The end-of-day report (§4.3, §5.4). The only view allowed to name a fault, and the
+        //     only one whose safety is a question of when rather than what.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// <b>The promise: no report reaches a client naming the fault on a sample still in play.</b>
+        /// <para>
+        /// A <c>ConsequenceReport</c> is past truth — §4.3 names the fault only after the verdict has
+        /// been scored and the money has moved — which is why it may cross at all. But MONITOR on a
+        /// developing fault re-sends the unit next cycle carrying the <i>same</i> fault further along
+        /// (§5.4), so for that one outcome the report is the answer to a question the game has not
+        /// finished asking. It does not look like a leak: the report is genuinely about the past right
+        /// up until the oil comes back through the door.
+        /// </para>
+        /// <para>
+        /// So this plays a whole contract filing MONITOR on every developing fault — the verdict that
+        /// requeues — and after each morning's arrivals asks, of every row published the night
+        /// before: did this unit come back? If it did, the sentence a client was shown must name
+        /// neither its fault nor its root cause. Scoped to the report's own unit rather than to every
+        /// fault in the lab, because two unrelated tanks sharing a fault is a coincidence, not a
+        /// disclosure.
+        /// </para>
+        /// It also pins the second half of the rule in passing: nothing is on the wire while a shift
+        /// is open, so a client cannot be holding last night's summary on the morning the re-draw
+        /// arrives.
+        /// </summary>
+        [Test]
+        public void NoReplicatedReport_NamesAFaultOnASampleStillInPlay()
+        {
+            var lab = new LabState(catalog, PlanOf(20, samplesPerDay: 10, healthyChance: 0.05f), 20260824);
+
+            var published = new List<ReportView>();
+            var lastNight = new List<ReportView>();
+            int settled = 0;
+            int returned = 0;
+
+            while (lab.BeginDay())
+            {
+                foreach (var row in lastNight)
+                {
+                    if (!CameBackFor(lab, row.Sample)) continue;
+
+                    var fault = lab.Samples.PeekTruthForDebugging(new SampleId(row.Sample))?.PrimaryFault;
+                    if (fault == null) continue;
+
+                    returned++;
+                    string said = row.Headline.ToString();
+
+                    StringAssert.DoesNotContain(fault.DisplayName, said,
+                        $"The report on S{row.Sample:D5} named '{fault.DisplayName}', and this morning " +
+                        "that unit was re-drawn carrying the same fault further along (§5.4). Every " +
+                        "client is holding the diagnosis for a sample the game is about to ask them " +
+                        "about.");
+
+                    if (fault.RootCause != null)
+                    {
+                        StringAssert.DoesNotContain(fault.RootCause.DisplayName, said,
+                            $"The report on S{row.Sample:D5} named the root cause of a unit that has " +
+                            "just come back. §5.4 pays a bonus for that answer; this hands it over.");
+                    }
+                }
+
+                ReportView.Gather(lab, published);
+                Assert.IsEmpty(published,
+                    "A shift is open and last night's reckoning is still on the wire. It has to come " +
+                    "off every desk before the re-drawn samples arrive, or the window closes on the " +
+                    "player's memory rather than on the list.");
+
+                foreach (var sample in lab.OpenSamples())
+                    lab.Samples.FileVerdict(sample.Id, VerdictFor(lab, sample), null, lab.Day);
+
+                lab.EndDay();
+
+                ReportView.Gather(lab, published);
+                settled += published.Count;
+
+                lastNight.Clear();
+                lastNight.AddRange(published);
+            }
+
+            Assert.Greater(settled, 0, "No verdict ever settled, so this test compared nothing.");
+            Assert.Greater(returned, 0,
+                "Nothing was ever re-drawn, so the case this test exists for never happened. MONITOR " +
+                "on a developing fault must requeue the unit (§5.4).");
+        }
+
+        /// <summary>
+        /// Promise: the withholding is structural, not a fact about the copy.
+        /// <para>
+        /// §5.4's own headline for a requeued unit names nothing, which is the right call and is why
+        /// the rule above holds today. But that is one sentence in one branch of a switch, and a leak
+        /// that arrives by rewording is exactly the shape this whole file exists to catch. So the
+        /// projection is handed a report whose headline <i>does</i> name the fault and is required to
+        /// refuse it — while still saying which tank, because a card that names nothing at all is not
+        /// a report.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ReportView_OnAUnitComingBackNextCycle_WithholdsTheDiagnosis()
+        {
+            var report = new ConsequenceReport
+            {
+                Sample = new SampleId(11),
+                RecordTag = "WERK-1 QUENCH 1",
+                Outcome = ConsequenceOutcome.MonitorDeveloping,
+                MoneyDelta = 120f,
+                FaultName = "Oxidation and varnish",
+                ActualRootCause = "Bath run above setpoint",
+                RequeueSample = true,
+                Headline = "WERK-1 QUENCH 1: kept in service. Oxidation and varnish, from bath run " +
+                           "above setpoint. Another draw is scheduled."
+            };
+
+            string withheld = ReportView.From(report, 4).Headline.ToString();
+
+            StringAssert.DoesNotContain(report.FaultName, withheld,
+                "A unit kept in service comes back tomorrow with the same fault. Naming it on the " +
+                "card is naming tomorrow's answer.");
+            StringAssert.DoesNotContain(report.ActualRootCause, withheld,
+                "Same argument for the root cause, which §5.4 pays a bonus for diagnosing.");
+            StringAssert.Contains(report.RecordTag, withheld,
+                "The card still has to say which tank it is about, or the player cannot tell which " +
+                "of their calls this was.");
+
+            // And a unit that is finished with crosses whole: the reveal is the point of §4.3, and
+            // withholding it from a record nothing can ask about again would just be a worse screen.
+            report.RequeueSample = false;
+            StringAssert.Contains(report.FaultName, ReportView.From(report, 4).Headline.ToString(),
+                "A settled record's diagnosis is spent. Every player who worked the shift may read it.");
+        }
+
+        /// <summary>
+        /// Promise: the other way a sample gets back into play cannot reach a report.
+        /// <para>
+        /// §5.3 lets a record filed on a drifting instrument be re-opened, which puts it back to
+        /// <see cref="SampleStage.Measured"/> to be re-tested and re-filed. If a reported record could
+        /// take that route, a client would be holding the diagnosis for a call it is about to be asked
+        /// to make again — the same leak as the re-draw, arriving by a different door.
+        /// </para>
+        /// <para>
+        /// It cannot, and this is the reason: a report exists only for a sample
+        /// <c>SampleRegistry.ResolveDue</c> got <c>SampleLifecycle.TryResolve</c> to accept, and
+        /// <see cref="SampleStage.Resolved"/> has no outgoing edge. <c>ReportView</c> depends on that
+        /// and does not own it, so it is asserted here rather than remembered: adding an edge out of
+        /// Resolved needs the report projection to grow a rule for it in the same change.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AReportedRecord_CanNeverComeBackIntoPlay()
+        {
+            Assert.IsEmpty(SampleLifecycle.LegalNext(SampleStage.Resolved),
+                "Resolved has stopped being terminal. Every published report names a sample that " +
+                "reached it, so a way out of Resolved is a way for a sample to come back with its " +
+                "answer already on every client's screen (see ReportView's timing rule).");
+
+            foreach (SampleStage stage in Enum.GetValues(typeof(SampleStage)))
+            {
+                Assert.IsFalse(SampleLifecycle.IsLegal(SampleStage.Resolved, stage),
+                    $"Resolved -> {stage} is now legal. See above.");
+            }
+        }
+
+        /// <summary>
+        /// Promise: the day's reckoning is on the wire between shifts and at no other time.
+        /// <para>
+        /// <c>LabState.LastReports</c> outlives the day it describes — the host's screen retires it
+        /// behind START NEXT DAY, and a client has no list of its own to drop. Left on the wire it
+        /// would still be readable on the morning the re-drawn samples walk in, which is the window
+        /// the whole rule is about. <c>LabState.BeginDay</c> raises <c>DayInProgress</c> before it
+        /// generates those re-draws, so withdrawing on that flag closes the window strictly early.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void Reports_AreOnTheWireOnlyBetweenShifts()
+        {
+            var lab = new LabState(catalog, PlanOf(3, healthyChance: 1f), 77);
+            var rows = new List<ReportView>();
+
+            ReportView.Gather(lab, rows);
+            Assert.IsEmpty(rows, "Nothing has happened yet, so there is nothing to publish.");
+
+            lab.BeginDay();
+            foreach (var sample in lab.OpenSamples())
+                lab.Samples.FileVerdict(sample.Id, Verdict.Normal, null, lab.Day);
+
+            ReportView.Gather(lab, rows);
+            Assert.IsEmpty(rows, "A shift is open. Verdicts filed today settle later (§5.4).");
+
+            lab.EndDay();
+            lab.BeginDay();
+
+            ReportView.Gather(lab, rows);
+            Assert.IsEmpty(rows, "Day two is open; nothing may be published mid-shift.");
+
+            // A healthy unit has no failure clock, so its verdict settles on the next day's paperwork.
+            lab.EndDay();
+            ReportView.Gather(lab, rows);
+            Assert.IsNotEmpty(rows,
+                "Day one's verdicts came due and no client can see them. Everybody worked the shift; " +
+                "everybody sees the reckoning.");
+
+            Assert.IsTrue(lab.BeginDay(), "Test needs a third day to watch the summary come down.");
+            ReportView.Gather(lab, rows);
+            Assert.IsEmpty(rows,
+                "The next day has opened and last night's summary is still on every joined desk. " +
+                "BeginDay generates the re-draws immediately after this point.");
+        }
+
+        /// <summary>
+        /// MONITOR on the units that requeue, and the right call on everything else.
+        /// <para>
+        /// The test is about MONITOR-on-developing, which is the one outcome that re-sends a unit
+        /// (§5.4). Calling everything MONITOR would be simpler and useless: MONITOR on an imminent
+        /// fault costs the fault's full repair bill, ten of those a day bankrupts the outpost inside
+        /// a week, and the run would end before the first re-draw — with §1.2 closing the contract
+        /// early and the test passing having compared nothing.
+        /// </para>
+        /// </summary>
+        private static Verdict VerdictFor(LabState lab, SampleState sample)
+        {
+            var truth = lab.Samples.PeekTruthForDebugging(sample.Id);
+            if (truth == null || truth.IsHealthy) return Verdict.Normal;
+
+            return truth.WorstSeverity == FaultSeverity.Developing ? Verdict.Monitor : Verdict.Critical;
+        }
+
+        /// <summary>True when a sample re-drawn from <paramref name="original"/> is in the lab (§5.4).</summary>
+        private static bool CameBackFor(LabState lab, int original)
+        {
+            foreach (var sample in lab.Samples.All)
+            {
+                if (sample.ResampleOf.Value == original) return true;
+            }
+            return false;
+        }
+
+        // -----------------------------------------------------------------------------------------
         // 3. And it has to survive the wire, or none of the above is worth anything.
         // -----------------------------------------------------------------------------------------
 
@@ -504,9 +802,24 @@ namespace Residue.Tests.EditMode
                 SecondsRemaining = 88.5f,
                 DayInProgress = true,
                 ShiftOver = false,
-                IsRunOver = false
+                IsRunOver = false,
+                ContractName = "Shakedown",
+                ContractLength = 20
             };
             Assert.AreEqual(day, RoundTrip(day));
+
+            var report = new ReportView
+            {
+                Sample = 41,
+                Day = 9,
+                Outcome = ConsequenceOutcome.MissedFault,
+                MoneyDelta = -8_400f,
+                ReputationDelta = -12.5f,
+                RootCauseCorrect = false,
+                Headline = "WERK-4 BATH C: PASSED AS FIT TO QUENCH. Oxidation and varnish. " +
+                           "Named in the incident file."
+            };
+            Assert.AreEqual(report, RoundTrip(report));
         }
 
         /// <summary>
@@ -623,6 +936,26 @@ namespace Residue.Tests.EditMode
             Assert.IsTrue(SampleLifecycle.TryLog(generated.State, typedTag, out var log), log);
             Assert.IsTrue(SampleLifecycle.TryPrep(generated.State, out var prep), prep);
             return generated;
+        }
+
+        /// <summary>A flat contract of <paramref name="days"/> identical days.</summary>
+        private static ContractPlan PlanOf(int days, int samplesPerDay = 4, float healthyChance = 0.3f)
+        {
+            var plan = new ContractPlan { Id = "test", DisplayName = "Test", Days = new List<DayPlan>() };
+
+            for (int i = 0; i < days; i++)
+            {
+                plan.Days.Add(new DayPlan
+                {
+                    SampleCount = samplesPerDay,
+                    ProfileIds = new[] { "quench_oil_cold" },
+                    BorderlineCount = 0,
+                    HealthyChance = healthyChance,
+                    DaySeconds = 600f
+                });
+            }
+
+            return plan;
         }
 
         private static ContractPlan OneDayPlan() => new()

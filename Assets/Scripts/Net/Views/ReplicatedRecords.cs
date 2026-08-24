@@ -3,6 +3,7 @@ using Residue.Chemistry;
 using Residue.Data;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
+using Unity.Netcode;
 
 namespace Residue.Net.Views
 {
@@ -26,6 +27,13 @@ namespace Residue.Net.Views
     /// the bottle and no screen (see <see cref="VialView"/>), and no location, because bottles are not
     /// this list's business.
     /// </para>
+    /// <para>
+    /// The one exception to "nothing here computes" is what it refuses to rebuild. A
+    /// <see cref="ConsequenceReport"/> comes back with its outcome, its money and its sentence and
+    /// with both of its diagnosis fields left null — see <see cref="ReadReports"/>. That is the same
+    /// argument the rest of the file makes, pointed the other way: the host already decided what a
+    /// client may know, and rebuilding more of the shape than arrived would be this file inventing it.
+    /// </para>
     /// </summary>
     public sealed class ReplicatedRecords : IRecordFeed
     {
@@ -42,6 +50,18 @@ namespace Residue.Net.Views
         private ContentCatalog blendedFrom;
 
         public ReplicatedRecords(LabNetwork network) => this.network = network;
+
+        /// <summary>
+        /// The day's reckoning, as published rows (§4.3, §5.4).
+        /// <para>
+        /// Installed rather than read off <see cref="LabNetwork"/> like the other lists, and the
+        /// difference is deliberate: this is the one list whose contents are only safe because of
+        /// <i>when</i> they are published, so it is handed to the reader by the writer, at the moment
+        /// the writer decides it exists. Null until then, and a desk with no rows simply has no
+        /// summary to draw — which is the honest answer before the first day has ended.
+        /// </para>
+        /// </summary>
+        public NetworkList<ReportView> Reports { get; set; }
 
         private static ContentCatalog Catalog =>
             LabRuntime.Instance != null ? LabRuntime.Instance.Catalog : null;
@@ -98,19 +118,66 @@ namespace Residue.Net.Views
             {
                 Day = day.Day,
                 IsRunOver = day.IsRunOver,
-                IsLive = false,
+                DayInProgress = day.DayInProgress,
+                ContractName = day.ContractName.ToString(),
+                ContractLength = day.ContractLength,
                 Money = economy.Money,
                 Reputation = economy.Reputation,
                 SolventUnits = economy.SolventUnits,
                 ReferenceStandards = economy.ReferenceStandards,
+                StartingMoney = economy.StartingMoney,
+                TotalEarned = economy.TotalEarned,
+                TotalLost = economy.TotalLost,
                 SolventUnitCost = economy.SolventUnitCost,
                 ReferenceStandardUnitCost = economy.ReferenceStandardUnitCost,
                 StandardId = Standard(catalog).Id,
                 Open = open,
                 InDoubt = inDoubt,
                 Instruments = instruments,
+                Reports = ReadReports(day.Day),
                 Causes = catalog.Causes
             };
+        }
+
+        /// <summary>
+        /// Rebuild the day's reckoning from the rows the host published (§4.3, §5.4).
+        /// <para>
+        /// Same rule as everything else in this file: it puts the numbers back into the shape the
+        /// screen already draws — a <see cref="ConsequenceReport"/> — rather than teaching the
+        /// terminal a second way to render a day end. What it cannot rebuild is what the host chose
+        /// not to send: <see cref="ConsequenceReport.FaultName"/> and
+        /// <see cref="ConsequenceReport.ActualRootCause"/> stay null on this side, because a client
+        /// gets whatever it may know already worded, in the headline, and a spare copy of the answer
+        /// in a field nothing draws is the shape a leak takes six months later.
+        /// </para>
+        /// Rows are dropped unless they belong to the day on the clock. The report list and
+        /// <see cref="DayView"/> are separate writes and can arrive a frame apart, and a summary
+        /// titled with one day and filled with another's is the one way a day end can lie.
+        /// </summary>
+        private List<ConsequenceReport> ReadReports(int day)
+        {
+            var reports = new List<ConsequenceReport>();
+
+            var rows = Reports;
+            if (rows == null) return reports;
+
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = rows[i];
+                if (row.Day != day) continue;
+
+                reports.Add(new ConsequenceReport
+                {
+                    Sample = row.SampleId,
+                    Outcome = row.Outcome,
+                    MoneyDelta = row.MoneyDelta,
+                    ReputationDelta = row.ReputationDelta,
+                    RootCauseCorrect = row.RootCauseCorrect,
+                    Headline = row.Headline.ToString()
+                });
+            }
+
+            return reports;
         }
 
         public bool TryLastReading(string machineInstanceId, out TestResult reading, out SampleId sample)

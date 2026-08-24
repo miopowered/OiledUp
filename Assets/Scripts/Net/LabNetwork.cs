@@ -55,6 +55,15 @@ namespace Residue.Net
         private NetworkList<SolventBottleView> solventBottles;
         private NetworkList<ResultView> results;
         private NetworkList<ReadingView> readings;
+        private NetworkList<SlipView> slips;
+
+        /// <summary>
+        /// The day's reckoning, and the only list here whose safety is a matter of <i>when</i> rather
+        /// than what. A settled verdict may name the fault — that is past truth, and §4.3 already
+        /// prints it on the host's own screen — but a unit the player kept in service comes back the
+        /// next morning with the same fault further along, so these rows exist only between shifts.
+        /// </summary>
+        private NetworkList<ReportView> reports;
 
         public DayView Day => day.Value;
         public EconomyView Economy => economy.Value;
@@ -92,6 +101,20 @@ namespace Residue.Net
         public NetworkList<VialView> Vials => vials;
 
         /// <summary>
+        /// The outstanding paperwork, as physical objects: one row per slip an instrument has printed
+        /// and nobody has filed.
+        /// <para>
+        /// The world's counterpart to <see cref="Results"/>, exactly as <see cref="Vials"/> is to
+        /// <see cref="Samples"/>. That list is a run as a screen reads it; this one is the piece of
+        /// paper, and it names its run by <see cref="ResultView.Key"/> rather than repeating the
+        /// numbers — see <see cref="SlipView"/>. Without it a client's instrument trays were empty and
+        /// filing a result was host-only, which is a hole in the middle of a co-op shift: two people
+        /// run instruments in parallel and only one could do the paperwork.
+        /// </para>
+        /// </summary>
+        public NetworkList<SlipView> Slips => slips;
+
+        /// <summary>
         /// The solvent bottles (§5.2, #14). Two rows, and they are what keep a client able to flush.
         /// <para>
         /// Flushing needed no vial, which is why it worked from a client on day one. Moving the
@@ -117,6 +140,8 @@ namespace Residue.Net
             solventBottles = new NetworkList<SolventBottleView>();
             results = new NetworkList<ResultView>();
             readings = new NetworkList<ReadingView>();
+            slips = new NetworkList<SlipView>();
+            reports = new NetworkList<ReportView>();
         }
 
         public override void OnNetworkSpawn()
@@ -149,7 +174,10 @@ namespace Residue.Net
                 // And the numbers. Until this lands the terminal has no evidence to draw and says so
                 // instead of offering a verdict, which is hard rule 3 refusing to ask for a call the
                 // player cannot check.
-                RecordFeed.Source = new ReplicatedRecords(this);
+                // Reports are handed to the reader rather than fetched from here: they are the one
+                // list that is safe only because of when it is published, so the writer passing it
+                // across keeps that dependency visible instead of implied.
+                RecordFeed.Source = new ReplicatedRecords(this) { Reports = reports };
                 return;
             }
 
@@ -591,14 +619,90 @@ namespace Residue.Net
             GatherBottles();
             Sync(solventBottles, bottleRows);
 
+            // Slips first: GatherResults consults the rows this builds, because a slip somebody
+            // carried away is a run that has to keep travelling after the instrument that printed it
+            // has moved on.
+            GatherSlips();
             GatherResults();
+
             Sync(results, resultRows);
             Sync(readings, readingRows);
+
+            // And last, because the key each slip names is only assigned during GatherResults.
+            KeySlips();
+            Sync(slips, slipRows);
+
+            // Between shifts only. ReportView.Gather publishes nothing while the day is in progress,
+            // which is what keeps a named fault off the wire once its unit is back in play — see the
+            // type doc, and NoReplicatedReport_NamesAFaultOnASampleStillInPlay.
+            ReportView.Gather(Lab, reportRows);
+            Sync(reports, reportRows);
+        }
+
+        // -- Results slips ---------------------------------------------------------------------------
+
+        private readonly List<ResultSlips.Slip> outstanding = new();
+        private readonly List<SlipView> slipRows = new();
+
+        /// <summary>
+        /// Rebuild the slip rows, minus the one field that is not knowable yet.
+        /// <para>
+        /// A slip names its run by <see cref="ResultView.Key"/>, and a key is handed out in
+        /// <see cref="GatherResults"/> — which has not run when this does, because it needs this list
+        /// to know which runs are still worth publishing. So the rows are built here and the keys are
+        /// filled in by <see cref="KeySlips"/> afterwards. Two passes over six rows, against a
+        /// circular dependency that would otherwise have to be broken by guessing.
+        /// </para>
+        /// </summary>
+        private void GatherSlips()
+        {
+            slipRows.Clear();
+
+            var paperwork = Lab.Slips;
+            if (paperwork == null) { outstanding.Clear(); return; }
+
+            paperwork.CollectInto(outstanding);
+
+            for (int i = 0; i < outstanding.Count; i++)
+            {
+                var slip = outstanding[i];
+
+                // The tag the lab filed it under, not the one on the bottle (§5.1). The paper label
+                // travels on VialView and reaches nothing but the bottle; a printout is a machine's
+                // output and names its run the way the record does.
+                string tag = slip.Sample.IsValid && Lab.Samples.TryGet(slip.Sample, out var sample)
+                    ? sample.RecordTag
+                    : slip.Result != null && slip.Result.IsReference ? "CERT STANDARD" : "BLANK";
+
+                var machine = Lab.FindMachine(slip.MachineInstanceId);
+                string machineName = machine?.Def != null ? machine.Def.DisplayName : "Instrument";
+
+                slipRows.Add(SlipView.From(slip, resultKey: 0, machineName, tag));
+            }
+        }
+
+        /// <summary>
+        /// Stamp each slip with the key its run was published under. Zero stays zero for a run that
+        /// did not travel, and a slip with no key is still takeable and still filable — it just
+        /// cannot be read at a glance until the next publish.
+        /// </summary>
+        private void KeySlips()
+        {
+            for (int i = 0; i < slipRows.Count && i < outstanding.Count; i++)
+            {
+                var result = outstanding[i].Result;
+                if (result == null || !rowOf.TryGetValue(result, out int at)) continue;
+
+                var row = slipRows[i];
+                row.ResultKey = resultRows[at].Key;
+                slipRows[i] = row;
+            }
         }
 
         // -- Solvent bottles -------------------------------------------------------------------------
 
         private readonly List<SolventBottleView> bottleRows = new();
+        private readonly List<ReportView> reportRows = new();
 
         /// <summary>
         /// Rebuild the bottle rows. Fixed length for the whole run — a bottle is refilled rather than
@@ -670,6 +774,23 @@ namespace Residue.Net
                 if (state.Stage == SampleStage.Resolved) continue;
 
                 foreach (var result in state.Results) Emit(result, state.Id, filed: true, null);
+            }
+
+            // Every outstanding slip's run, before the instruments' own.
+            //
+            // Without this, carrying a slip away and running the instrument again took its numbers off
+            // the wire: the run is not filed and it is no longer MachineInstance.LastResult, so nothing
+            // else here mentions it. The host would still show the values on the paper in its hand and
+            // a client's copy of the same paper would go blank — a slip you are holding and cannot
+            // read, which hard rule 3 forbids for something the player did nothing wrong to earn.
+            //
+            // Before the instruments rather than after, so a reference run's raw readout keeps a lower
+            // key than the certificate emitted from the same run. ReplicatedRecords picks a certificate
+            // by highest key, and reversing that would have it rebuild one from the readout instead.
+            for (int i = 0; i < outstanding.Count; i++)
+            {
+                var slip = outstanding[i];
+                Emit(slip.Result, slip.Sample, filed: false, slip.MachineInstanceId);
             }
 
             foreach (var machine in Lab.Machines)
