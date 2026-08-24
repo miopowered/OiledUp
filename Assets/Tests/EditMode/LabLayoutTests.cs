@@ -139,6 +139,21 @@ namespace Residue.Tests.EditMode
             CollectionAssert.AreEqual(left.OccupiedCells, replacement.OccupiedCells);
         }
 
+        [Test]
+        public void RoomServices_CannotMoveAfterAPlacementWasAccepted()
+        {
+            var layout = PoweredBench(2, 1);
+            Assert.IsTrue(layout.TryPlace(machine, "installed", Vector2Int.zero, false,
+                out _, out _));
+            Assert.IsTrue(layout.Remove("installed"));
+
+            Assert.IsFalse(layout.TrySetCell(Vector2Int.zero,
+                new LabLayout.Cell(LabCellKind.Unusable)));
+            Assert.IsTrue(layout.TryGetCell(Vector2Int.zero, out var cell));
+            Assert.AreEqual(LabCellKind.Bench, cell.Kind);
+            Assert.IsTrue(cell.HasPower);
+        }
+
         private static LabLayout PoweredBench(int width, int height)
         {
             var layout = new LabLayout(width, height);

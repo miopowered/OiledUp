@@ -59,7 +59,7 @@ namespace Residue.Gameplay.Simulation
         /// <summary>An accepted instrument footprint. Its occupied cells never change in place.</summary>
         public sealed class Placement
         {
-            private readonly List<Vector2Int> occupiedCells;
+            private readonly IReadOnlyList<Vector2Int> occupiedCells;
 
             public string InstanceId { get; }
             public MachineDef Definition { get; }
@@ -74,7 +74,7 @@ namespace Residue.Gameplay.Simulation
                 Definition = definition;
                 Anchor = anchor;
                 Rotated = rotated;
-                this.occupiedCells = occupiedCells;
+                this.occupiedCells = occupiedCells.AsReadOnly();
             }
         }
 
@@ -86,6 +86,7 @@ namespace Residue.Gameplay.Simulation
         private readonly Cell[,] cells;
         private readonly Dictionary<string, Placement> byInstanceId = new(StringComparer.Ordinal);
         private readonly Dictionary<Vector2Int, Placement> byCell = new();
+        private bool cellsSealed;
 
         public int Width { get; }
         public int Height { get; }
@@ -104,7 +105,9 @@ namespace Residue.Gameplay.Simulation
         /// <summary>Configure the immutable room beneath placements. Refuses out-of-bounds cells.</summary>
         public bool TrySetCell(Vector2Int position, Cell cell)
         {
-            if (!Contains(position) || byCell.ContainsKey(position)) return false;
+            // Room services are authored before instruments. Letting a caller move power or the
+            // hood afterwards could make an accepted placement illegal behind the host's back.
+            if (cellsSealed || !Contains(position)) return false;
             cells[position.x, position.y] = cell;
             return true;
         }
@@ -209,6 +212,7 @@ namespace Residue.Gameplay.Simulation
             placement = new Placement(instanceId, definition, anchor, rotated, occupied);
             byInstanceId.Add(instanceId, placement);
             foreach (var position in occupied) byCell.Add(position, placement);
+            cellsSealed = true;
 
             refusal = LabPlacementRefusal.None;
             return true;
