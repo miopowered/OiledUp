@@ -11,7 +11,9 @@
         "Unity.Services.Core.Environments",
         "Unity.Services.Authentication",
         "Unity.Services.Relay",
-        "Unity.Services.Lobbies"
+        "Unity.Services.Lobbies",
+        "Unity.Services.Vivox",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -1,6 +1,7 @@
 using Residue.Gameplay.World;
 using Residue.Net.Connect;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 
 namespace Residue.Net.UI
@@ -43,6 +44,14 @@ namespace Residue.Net.UI
         private Label identityLabel;
         private Label codeLabel;
         private Label cardLabel;
+        private Label voiceLabel;
+        private Label speakingLabel;
+        private VisualElement voiceVolumeRow;
+        private Slider voiceVolumeSlider;
+        private Label voiceVolumeLabel;
+        private bool gameplayActive;
+        private bool voiceControlsOpen;
+        private bool voiceControlsOwnCursor;
 
         private void OnEnable()
         {
@@ -54,12 +63,36 @@ namespace Residue.Net.UI
             Build();
 
             if (connection != null) connection.Changed += Refresh;
+            if (connection != null) connection.Voice.Changed += Refresh;
             Refresh();
         }
 
         private void OnDisable()
         {
             if (connection != null) connection.Changed -= Refresh;
+            if (connection != null) connection.Voice.Changed -= Refresh;
+            voiceControlsOpen = false;
+            voiceControlsOwnCursor = false;
+        }
+
+        private void Update()
+        {
+            if (!gameplayActive || Keyboard.current == null) return;
+
+            if (voiceControlsOpen)
+            {
+                if (Keyboard.current.vKey.wasPressedThisFrame ||
+                    Keyboard.current.escapeKey.wasPressedThisFrame)
+                    CloseVoiceControls();
+                return;
+            }
+
+            // Do not compete with the terminal or reference book for the process-global cursor.
+            // They already have it when it is unlocked; voice controls may only claim it from
+            // normal first-person play.
+            if (Keyboard.current.vKey.wasPressedThisFrame &&
+                UnityEngine.Cursor.lockState == CursorLockMode.Locked)
+                OpenVoiceControls();
         }
 
         // -- Build -------------------------------------------------------------------------------------
@@ -245,6 +278,50 @@ namespace Residue.Net.UI
             cardLabel.style.color = new StyleColor(ConnectPalette.Code);
             holder.Add(cardLabel);
 
+            voiceLabel = new Label();
+            voiceLabel.pickingMode = PickingMode.Ignore;
+            voiceLabel.style.fontSize = 10;
+            voiceLabel.style.marginTop = 4;
+            voiceLabel.style.color = new StyleColor(SignalPalette.Dim);
+            holder.Add(voiceLabel);
+
+            voiceVolumeRow = new VisualElement();
+            voiceVolumeRow.style.flexDirection = FlexDirection.Row;
+            voiceVolumeRow.style.alignItems = Align.Center;
+            voiceVolumeRow.style.marginTop = 4;
+
+            voiceVolumeLabel = new Label();
+            voiceVolumeLabel.pickingMode = PickingMode.Ignore;
+            voiceVolumeLabel.style.width = 106;
+            voiceVolumeLabel.style.fontSize = 9;
+            voiceVolumeLabel.style.color = new StyleColor(SignalPalette.Dim);
+            voiceVolumeRow.Add(voiceVolumeLabel);
+
+            voiceVolumeSlider = new Slider(0f, 100f);
+            voiceVolumeSlider.style.width = 110;
+            voiceVolumeSlider.focusable = false;
+            voiceVolumeSlider.tabIndex = -1;
+            voiceVolumeSlider.RegisterValueChangedCallback(evt =>
+            {
+                if (connection != null) connection.Voice.SetOutputVolume(evt.newValue / 100f);
+            });
+
+            // Runtime UI navigation maps the Player action map's A/D movement onto sliders. Voice
+            // volume has explicit -/+ shortcuts, so never let walking keys change it.
+            voiceVolumeSlider.RegisterCallback<NavigationMoveEvent>(evt =>
+            {
+                evt.StopImmediatePropagation();
+            }, TrickleDown.TrickleDown);
+            voiceVolumeRow.Add(voiceVolumeSlider);
+            holder.Add(voiceVolumeRow);
+
+            speakingLabel = new Label();
+            speakingLabel.pickingMode = PickingMode.Ignore;
+            speakingLabel.style.fontSize = 12;
+            speakingLabel.style.marginTop = 3;
+            speakingLabel.style.color = new StyleColor(ConnectPalette.Code);
+            holder.Add(speakingLabel);
+
             return holder;
         }
 
@@ -268,18 +345,33 @@ namespace Residue.Net.UI
             var state = connection.State;
             bool live = ConnectStates.IsLive(state);
             bool solo = state == ConnectState.SinglePlayer;
+            bool gameplay = live || solo;
 
             // The menu goes away once the decision is made; the join code does not.
-            panel.style.display = live || solo ? DisplayStyle.None : DisplayStyle.Flex;
-            root.pickingMode = live || solo ? PickingMode.Ignore : PickingMode.Position;
+            panel.style.display = gameplay ? DisplayStyle.None : DisplayStyle.Flex;
+            root.pickingMode = gameplay && !voiceControlsOpen
+                ? PickingMode.Ignore
+                : PickingMode.Position;
 
-            if (!solo && !live)
+            if (gameplay && !gameplayActive)
+            {
+                // The local player can spawn while the handshake is still on screen. Its OnEnable
+                // locks the cursor, then the connect screen correctly unlocks it again so the menu
+                // remains usable. Lock once more at the actual menu -> game transition or
+                // PlayerController deliberately ignores every mouse delta.
+                PlayerController.SetCursorLocked(true);
+            }
+            else if (!gameplay)
             {
                 // Fully qualified: UnityEngine.UIElements has a Cursor of its own, and this file
                 // has both namespaces open.
                 UnityEngine.Cursor.lockState = CursorLockMode.None;
                 UnityEngine.Cursor.visible = true;
             }
+            gameplayActive = gameplay;
+
+            if (!gameplay && voiceControlsOpen) CloseVoiceControls();
+            card.pickingMode = voiceControlsOpen ? PickingMode.Position : PickingMode.Ignore;
 
             statusLabel.text = connection.Status;
             statusLabel.style.color = new StyleColor(
@@ -306,12 +398,53 @@ namespace Residue.Net.UI
                 : "CONNECTED";
             card.style.display = live ? DisplayStyle.Flex : DisplayStyle.None;
 
+            var voice = connection.Voice;
+            voiceLabel.text = voice.IsConnected
+                ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
+                  $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
+                : voice.IsConnecting ? "VOICE CONNECTING…" : voice.UnavailableText;
+            voiceVolumeLabel.text = $"[-/+] VOL {Mathf.RoundToInt(voice.OutputVolume * 100f)}%  " +
+                                    (voiceControlsOpen ? "[V/ESC] CLOSE" : "[V] MOUSE");
+            voiceVolumeSlider.SetValueWithoutNotify(voice.OutputVolume * 100f);
+            voiceVolumeRow.style.display = voice.IsConnected
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
+            string speaking = voice.SpeakingText;
+            speakingLabel.text = speaking;
+            speakingLabel.style.display = string.IsNullOrEmpty(speaking)
+                ? DisplayStyle.None
+                : DisplayStyle.Flex;
+
             var identity = connection.Identity;
             identityLabel.text = identity != null && identity.IsReady
                 ? $"you are {identity.DisplayName} · {identity.StableId}"
                 : string.Empty;
 
             RefreshEnabled();
+        }
+
+        private void OpenVoiceControls()
+        {
+            voiceControlsOpen = true;
+            voiceControlsOwnCursor = UnityEngine.Cursor.lockState == CursorLockMode.Locked;
+            PlayerController.SetCursorLocked(false);
+            Refresh();
+        }
+
+        private void CloseVoiceControls()
+        {
+            bool shouldRelock = voiceControlsOwnCursor && gameplayActive && LocalControllerIsActive();
+            voiceControlsOpen = false;
+            voiceControlsOwnCursor = false;
+            if (shouldRelock) PlayerController.SetCursorLocked(true);
+            Refresh();
+        }
+
+        private static bool LocalControllerIsActive()
+        {
+            foreach (var controller in FindObjectsByType<PlayerController>())
+                if (controller.ManagesCursor && controller.isActiveAndEnabled) return true;
+            return false;
         }
 
         private void RefreshEnabled()
