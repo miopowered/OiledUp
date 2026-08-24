@@ -49,6 +49,7 @@ namespace Residue.Net.UI
         private VisualElement voiceVolumeRow;
         private Slider voiceVolumeSlider;
         private Label voiceVolumeLabel;
+        private int voiceVolumePointerId = -1;
         private bool gameplayActive;
         private bool voiceControlsOpen;
         private bool voiceControlsOwnCursor;
@@ -299,10 +300,27 @@ namespace Residue.Net.UI
 
             voiceVolumeSlider = new Slider(0f, 100f);
             voiceVolumeSlider.style.width = 110;
+            voiceVolumeSlider.focusable = false;
+            voiceVolumeSlider.tabIndex = -1;
             voiceVolumeSlider.RegisterValueChangedCallback(evt =>
             {
                 if (connection != null) connection.Voice.SetOutputVolume(evt.newValue / 100f);
             });
+
+            // Runtime UI navigation maps the Player action map's A/D movement onto sliders. Voice
+            // volume has explicit -/+ shortcuts, so never let walking keys change it. Pointer drag
+            // is handled here as well: the stock Slider manipulator did not capture the pointer in
+            // the persistent HUD document after it switched from menu to pick-through mode.
+            voiceVolumeSlider.RegisterCallback<NavigationMoveEvent>(evt =>
+            {
+                evt.StopImmediatePropagation();
+            }, TrickleDown.TrickleDown);
+            voiceVolumeSlider.RegisterCallback<PointerDownEvent>(BeginVoiceVolumeDrag,
+                TrickleDown.TrickleDown);
+            voiceVolumeSlider.RegisterCallback<PointerMoveEvent>(MoveVoiceVolumeDrag,
+                TrickleDown.TrickleDown);
+            voiceVolumeSlider.RegisterCallback<PointerUpEvent>(EndVoiceVolumeDrag,
+                TrickleDown.TrickleDown);
             voiceVolumeRow.Add(voiceVolumeSlider);
             holder.Add(voiceVolumeRow);
 
@@ -436,6 +454,45 @@ namespace Residue.Net.UI
             foreach (var controller in FindObjectsByType<PlayerController>())
                 if (controller.ManagesCursor && controller.isActiveAndEnabled) return true;
             return false;
+        }
+
+        private void BeginVoiceVolumeDrag(PointerDownEvent evt)
+        {
+            if (!voiceControlsOpen || evt.button != 0) return;
+
+            voiceVolumePointerId = evt.pointerId;
+            voiceVolumeSlider.CapturePointer(evt.pointerId);
+            SetVoiceVolumeFromPointer(evt.position.x);
+            evt.StopImmediatePropagation();
+        }
+
+        private void MoveVoiceVolumeDrag(PointerMoveEvent evt)
+        {
+            if (evt.pointerId != voiceVolumePointerId ||
+                !voiceVolumeSlider.HasPointerCapture(evt.pointerId)) return;
+
+            SetVoiceVolumeFromPointer(evt.position.x);
+            evt.StopImmediatePropagation();
+        }
+
+        private void EndVoiceVolumeDrag(PointerUpEvent evt)
+        {
+            if (evt.pointerId != voiceVolumePointerId) return;
+
+            SetVoiceVolumeFromPointer(evt.position.x);
+            if (voiceVolumeSlider.HasPointerCapture(evt.pointerId))
+                voiceVolumeSlider.ReleasePointer(evt.pointerId);
+            voiceVolumePointerId = -1;
+            evt.StopImmediatePropagation();
+        }
+
+        private void SetVoiceVolumeFromPointer(float worldX)
+        {
+            Rect bounds = voiceVolumeSlider.worldBound;
+            if (bounds.width <= 0f || connection == null) return;
+
+            float volume = Mathf.InverseLerp(bounds.xMin, bounds.xMax, worldX);
+            connection.Voice.SetOutputVolume(volume);
         }
 
         private void RefreshEnabled()

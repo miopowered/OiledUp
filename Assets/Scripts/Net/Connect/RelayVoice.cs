@@ -230,7 +230,7 @@ namespace Residue.Net.Connect
     /// <summary>Thread-safe jitter queue feeding one spatial AudioSource.</summary>
     internal sealed class RelayVoicePlayback : MonoBehaviour
     {
-        private const float VoiceGain = 1.5f;
+        private const float VoiceGain = 2f;
 
         // The audio callback commonly requests several network frames at once. Starting it with an
         // empty queue (or resuming after one missing packet) alternates real audio and silence,
