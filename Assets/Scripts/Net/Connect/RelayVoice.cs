@@ -29,6 +29,8 @@ namespace Residue.Net.Connect
         private int microphonePosition;
         private int pendingCount;
         private bool handlerRegistered;
+        private bool loggedSending;
+        private bool loggedReceiving;
 
         public bool IsReady { get; private set; }
         public string Error { get; private set; }
@@ -132,6 +134,12 @@ namespace Residue.Net.Connect
             ulong origin = manager.LocalClientId;
             if (manager.IsServer) SendFromServer(origin, bytes, except: origin);
             else SendTo(NetworkManager.ServerClientId, origin, bytes);
+
+            if (!loggedSending)
+            {
+                loggedSending = true;
+                Debug.Log("[RelayVoice] Microphone audio is streaming through Relay.");
+            }
         }
 
         private void OnMessage(ulong senderClientId, FastBufferReader reader)
@@ -146,6 +154,12 @@ namespace Residue.Net.Connect
             // original id the host wrote when it forwarded them.
             ulong origin = manager.IsServer ? senderClientId : claimedOrigin;
             if (origin == manager.LocalClientId) return;
+
+            if (!loggedReceiving)
+            {
+                loggedReceiving = true;
+                Debug.Log($"[RelayVoice] Receiving audio from player {origin}.");
+            }
 
             Push(origin, bytes);
 

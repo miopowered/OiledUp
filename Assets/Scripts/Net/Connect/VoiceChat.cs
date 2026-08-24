@@ -57,18 +57,16 @@ namespace Residue.Net.Connect
         public string UnavailableText => unavailableText;
 
         /// <summary>
-        /// Vivox 16 does not ship a Linux client, so Linux uses the existing Relay connection for
-        /// PCM voice instead. Other platforms retain Vivox and its service-side channel features.
+        /// Every peer in one session must use the same voice transport. Selecting this only on
+        /// Linux creates two silent islands when a Linux player joins a Windows Vivox player, so
+        /// the current branch uses Relay voice everywhere. Vivox can return once transport choice
+        /// is negotiated as session data rather than guessed independently by each client.
         /// </summary>
         private static bool UseRelayFallback
         {
             get
             {
-#if UNITY_EDITOR_LINUX || UNITY_STANDALONE_LINUX
                 return true;
-#else
-                return false;
-#endif
             }
         }
 
