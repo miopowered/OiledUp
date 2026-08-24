@@ -79,6 +79,8 @@ namespace Residue.Gameplay.World
         private float lastJumpPressedTime = -99f;
         private bool crouching;
         private bool wasGrounded = true;
+        private int lastKeyboardHorizontalDirection;
+        private int lastKeyboardVerticalDirection;
 
         // -- State other systems read ------------------------------------------------------------
 
@@ -307,6 +309,7 @@ namespace Residue.Gameplay.World
         private void ApplyMovement()
         {
             Vector2 input = moveAction != null ? moveAction.ReadValue<Vector2>() : Vector2.zero;
+            input = ResolveKeyboardDirectionChanges(input);
 
             IsSprinting = !crouching && IsGrounded && input.sqrMagnitude > 0.1f &&
                           sprintAction != null && sprintAction.IsPressed();
@@ -341,6 +344,67 @@ namespace Residue.Gameplay.World
             }
 
             controller.Move((planarVelocity + Vector3.up * verticalVelocity) * Time.deltaTime);
+        }
+
+        /// <summary>
+        /// A 2DVector composite resolves opposite keys to zero. During an A-to-D transition both
+        /// keys are commonly down for a frame (especially while Shift is held), so that default
+        /// produces a visible stop. Let the newly pressed key win the overlap; analog controls keep
+        /// the value produced by the Input System.
+        /// </summary>
+        private Vector2 ResolveKeyboardDirectionChanges(Vector2 input)
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard == null) return input;
+
+            bool left = keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed;
+            bool right = keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed;
+            bool leftPressed = keyboard.aKey.wasPressedThisFrame ||
+                               keyboard.leftArrowKey.wasPressedThisFrame;
+            bool rightPressed = keyboard.dKey.wasPressedThisFrame ||
+                                keyboard.rightArrowKey.wasPressedThisFrame;
+            input.x = ResolveOpposingKeys(input.x, left, right, leftPressed, rightPressed,
+                ref lastKeyboardHorizontalDirection);
+
+            bool backward = keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed;
+            bool forward = keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed;
+            bool backwardPressed = keyboard.sKey.wasPressedThisFrame ||
+                                   keyboard.downArrowKey.wasPressedThisFrame;
+            bool forwardPressed = keyboard.wKey.wasPressedThisFrame ||
+                                  keyboard.upArrowKey.wasPressedThisFrame;
+            input.y = ResolveOpposingKeys(input.y, backward, forward, backwardPressed,
+                forwardPressed, ref lastKeyboardVerticalDirection);
+
+            return input;
+        }
+
+        private static float ResolveOpposingKeys(float input, bool negative, bool positive,
+            bool negativePressed, bool positivePressed, ref int lastDirection)
+        {
+            if (!negative && !positive)
+            {
+                lastDirection = 0;
+                return input;
+            }
+
+            if (negative != positive)
+            {
+                lastDirection = positive ? 1 : -1;
+                return input;
+            }
+
+            // Both went down on the exact same input update: preserve the composite's neutral
+            // result. Otherwise remember the newly pressed key until the older key is released.
+            if (negativePressed && positivePressed)
+            {
+                lastDirection = 0;
+                return input;
+            }
+
+            if (negativePressed != positivePressed)
+                lastDirection = positivePressed ? 1 : -1;
+
+            return lastDirection != 0 ? lastDirection : input;
         }
     }
 }
