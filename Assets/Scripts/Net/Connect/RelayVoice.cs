@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Threading;
 using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
@@ -62,10 +63,14 @@ namespace Residue.Net.Connect
             }
         }
 
-        public void Tick(bool inputMuted, bool outputMuted)
+        public void Tick(bool inputMuted, bool outputMuted, float outputVolume)
         {
             foreach (var playback in playbacks.Values)
-                if (playback != null) playback.Muted = outputMuted;
+            {
+                if (playback == null) continue;
+                playback.Muted = outputMuted;
+                playback.Volume = outputVolume;
+            }
 
             if (!IsReady || inputMuted || microphone == null) return;
 
@@ -89,6 +94,12 @@ namespace Residue.Net.Connect
                 SendFrame(pending);
                 pendingCount = 0;
             }
+        }
+
+        public void SetOutputVolume(float volume)
+        {
+            foreach (var playback in playbacks.Values)
+                if (playback != null) playback.Volume = volume;
         }
 
         public void Leave()
@@ -195,7 +206,7 @@ namespace Residue.Net.Connect
                 speaker.transform.SetParent(avatar.transform, false);
                 speaker.transform.localPosition = Vector3.up * 1.6f;
                 playback = speaker.AddComponent<RelayVoicePlayback>();
-                playback.Initialize(SampleRate, 24f);
+                playback.Initialize(SampleRate, FrameSamples, 24f);
                 playbacks[origin] = playback;
             }
 
@@ -219,17 +230,44 @@ namespace Residue.Net.Connect
     /// <summary>Thread-safe jitter queue feeding one spatial AudioSource.</summary>
     internal sealed class RelayVoicePlayback : MonoBehaviour
     {
-        private const int MaximumQueuedFrames = 12;
+        // The audio callback commonly requests several network frames at once. Starting it with an
+        // empty queue (or resuming after one missing packet) alternates real audio and silence,
+        // which sounds much worse than a small, stable amount of voice latency.
+        private const int MinimumBufferedFrames = 6;
+        private const int CallbackSafetyFrames = 2;
+        private const int MaximumQueuedFrames = 24;
 
         private readonly ConcurrentQueue<float[]> frames = new();
         private AudioSource source;
         private float[] current;
         private int currentOffset;
+        private int frameSamples;
+        private int queuedFrames;
+        private int discardRequested;
+        private volatile bool buffering = true;
+        private volatile bool muted;
 
-        public bool Muted { get; set; }
-
-        public void Initialize(int sampleRate, float maxDistance)
+        public bool Muted
         {
+            get => muted;
+            set
+            {
+                if (muted == value) return;
+                muted = value;
+                if (value) Interlocked.Exchange(ref discardRequested, 1);
+                else buffering = true;
+            }
+        }
+
+        public float Volume
+        {
+            get => source != null ? source.volume : 1f;
+            set { if (source != null) source.volume = Mathf.Clamp01(value); }
+        }
+
+        public void Initialize(int sampleRate, int samplesPerFrame, float maxDistance)
+        {
+            frameSamples = samplesPerFrame;
             source = gameObject.AddComponent<AudioSource>();
             source.playOnAwake = false;
             source.loop = true;
@@ -244,21 +282,55 @@ namespace Residue.Net.Connect
 
         public void Push(float[] frame)
         {
-            while (frames.Count >= MaximumQueuedFrames) frames.TryDequeue(out _);
+            if (muted) return;
+
+            // If a stall grows latency beyond the useful window, catch up in one go. Keeping the
+            // oldest packets would make lip/audio delay grow for the rest of the session.
+            if (Volatile.Read(ref queuedFrames) >= MaximumQueuedFrames)
+            {
+                while (Volatile.Read(ref queuedFrames) > MinimumBufferedFrames &&
+                       frames.TryDequeue(out _))
+                    Interlocked.Decrement(ref queuedFrames);
+            }
+
             frames.Enqueue(frame);
+            Interlocked.Increment(ref queuedFrames);
         }
 
         private void Fill(float[] data)
         {
             Array.Clear(data, 0, data.Length);
-            if (Muted) return;
+
+            if (Interlocked.Exchange(ref discardRequested, 0) != 0)
+            {
+                current = null;
+                currentOffset = 0;
+                while (frames.TryDequeue(out _)) Interlocked.Decrement(ref queuedFrames);
+                buffering = true;
+            }
+
+            if (muted || frameSamples <= 0) return;
+
+            if (buffering)
+            {
+                int callbackFrames = (data.Length + frameSamples - 1) / frameSamples;
+                int required = Math.Min(MaximumQueuedFrames,
+                    Math.Max(MinimumBufferedFrames, callbackFrames + CallbackSafetyFrames));
+                if (Volatile.Read(ref queuedFrames) < required) return;
+                buffering = false;
+            }
 
             int written = 0;
             while (written < data.Length)
             {
                 if (current == null || currentOffset >= current.Length)
                 {
-                    if (!frames.TryDequeue(out current)) break;
+                    if (!frames.TryDequeue(out current))
+                    {
+                        buffering = true;
+                        break;
+                    }
+                    Interlocked.Decrement(ref queuedFrames);
                     currentOffset = 0;
                 }
 

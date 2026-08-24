@@ -44,6 +44,7 @@ namespace Residue.Net.Connect
         private bool eventsHooked;
         private bool microphoneMuted;
         private bool outputMuted;
+        private float outputVolume = 1f;
         private string unavailableText = "VOICE UNAVAILABLE";
         private RelayVoice relayVoice;
 
@@ -54,6 +55,7 @@ namespace Residue.Net.Connect
         public bool IsConnecting => desiredChannel != null && activeChannel == null;
         public bool MicrophoneMuted => microphoneMuted;
         public bool OutputMuted => outputMuted;
+        public float OutputVolume => outputVolume;
         public string UnavailableText => unavailableText;
 
         /// <summary>
@@ -215,11 +217,13 @@ namespace Residue.Net.Connect
             {
                 if (keyboard.mKey.wasPressedThisFrame) ToggleMicrophone();
                 if (keyboard.nKey.wasPressedThisFrame) ToggleOutput();
+                if (keyboard.minusKey.wasPressedThisFrame) AdjustOutputVolume(-0.1f);
+                if (keyboard.equalsKey.wasPressedThisFrame) AdjustOutputVolume(0.1f);
             }
 
             if (relayVoice != null)
             {
-                relayVoice.Tick(microphoneMuted, outputMuted);
+                relayVoice.Tick(microphoneMuted, outputMuted, outputVolume);
                 return;
             }
 
@@ -259,6 +263,22 @@ namespace Residue.Net.Connect
                 else VivoxService.Instance.UnmuteOutputDevice();
             }
             Changed?.Invoke();
+        }
+
+        /// <summary>Set incoming voice volume. The UI and keyboard both use this one path.</summary>
+        public void SetOutputVolume(float volume)
+        {
+            float clamped = Mathf.Clamp01(volume);
+            if (Mathf.Approximately(outputVolume, clamped)) return;
+
+            outputVolume = clamped;
+            relayVoice?.SetOutputVolume(outputVolume);
+            Changed?.Invoke();
+        }
+
+        private void AdjustOutputVolume(float amount)
+        {
+            SetOutputVolume(Mathf.Round((outputVolume + amount) * 10f) / 10f);
         }
 
         /// <summary>Derive a Vivox-safe channel name deterministically from the Lobby id.</summary>

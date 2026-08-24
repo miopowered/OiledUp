@@ -183,6 +183,18 @@ namespace Residue.Tests.EditMode
                 await VoiceChat.AwaitWithTimeoutAsync(never.Task, 0.02f));
         }
 
+        [Test]
+        public void VoiceVolume_StaysWithinTheAudioRange()
+        {
+            var voice = new VoiceChat();
+
+            voice.SetOutputVolume(-1f);
+            Assert.AreEqual(0f, voice.OutputVolume);
+
+            voice.SetOutputVolume(2f);
+            Assert.AreEqual(1f, voice.OutputVolume);
+        }
+
         // -----------------------------------------------------------------------------------------
         // Heartbeat. A lobby that stops saying it is alive is reaped in thirty seconds.
         // -----------------------------------------------------------------------------------------

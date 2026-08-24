@@ -45,6 +45,9 @@ namespace Residue.Net.UI
         private Label cardLabel;
         private Label voiceLabel;
         private Label speakingLabel;
+        private VisualElement voiceVolumeRow;
+        private Slider voiceVolumeSlider;
+        private Label voiceVolumeLabel;
         private bool gameplayActive;
 
         private void OnEnable()
@@ -257,6 +260,27 @@ namespace Residue.Net.UI
             voiceLabel.style.color = new StyleColor(SignalPalette.Dim);
             holder.Add(voiceLabel);
 
+            voiceVolumeRow = new VisualElement();
+            voiceVolumeRow.style.flexDirection = FlexDirection.Row;
+            voiceVolumeRow.style.alignItems = Align.Center;
+            voiceVolumeRow.style.marginTop = 4;
+
+            voiceVolumeLabel = new Label();
+            voiceVolumeLabel.pickingMode = PickingMode.Ignore;
+            voiceVolumeLabel.style.width = 106;
+            voiceVolumeLabel.style.fontSize = 9;
+            voiceVolumeLabel.style.color = new StyleColor(SignalPalette.Dim);
+            voiceVolumeRow.Add(voiceVolumeLabel);
+
+            voiceVolumeSlider = new Slider(0f, 100f);
+            voiceVolumeSlider.style.width = 110;
+            voiceVolumeSlider.RegisterValueChangedCallback(evt =>
+            {
+                if (connection != null) connection.Voice.SetOutputVolume(evt.newValue / 100f);
+            });
+            voiceVolumeRow.Add(voiceVolumeSlider);
+            holder.Add(voiceVolumeRow);
+
             speakingLabel = new Label();
             speakingLabel.pickingMode = PickingMode.Ignore;
             speakingLabel.style.fontSize = 12;
@@ -340,6 +364,11 @@ namespace Residue.Net.UI
                 ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
                   $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
                 : voice.IsConnecting ? "VOICE CONNECTING…" : voice.UnavailableText;
+            voiceVolumeLabel.text = $"[-/+] VOL {Mathf.RoundToInt(voice.OutputVolume * 100f)}%";
+            voiceVolumeSlider.SetValueWithoutNotify(voice.OutputVolume * 100f);
+            voiceVolumeRow.style.display = voice.IsConnected
+                ? DisplayStyle.Flex
+                : DisplayStyle.None;
             string speaking = voice.SpeakingText;
             speakingLabel.text = speaking;
             speakingLabel.style.display = string.IsNullOrEmpty(speaking)
