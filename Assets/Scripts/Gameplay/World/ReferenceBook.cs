@@ -23,6 +23,7 @@ namespace Residue.Gameplay.World
 
         private MachineDef machine;
         private InspectableBookSurface pageSurface;
+        private bool pageContentReady;
 
         public BookKind Kind => kind;
         public string InventoryId => $"{kind}:{machineId ?? string.Empty}";
@@ -47,20 +48,31 @@ namespace Residue.Gameplay.World
             }
         }
 
+        private void Awake()
+        {
+            // Give the item its physical pages immediately. The catalog may not have completed its
+            // own Awake yet, so this first pass at least writes the cover/title onto the paper.
+            EnsurePageSurface(forceContentRefresh: true);
+        }
+
+        private void Start()
+        {
+            // All scene Awakes have now run, so authored reference content is available. This is the
+            // final rasterisation; opening inspection never creates or rewrites the pages.
+            EnsurePageSurface(forceContentRefresh: true);
+        }
+
         public void Configure(BookKind bookKind, string targetMachineId)
         {
             kind = bookKind;
             machineId = targetMachineId;
             name = $"Book_{bookKind}{(string.IsNullOrEmpty(targetMachineId) ? "" : "_" + targetMachineId)}";
+            if (pageSurface != null) EnsurePageSurface(forceContentRefresh: true);
         }
 
         public override void BeginInspection()
         {
-            if (pageSurface == null) pageSurface = GetComponent<InspectableBookSurface>();
-            if (pageSurface == null) pageSurface = gameObject.AddComponent<InspectableBookSurface>();
-            pageSurface.SetContent(DisplayName,
-                BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog));
-            pageSurface.Show(true);
+            EnsurePageSurface(forceContentRefresh: false);
         }
 
         public override void TickInspection()
@@ -79,7 +91,22 @@ namespace Residue.Gameplay.World
 
         public override void EndInspection()
         {
-            if (pageSurface != null) pageSurface.Show(false);
+            // The physical pages and their text remain part of the item in the world and in-hand.
+        }
+
+        private void EnsurePageSurface(bool forceContentRefresh)
+        {
+            if (pageSurface == null) pageSurface = GetComponent<InspectableBookSurface>();
+            if (pageSurface == null) pageSurface = gameObject.AddComponent<InspectableBookSurface>();
+
+            if (forceContentRefresh || !pageContentReady)
+            {
+                pageSurface.SetContent(DisplayName,
+                    BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog));
+                pageContentReady = true;
+            }
+
+            pageSurface.Show(true);
         }
     }
 }

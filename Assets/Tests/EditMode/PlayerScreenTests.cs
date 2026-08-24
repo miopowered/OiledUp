@@ -184,9 +184,13 @@ namespace Residue.Tests.EditMode
             var surface = book.GetComponent<InspectableBookSurface>();
             Assert.IsNotNull(surface);
             Assert.GreaterOrEqual(surface.PageCount, 1);
-            Assert.IsTrue(surface.transform.Find("OpenPages").gameObject.activeSelf);
+            var pages = surface.transform.Find("OpenPages");
+            Assert.IsTrue(pages.gameObject.activeSelf);
+            Assert.IsNotNull(pages.GetComponent<Renderer>().sharedMaterial.mainTexture,
+                "The reference words must be a texture on the physical page renderer.");
             book.EndInspection();
-            Assert.IsFalse(surface.transform.Find("OpenPages").gameObject.activeSelf);
+            Assert.IsTrue(pages.gameObject.activeSelf,
+                "Inspection only moves the item into focus; it must not create or hide its text pages.");
         }
 
         // -- Screens with no panel --------------------------------------------------------------------

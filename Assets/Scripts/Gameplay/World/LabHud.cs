@@ -267,6 +267,7 @@ namespace Residue.Gameplay.World
                 slot.style.paddingTop = 7;
                 slot.style.paddingLeft = 9;
                 slot.style.paddingRight = 9;
+                slot.style.overflow = Overflow.Hidden;
                 slot.style.backgroundColor = new StyleColor(new Color(0.04f, 0.05f, 0.06f, 0.82f));
                 slot.style.borderTopWidth = 1;
                 slot.style.borderBottomWidth = 1;
@@ -280,7 +281,9 @@ namespace Residue.Gameplay.World
 
                 var label = new Label("EMPTY");
                 Style(label, 12, SignalPalette.Dim);
-                label.style.whiteSpace = WhiteSpace.Normal;
+                label.style.whiteSpace = WhiteSpace.NoWrap;
+                label.style.overflow = Overflow.Hidden;
+                label.style.textOverflow = TextOverflow.Ellipsis;
                 label.style.unityTextAlign = TextAnchor.MiddleCenter;
                 label.style.flexGrow = 1;
                 slot.Add(label);

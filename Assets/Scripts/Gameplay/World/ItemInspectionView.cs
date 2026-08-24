@@ -18,6 +18,7 @@ namespace Residue.Gameplay.World
         private Transform previousParent;
         private Vector3 previousLocalPosition;
         private Quaternion previousLocalRotation;
+        private int openedFrame = -1;
 
         public bool IsOpen => item != null;
         public Carryable Item => item;
@@ -36,6 +37,7 @@ namespace Residue.Gameplay.World
             if (eye == null) return false;
 
             item = selected;
+            openedFrame = Time.frameCount;
             previousParent = item.transform.parent;
             previousLocalPosition = item.transform.localPosition;
             previousLocalRotation = item.transform.localRotation;
@@ -90,6 +92,11 @@ namespace Residue.Gameplay.World
             if (!IsOpen || Keyboard.current == null) return;
 
             item.TickInspection();
+
+            // PlayerInteractor opened the view from this same Space press. Depending on component
+            // update order, this component may run later in that frame and must not interpret the
+            // opening press as the request to close again.
+            if (Time.frameCount == openedFrame) return;
 
             if (Keyboard.current.escapeKey.wasPressedThisFrame ||
                 Keyboard.current.spaceKey.wasPressedThisFrame)
