@@ -695,6 +695,7 @@ namespace Residue.Editor.Build
             // the scene keeps an instance so single player is still "open Lab.unity and press Play".
             // Built from the same object rather than authored twice, so the two cannot drift.
             SavePlayerPrefab(go);
+            StripNetworkingFromSceneCopy(go);
             go.AddComponent<SceneOnlyPlayer>();
 
             return (player, screen, bookScreen);
@@ -820,6 +821,34 @@ namespace Residue.Editor.Build
                 new EditorBuildSettingsScene(BootScenePath, true),
                 new EditorBuildSettingsScene(ScenePath, true)
             };
+        }
+
+        /// <summary>
+        /// Take the netcode off the copy that stays in the scene. The prefab keeps it; this one is
+        /// the single-player body and must be invisible to NGO.
+        /// <para>
+        /// <b>This is not tidiness.</b> A <c>NetworkObject</c> sitting in a scene is a <i>scene</i>
+        /// NetworkObject: when a client synchronises, NGO enumerates every one the scene declares and
+        /// expects to match it. <see cref="SceneOnlyPlayer"/> destroys this object in <c>Awake</c>,
+        /// which runs while that synchronisation is still in flight — so the client is left
+        /// reconciling against an object that has just evaporated. Synchronisation does not complete,
+        /// <c>LabNetwork</c> never spawns, <c>LabView.Replicated</c> is never installed, and every
+        /// station, screen and crate in the room finds nothing to read.
+        /// </para>
+        /// The symptom is total and gives no clue where to look: a client walks into a fully built
+        /// lab where nothing responds, while the host is perfectly fine.
+        /// </summary>
+        private static void StripNetworkingFromSceneCopy(GameObject go)
+        {
+            // PlayerAvatar and OwnerNetworkTransform both require the NetworkObject, so it goes last.
+            DestroyIfPresent(go.GetComponent<PlayerAvatar>());
+            DestroyIfPresent(go.GetComponent<OwnerNetworkTransform>());
+            DestroyIfPresent(go.GetComponent<NetworkObject>());
+        }
+
+        private static void DestroyIfPresent(Component component)
+        {
+            if (component != null) Object.DestroyImmediate(component, allowDestroyingAssets: false);
         }
 
         private static void SavePlayerPrefab(GameObject go)
