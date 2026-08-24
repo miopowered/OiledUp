@@ -216,6 +216,7 @@ namespace Residue.Gameplay.World
                 {
                     VialProp vial => LabGrip.OnVial(vial.SampleId),
                     PrintoutProp slip => LabGrip.OnSlip(slip.SampleId, slip.Ticket),
+                    SolventBottle bottle => LabGrip.OnBottle(bottle.BottleId),
                     _ => LabGrip.OnBook
                 };
             }
@@ -410,6 +411,7 @@ namespace Residue.Gameplay.World
             {
                 VialProp vial => LabCommand.TakeVial(vial.SampleId),
                 PrintoutProp slip => LabCommand.TakeSlip(slip.Ticket),
+                SolventBottle bottle => LabCommand.TakeBottle(bottle.BottleId),
                 _ => LabCommand.TakeBook()
             };
 

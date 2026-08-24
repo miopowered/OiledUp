@@ -64,6 +64,15 @@ namespace Residue.Net
         /// The durable half of the grip, for the session. A slip's machine is not recorded because
         /// this actor does not know it and nothing on the disconnect path needs it — paper is
         /// released by ticket in <see cref="LabNetwork"/>, not by looking it up here.
+        /// <para>
+        /// <b>A solvent bottle deliberately reduces to <see cref="HeldItem.None"/>.</b> This
+        /// descriptor is save-file material (§M5) and a bottle id is not durable across a run the way
+        /// a <c>SampleId</c> is; more to the point, a rejoining player comes back empty-handed by
+        /// design, so nothing would be restored from it. The disconnect case that <i>does</i> matter —
+        /// a bottle stranded in the hands of a connection that no longer exists — is handled where the
+        /// store lives, on <see cref="LabNetwork"/>'s disconnect path, rather than by widening a type
+        /// two milestones' worth of code already reads.
+        /// </para>
         /// </summary>
         private static HeldItem Describe(LabGrip grip) => grip.Kind switch
         {

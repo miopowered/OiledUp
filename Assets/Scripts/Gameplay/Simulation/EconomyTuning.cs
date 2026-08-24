@@ -51,11 +51,17 @@ namespace Residue.Gameplay.Simulation
         public float MonitorOnImminentMultiplier = 1.6f;
 
         /// <summary>
-        /// Price of one solvent unit, which is one flush (§5.2).
+        /// Price of one solvent unit, which is still exactly one flush (§5.2).
         /// <para>
         /// Has to be small enough that flushing is never the thing that bankrupts you, and large
         /// enough that flushing after every single run is visibly wasteful. The temptation to skip
         /// is the mechanic; pricing it out of reach would replace a decision with a rule.
+        /// </para>
+        /// <para>
+        /// The wash station (#14) did not change this. A unit still buys a flush — it is now drawn
+        /// into a bottle at the station instead of being spent at the instrument, and what the change
+        /// bought is walking distance, not a higher price. <c>SolventStore.FlushCost</c> is the figure
+        /// the two ends agree on; <c>EconomyTests</c> weighs it against <see cref="BasePayout"/>.
         /// </para>
         /// </summary>
         public float SolventUnitCost = 45f;

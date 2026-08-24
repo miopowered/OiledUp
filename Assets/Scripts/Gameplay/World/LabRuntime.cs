@@ -44,6 +44,10 @@ namespace Residue.Gameplay.World
         [SerializeField] private VialProp vialPrefab;
         [SerializeField] private PrintoutProp printoutPrefab;
 
+        [Tooltip("The carryable solvent bottle. One instance is built per bottle in SolventStore, " +
+                 "into the wash station's cradles.")]
+        [SerializeField] private SolventBottle bottlePrefab;
+
         public LabState Lab { get; private set; }
 
         /// <summary>
@@ -84,6 +88,14 @@ namespace Residue.Gameplay.World
         /// as the samples arrive and has nothing to reconcile against.
         /// </summary>
         private VialReconciler vials;
+
+        /// <summary>
+        /// Keeps the solvent bottles where the host says they are. Unlike <see cref="vials"/> this
+        /// runs on every process — a host has no separate bottle spawner to duplicate, so both sides
+        /// share one. Built on first use rather than in <c>Awake</c>, so an edit-mode test that never
+        /// runs a Unity lifecycle method still gets a working one.
+        /// </summary>
+        private BottleReconciler bottles;
 
         private void Awake()
         {
@@ -265,12 +277,17 @@ namespace Residue.Gameplay.World
             if (Lab != null)
             {
                 Lab.Tick(Time.deltaTime);
-                return;
+            }
+            else
+            {
+                // No lab means no simulation to advance, but there are still bottles in the room and
+                // the host has an opinion about where they are.
+                vials?.Tick();
             }
 
-            // No lab means no simulation to advance, but there are still bottles in the room and the
-            // host has an opinion about where they are.
-            vials?.Tick();
+            // Solvent bottles are reconciled either way — see BottleReconciler for why this one is
+            // not host-exempt the way the vials are.
+            (bottles ??= new BottleReconciler(this)).Tick();
         }
 
         // -- Props ----------------------------------------------------------------------------------
@@ -354,6 +371,37 @@ namespace Residue.Gameplay.World
             printout.Bind(ticket, sampleId, result, machineName, equipmentTag);
             printout.AttachTo(socket);
             return printout;
+        }
+
+        // -- Solvent bottles --------------------------------------------------------------------------
+        //
+        // A separate table from the vials, keyed by bottle id rather than by SampleId. Two of them
+        // exist for the whole run and neither is ever retired, so there is no pooling question here —
+        // just "has this one been built yet".
+
+        private readonly Dictionary<string, SolventBottle> bottleProps = new();
+
+        public SolventBottle BottlePropFor(string bottleId) =>
+            !string.IsNullOrEmpty(bottleId) && bottleProps.TryGetValue(bottleId, out var b) ? b : null;
+
+        /// <summary>
+        /// Create the physical solvent bottle. Called only by <see cref="BottleReconciler"/>, on a
+        /// host and on a client alike — one spawn path, for the reason
+        /// <see cref="SpawnVial(SampleId,string,float,Transform,bool)"/> gives.
+        /// </summary>
+        public SolventBottle SpawnBottle(string bottleId, int capacity, int charges, Transform socket,
+                                         bool interactable = true)
+        {
+            if (string.IsNullOrEmpty(bottleId) || bottlePrefab == null || socket == null) return null;
+            if (bottleProps.TryGetValue(bottleId, out var existing) && existing != null) return existing;
+
+            var bottle = Instantiate(bottlePrefab, socket);
+            bottle.Bind(bottleId, capacity);
+            bottle.AttachTo(socket, interactable);
+            bottle.SetCharges(charges);
+
+            bottleProps[bottleId] = bottle;
+            return bottle;
         }
 
         public VialProp PropFor(SampleId id) => props.TryGetValue(id, out var v) ? v : null;

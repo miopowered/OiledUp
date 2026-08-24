@@ -28,6 +28,9 @@ namespace Residue.Gameplay.World
         /// <summary>Pick a manual up. Changes nothing but whose hands are full.</summary>
         TakeBook,
 
+        /// <summary>Pick a solvent bottle up off its cradle or a rack (§5.2).</summary>
+        TakeBottle,
+
         /// <summary>Set whatever is in your hands down on a surface.</summary>
         PutDown,
 
@@ -43,8 +46,15 @@ namespace Residue.Gameplay.World
         /// <summary>Take the vial back out of an instrument.</summary>
         TakeFromMachine,
 
-        /// <summary>Flush an instrument with solvent. Zeroes residue and spends a unit (§5.2).</summary>
+        /// <summary>
+        /// Flush an instrument. Zeroes residue and spends a charge out of the bottle in your hands
+        /// (§5.2). The solvent came from the wash station; the flush happens here, because this is
+        /// where the carryover is.
+        /// </summary>
         FlushMachine,
+
+        /// <summary>Top the carried bottle up from the wash station's drum (§5.2, §5.5).</summary>
+        FillBottle,
 
         /// <summary>Run a solvent blank — the residue tell, not the fix (§5.2).</summary>
         RunBlank,
@@ -138,6 +148,14 @@ namespace Residue.Gameplay.World
 
         public static LabCommand TakeBook() => new(LabCommandKind.TakeBook);
 
+        /// <summary>
+        /// A bottle is named in <see cref="FixtureId"/> rather than in <see cref="Text"/> because it
+        /// is a placed thing with an id, exactly like a rack or an instrument — and because the field
+        /// already crosses the wire in that role.
+        /// </summary>
+        public static LabCommand TakeBottle(string bottleId) =>
+            new(LabCommandKind.TakeBottle, bottleId);
+
         public static LabCommand PutDown(string surfaceId, int slot) =>
             new(LabCommandKind.PutDown, surfaceId, amount: slot);
 
@@ -165,6 +183,16 @@ namespace Residue.Gameplay.World
 
         public static LabCommand Calibrate(string machineInstanceId) =>
             new(LabCommandKind.Calibrate, machineInstanceId);
+
+        // -- Wash station --------------------------------------------------------------------------
+
+        /// <summary>
+        /// Which station, not which bottle: the bottle is whichever one the host says is in your
+        /// hands, and letting a request name one would be letting a client fill a bottle across the
+        /// room from a drum it is not standing at.
+        /// </summary>
+        public static LabCommand FillBottle(string stationId) =>
+            new(LabCommandKind.FillBottle, stationId);
 
         // -- Terminal ------------------------------------------------------------------------------
 

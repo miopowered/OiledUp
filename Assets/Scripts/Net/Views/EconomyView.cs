@@ -21,7 +21,11 @@ namespace Residue.Net.Views
 
         public float Reputation;
 
-        /// <summary>Solvent left for flushing (§5.2). Purchasable, so running dry is a choice, not a wall.</summary>
+        /// <summary>
+        /// Solvent left in the wash station's drum (§5.2). Purchasable, so running dry is a choice,
+        /// not a wall. What is actually in a bottle travels separately, on
+        /// <see cref="SolventBottleView"/> — this is the stock a bottle draws on.
+        /// </summary>
         public float SolventUnits;
 
         /// <summary>Certified ampoules left (§5.3). The only way to find out an instrument is lying.</summary>

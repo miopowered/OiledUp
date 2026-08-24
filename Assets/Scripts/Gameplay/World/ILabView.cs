@@ -37,7 +37,11 @@ namespace Residue.Gameplay.World
 
         float Reputation { get; }
 
-        /// <summary>Solvent left for flushing (§5.2).</summary>
+        /// <summary>
+        /// Solvent left in the wash station's drum (§5.2). One unit fills one charge, and one charge
+        /// is one flush — but it has to be carried to the instrument in a bottle first, so this is
+        /// what the lab <i>could</i> flush rather than what anyone is holding.
+        /// </summary>
         float SolventUnits { get; }
 
         /// <summary>Certified ampoules left (§5.3).</summary>

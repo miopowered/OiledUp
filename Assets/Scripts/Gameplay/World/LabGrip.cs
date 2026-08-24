@@ -9,7 +9,14 @@ namespace Residue.Gameplay.World
         Empty,
         Vial,
         Slip,
-        Book
+        Book,
+
+        /// <summary>
+        /// A solvent bottle (§5.2). Its own kind rather than a flavour of vial, because the two
+        /// refuse each other everywhere: an instrument will not run solvent, and a flush will not
+        /// accept a sample.
+        /// </summary>
+        Bottle
     }
 
     /// <summary>
@@ -41,11 +48,23 @@ namespace Residue.Gameplay.World
         /// <summary>The slip's ticket. Zero unless <see cref="Kind"/> is <see cref="GripKind.Slip"/>.</summary>
         public readonly int Ticket;
 
-        private LabGrip(GripKind kind, SampleId sample, int ticket)
+        /// <summary>
+        /// Which one, for the things a sample id cannot name — a
+        /// <see cref="Residue.Gameplay.Simulation.SolventBottleState.Id"/>, today. Null otherwise.
+        /// <para>
+        /// It matters that this is here rather than derived at the far end: there are two bottles in
+        /// the lab and a flush spends a charge out of a particular one, so "a bottle" is not a
+        /// sufficient answer to what the player is holding.
+        /// </para>
+        /// </summary>
+        public readonly string ItemId;
+
+        private LabGrip(GripKind kind, SampleId sample, int ticket, string itemId = null)
         {
             Kind = kind;
             Sample = sample;
             Ticket = ticket;
+            ItemId = string.IsNullOrEmpty(itemId) ? null : itemId;
         }
 
         public static readonly LabGrip Empty = default;
@@ -54,12 +73,16 @@ namespace Residue.Gameplay.World
 
         public static LabGrip OnSlip(SampleId sample, int ticket) => new(GripKind.Slip, sample, ticket);
 
+        public static LabGrip OnBottle(string bottleId) =>
+            new(GripKind.Bottle, SampleId.None, 0, bottleId);
+
         public static readonly LabGrip OnBook = new(GripKind.Book, SampleId.None, 0);
 
         public bool IsEmpty => Kind == GripKind.Empty;
 
         public bool Equals(LabGrip other) =>
-            Kind == other.Kind && Sample == other.Sample && Ticket == other.Ticket;
+            Kind == other.Kind && Sample == other.Sample && Ticket == other.Ticket &&
+            string.Equals(ItemId, other.ItemId, System.StringComparison.Ordinal);
 
         public override bool Equals(object obj) => obj is LabGrip o && Equals(o);
 
@@ -70,6 +93,7 @@ namespace Residue.Gameplay.World
                 int hash = (int)Kind;
                 hash = (hash * 397) ^ Sample.Value;
                 hash = (hash * 397) ^ Ticket;
+                hash = (hash * 397) ^ (ItemId != null ? ItemId.GetHashCode() : 0);
                 return hash;
             }
         }
@@ -81,6 +105,7 @@ namespace Residue.Gameplay.World
         {
             GripKind.Vial => $"vial {Sample}",
             GripKind.Slip => $"slip #{Ticket} ({Sample})",
+            GripKind.Bottle => $"solvent bottle {ItemId ?? "?"}",
             GripKind.Book => "a manual",
             _ => "empty-handed"
         };

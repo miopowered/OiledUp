@@ -257,8 +257,9 @@ contents is only fair because the note is in the box.
 **The most important mechanic in the design. Build it early.**
 
 Every instrument accumulates residue from what ran through it, and that residue transfers into the
-next sample's *measured* values. Cleaning is a 20–40 s player action at the wash station consuming
-purchased solvent — so cleaning costs money and players will be tempted to skip it.
+next sample's *measured* values. Cleaning is a 20–40 s held action **at the instrument**, spending a
+charge from a solvent bottle you filled at the wash station and carried over (#14) — so cleaning
+costs money, a trip, and the use of your hands, and players will be tempted to skip it.
 
 Rushing does not merely cost time, it poisons your information. A skipped flush after a
 water-contaminated sample makes the next tank read wet. The player either catches it (re-run: more
@@ -419,9 +420,14 @@ behind it has already shipped.
 for in solvent you have to order; certified reference ampoules that reveal drift, recalibration that
 zeroes it, and the retroactive list of every verdict filed while the instrument was lying.
 
-The one open question is whether flushing should move to a distinct wash-station fixture rather than
-a button on the instrument. It is a §5.5 layout argument, not a §5.2 one — you flush an instrument's
-sample path in place, so the fixture would add walking distance rather than a decision (#14).
+**Settled (#14): the flush stays at the instrument; the solvent moves to a wash station.** It was a
+§5.5 layout argument, not a §5.2 one — an instrument's carryover is in its own sample path, so the
+flush happens where the residue is. What the fixture adds is the walk, and the walk only costs
+anything if something has to be carried along it. So solvent is a **carryable bottle**: you fill it
+at the station, four flushes to a bottle, and while it is in your hands you are not carrying a vial
+(§2.6). Money is unchanged — one purchased solvent unit is still exactly one flush; the unit now
+leaves the drum when a bottle is filled rather than when an instrument is cleaned. The bottles are
+local props whose location and charge count live on the host, so a client can still flush.
 
 ### M4 — Co-op
 NGO + Relay + Lobby, host-authoritative state, local-prop split, Vivox proximity voice, 4 players.

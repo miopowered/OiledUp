@@ -93,7 +93,7 @@ namespace Residue.Gameplay.World
         {
             var prop = runtime.PropFor(vial.Sample);
 
-            if (IsHeldLocally(vial.Location))
+            if (PropSockets.IsHeldLocally(vial.Location))
             {
                 // Not ours to move — see the type doc. The volume still travels: a vial that has just
                 // come out of an instrument is lighter than it went in, and the player is holding the
@@ -102,7 +102,8 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            var socket = SocketFor(vial.Location, prop, out bool reachable);
+            var socket = PropSockets.For(vial.Location, prop != null ? prop.transform : null,
+                                         out bool reachable);
 
             if (prop == null)
             {
@@ -118,64 +119,5 @@ namespace Residue.Gameplay.World
             prop.SetFillFraction(vial.VolumeMl / VialProp.FullMl);
         }
 
-        /// <summary>True when the host says this bottle is in the hands of the player at this keyboard.</summary>
-        private static bool IsHeldLocally(SampleLocation location)
-        {
-            if (location.Kind != SampleLocationKind.Held) return false;
-
-            var hands = VialFeed.Hands;
-            return hands != null && hands.LocalClientId == location.HolderClientId;
-        }
-
-        /// <summary>
-        /// Where a bottle in this location belongs, and whether the player may target it there. Null
-        /// means "leave it where it is" — the honest answer for a location with nothing physical
-        /// behind it, and for a fixture this scene has not registered.
-        /// </summary>
-        private static Transform SocketFor(SampleLocation location, VialProp existing, out bool reachable)
-        {
-            reachable = true;
-
-            switch (location.Kind)
-            {
-                case SampleLocationKind.Held:
-                    // Somebody else's hands. Colliders off: you cannot take a bottle out of them, and
-                    // a live collider riding a moving player is something the interaction ray would
-                    // trip over on the way to whatever you were actually aiming at.
-                    reachable = false;
-                    return VialFeed.Hands?.CarrySocket(location.HolderClientId);
-
-                case SampleLocationKind.InCrate:
-                case SampleLocationKind.InFridge:
-                case SampleLocationKind.OnSurface:
-                case SampleLocationKind.InMachine:
-                {
-                    // Inside an instrument the station mediates access (§5.4): the vial comes back out
-                    // by pressing the machine, not by grabbing through its door.
-                    reachable = location.Kind != SampleLocationKind.InMachine;
-
-                    var slots = LabRuntime.SlotsFor(location.ContainerId);
-                    if (slots == null) return null;
-
-                    int index = location.SlotIndex;
-                    if (index < 0)
-                    {
-                        // A container with no slot named — a dropped player's vial goes back to the
-                        // rack that way. Keep the slot it is already in, so a republish four times a
-                        // second does not shuffle the shelf under the player's hand.
-                        int current = existing != null ? slots.SlotOf(existing.transform) : -1;
-                        index = current >= 0 ? current : slots.FreeSlot();
-                    }
-
-                    return index >= 0 ? slots.Slot(index) : null;
-                }
-
-                default:
-                    // Archived, and whatever a later version adds. Filing a verdict does not move the
-                    // bottle on the host either — it stays on the shelf it was left on — so the honest
-                    // thing here is to stop having an opinion about it.
-                    return null;
-            }
-        }
     }
 }

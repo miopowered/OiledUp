@@ -81,6 +81,8 @@ namespace Residue.Gameplay.World
             sb.AppendLine();
             sb.AppendLine($"Carryover: about {machine.ContaminationCarryoverPercent * 100f:F0}% of whatever went");
             sb.AppendLine("through last stays behind. Push a solvent blank to see it.");
+            sb.AppendLine("To clear it, fill a bottle at the wash station and hold");
+            sb.AppendLine("the FLUSH button here. One charge per instrument.");
             if (machine.RequiresFumeHood) sb.AppendLine().Append("Requires a fume hood.");
             if (machine.RequiresPreheat) sb.AppendLine().Append($"Requires preheat to {machine.PreheatTargetC:F0} C.");
 

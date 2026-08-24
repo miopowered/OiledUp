@@ -61,6 +61,7 @@ namespace Residue.Gameplay.World
                 LabCommandKind.TakeVial => TakeVial(actor, command),
                 LabCommandKind.TakeSlip => TakeSlip(actor, command),
                 LabCommandKind.TakeBook => TakeBook(actor),
+                LabCommandKind.TakeBottle => TakeBottle(actor, command),
                 LabCommandKind.PutDown => PutDown(actor, command),
                 LabCommandKind.Agitate => Agitate(actor),
 
@@ -71,6 +72,8 @@ namespace Residue.Gameplay.World
                 LabCommandKind.RunBlank => RunBlank(actor, command),
                 LabCommandKind.RunReference => RunReference(actor, command),
                 LabCommandKind.Calibrate => Calibrate(actor, command),
+
+                LabCommandKind.FillBottle => FillBottle(actor, command),
 
                 LabCommandKind.FileSlip => FileSlip(actor, command),
                 LabCommandKind.BookIn => BookIn(actor, command),
@@ -148,6 +151,37 @@ namespace Residue.Gameplay.World
             return LabCommandResult.Ok;
         }
 
+        /// <summary>
+        /// Pick a solvent bottle up. Checks the bottle's <i>server-side</i> location for the same
+        /// reason <see cref="TakeVial"/> does: the prop is local (§3.2), so where it appears to be on
+        /// the asking client proves nothing, and two players reaching for the same bottle is a race
+        /// somebody has to settle.
+        /// <para>
+        /// Reach is checked against the bottle's own container rather than against the bottle, because
+        /// a bottle is not a fixture and has no registered position — the cradle it is sitting in
+        /// does.
+        /// </para>
+        /// </summary>
+        private LabCommandResult TakeBottle(ILabActor actor, LabCommand command)
+        {
+            if (!actor.Grip.IsEmpty) return LabCommandResult.No("Your hands are full.");
+
+            var bottle = lab.Solvent.Find(command.FixtureId);
+            if (bottle == null) return LabCommandResult.No("No such solvent bottle.");
+
+            if (bottle.Location.Kind == SampleLocationKind.OnSurface &&
+                OutOfReach(actor, bottle.Location.ContainerId, "that shelf", out var far))
+            {
+                return far;
+            }
+
+            if (!lab.Solvent.TryTake(bottle.Id, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            actor.SetGrip(LabGrip.OnBottle(bottle.Id));
+            return LabCommandResult.Ok;
+        }
+
         private LabCommandResult PutDown(ILabActor actor, LabCommand command)
         {
             var grip = actor.Grip;
@@ -175,6 +209,18 @@ namespace Residue.Gameplay.World
                 case GripKind.Slip:
                     lab.Slips.Release(grip.Ticket);
                     break;
+
+                case GripKind.Bottle:
+                {
+                    // Any slotted shelf will take one, including a sample rack — a bottle parked in a
+                    // rack is a hole a vial cannot use, which is §5.5's shelf pressure doing its job.
+                    if (!lab.Solvent.TryPutDown(grip.ItemId, actor.ClientId, surface, command.Amount,
+                                                out string refusal))
+                    {
+                        return LabCommandResult.No(refusal);
+                    }
+                    break;
+                }
             }
 
             actor.SetGrip(LabGrip.Empty);
@@ -256,6 +302,16 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// Flush. Housekeeping rather than analysis, so the shift clock does not gate it — the same
         /// rule <see cref="LabState.TryStartCalibration"/> gives for recalibration.
+        /// <para>
+        /// It still happens <b>here</b>, at the instrument, because the residue is in this
+        /// instrument's sample path and nowhere else (§5.2). What moved to the wash station is the
+        /// solvent: the charge comes out of the bottle the player walked over with, so a flush now
+        /// costs a trip as well as a unit (#14, §5.5).
+        /// </para>
+        /// The bottle is taken from <see cref="ILabActor.Grip"/> — the host's own record of this
+        /// player's hands — and re-checked against the store's record of who is holding it. A client
+        /// asserting a bottle it left on the far side of the room gets a refusal, not a clean
+        /// instrument.
         /// </summary>
         private LabCommandResult FlushMachine(ILabActor actor, LabCommand command)
         {
@@ -264,8 +320,14 @@ namespace Residue.Gameplay.World
             if (machine.IsRunning)
                 return LabCommandResult.No($"Cannot flush {Name(machine)} while it is running.");
 
-            if (!lab.Economy.TryConsumeSolvent())
-                return LabCommandResult.No("Out of solvent. Order more at the terminal.");
+            if (actor.Grip.Kind != GripKind.Bottle)
+            {
+                return LabCommandResult.No(
+                    "You need a solvent bottle in your hands. Fill one at the wash station.");
+            }
+
+            if (!lab.Solvent.TryConsumeCharge(actor.Grip.ItemId, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
 
             machine.Clean();
             return LabCommandResult.Ok;
@@ -298,6 +360,36 @@ namespace Residue.Gameplay.World
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
             return lab.TryStartCalibration(machine, out string refusal)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(refusal);
+        }
+
+        // -- Wash station ----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Top the carried bottle up from the drum.
+        /// <para>
+        /// The station is named by the request and the bottle is not, so a client cannot fill a bottle
+        /// it left in a rack, and reach is checked against the station it claims to be standing at.
+        /// Everything else — is it already full, is there anything in the drum, how much comes out —
+        /// belongs to <see cref="SolventStore.TryFill"/>, which phrases its own refusals.
+        /// </para>
+        /// Housekeeping, so the shift clock does not gate it. Being locked out of refilling at 17:01
+        /// would mean an instrument you could not clean before tomorrow's first sample went through
+        /// it, which is §5.2 punishing the clock rather than the choice.
+        /// </summary>
+        private LabCommandResult FillBottle(ILabActor actor, LabCommand command)
+        {
+            string station = string.IsNullOrEmpty(command.FixtureId)
+                ? SolventStore.StationId
+                : command.FixtureId;
+
+            if (OutOfReach(actor, station, "the wash station", out var far)) return far;
+
+            if (actor.Grip.Kind != GripKind.Bottle)
+                return LabCommandResult.No("You are not carrying a solvent bottle.");
+
+            return lab.Solvent.TryFill(actor.Grip.ItemId, actor.ClientId, out _, out string refusal)
                 ? LabCommandResult.Ok
                 : LabCommandResult.No(refusal);
         }

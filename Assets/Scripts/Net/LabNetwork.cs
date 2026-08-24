@@ -52,6 +52,7 @@ namespace Residue.Net
         private NetworkList<SampleView> samples;
         private NetworkList<MachineView> machines;
         private NetworkList<VialView> vials;
+        private NetworkList<SolventBottleView> solventBottles;
         private NetworkList<ResultView> results;
         private NetworkList<ReadingView> readings;
 
@@ -90,6 +91,18 @@ namespace Residue.Net
         /// </summary>
         public NetworkList<VialView> Vials => vials;
 
+        /// <summary>
+        /// The solvent bottles (§5.2, #14). Two rows, and they are what keep a client able to flush.
+        /// <para>
+        /// Flushing needed no vial, which is why it worked from a client on day one. Moving the
+        /// solvent into a carryable bottle would have quietly made it host-only if the bottle stayed
+        /// on the host — so the bottle replicates, the prompt on a client's instrument reads the same
+        /// charge count the host is about to spend, and the action goes through the same door
+        /// everything else does.
+        /// </para>
+        /// </summary>
+        public NetworkList<SolventBottleView> SolventBottles => solventBottles;
+
         /// <summary>Raised on the server when a dropped player's item must be put back (§M4).</summary>
         public event Action<PlayerSession, HeldItem> ItemReleased;
 
@@ -101,6 +114,7 @@ namespace Residue.Net
             samples = new NetworkList<SampleView>();
             machines = new NetworkList<MachineView>();
             vials = new NetworkList<VialView>();
+            solventBottles = new NetworkList<SolventBottleView>();
             results = new NetworkList<ResultView>();
             readings = new NetworkList<ReadingView>();
         }
@@ -366,7 +380,18 @@ namespace Residue.Net
         {
             // Any paper that connection was carrying becomes takeable again. Done before the session
             // is unbound so the client id still means something.
-            if (Lab != null) Lab.Slips.ReleaseAllHeldBy(clientId);
+            //
+            // The solvent bottle goes back the same way, and it has to go back here rather than
+            // through Sessions.ItemReleased: HeldItem has no bottle kind, so SessionActor cannot
+            // describe one, and a bottle left marked held by a dead connection is a bottle nobody can
+            // ever pick up — half the lab's flushing capacity, gone for the rest of the run.
+            if (Lab != null)
+            {
+                Lab.Slips.ReleaseAllHeldBy(clientId);
+                Lab.Solvent.ReleaseAllHeldBy(clientId);
+                PublishAll();
+            }
+
             actors.Remove(clientId);
 
             // Before anything owned by that client despawns: the release handler needs the world
@@ -563,9 +588,32 @@ namespace Residue.Net
             Sync(machines);
             Sync(vials);
 
+            GatherBottles();
+            Sync(solventBottles, bottleRows);
+
             GatherResults();
             Sync(results, resultRows);
             Sync(readings, readingRows);
+        }
+
+        // -- Solvent bottles -------------------------------------------------------------------------
+
+        private readonly List<SolventBottleView> bottleRows = new();
+
+        /// <summary>
+        /// Rebuild the bottle rows. Fixed length for the whole run — a bottle is refilled rather than
+        /// spent, so unlike <see cref="Sync(NetworkList{VialView})"/> there is no "stopped appearing"
+        /// case to express and nothing is ever dropped.
+        /// </summary>
+        private void GatherBottles()
+        {
+            bottleRows.Clear();
+
+            var store = Lab.Solvent;
+            if (store == null) return;
+
+            var all = store.All;
+            for (int i = 0; i < all.Count; i++) bottleRows.Add(SolventBottleView.From(all[i]));
         }
 
         // -- Results ---------------------------------------------------------------------------------

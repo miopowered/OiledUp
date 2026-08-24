@@ -327,7 +327,71 @@ namespace Residue.Tests.EditMode
             new(id, "WERK-1 QUENCH 1", 62f, SampleLocation.OnSurface(SampleRack.DefaultRackId, slot));
 
         /// <summary>
-        /// A <see cref="LabRuntime"/> with a vial prefab and no lab — the shape a client is in.
+        /// Promise: the solvent bottle is in one place, and a client that is told where puts it there.
+        /// <para>
+        /// This is what keeps a joined client able to flush. Flushing needed no vial, which is why it
+        /// was one of the first things a client could do; #14 made it need a bottle, and that would
+        /// have quietly taken it away if the bottle had stayed on the host. So the record travels and
+        /// every process builds the same prop out of it — the same three moves the vial reconciler
+        /// makes, minus the destruction, because a bottle is refilled rather than spent.
+        /// </para>
+        /// The charge count is asserted alongside the parenting because it is the number the button on
+        /// the instrument prints: a bottle in the right cradle showing the wrong count would offer a
+        /// flush the host is about to refuse.
+        /// </summary>
+        [Test]
+        public void AClientsSolventBottle_FollowsTheOneItIsToldAbout()
+        {
+            var runtime = NewRuntime();
+            var station = NewWashStation();
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
+
+            var reconciler = new BottleReconciler(runtime);
+            const string id = "bottle-1";
+
+            // Appeared, in its cradle, empty.
+            reconciler.Reconcile(new[] { BottleAtStation(id, charges: 0, slot: 1) });
+            var prop = runtime.BottlePropFor(id);
+            Assert.IsNotNull(prop, "A bottle the host listed has no prop in the room.");
+            Assert.AreSame(station.Slot(1), prop.transform.parent);
+            Assert.AreEqual(0, prop.Charges);
+
+            // Filled. Nothing moved, but the one number a prompt reads did.
+            reconciler.Reconcile(
+                new[] { BottleAtStation(id, charges: SolventStore.BottleCapacity, slot: 1) });
+            Assert.AreEqual(SolventStore.BottleCapacity, runtime.BottlePropFor(id).Charges,
+                "A client whose bottle still reads empty cannot flush anything, and the host would " +
+                "have let it.");
+
+            // Somebody carried it off and parked it on a rack, where it takes a hole a vial wanted.
+            reconciler.Reconcile(new[] { BottleOnRack(id, charges: 3, slot: 0) });
+            Assert.AreSame(rack.Slot(0), runtime.BottlePropFor(id).transform.parent);
+            Assert.AreEqual(3, runtime.BottlePropFor(id).Charges);
+            Assert.AreEqual(3, rack.FreeSlots,
+                "A bottle on a rack has to occupy the slot, or vials will be stacked on top of it.");
+
+            // A publish that mentions nothing must not delete the bottles: unlike a vial, a bottle
+            // never stops existing, so an empty list means "not told yet".
+            reconciler.Reconcile(System.Array.Empty<BottlePlacement>());
+            Assert.IsNotNull(runtime.BottlePropFor(id),
+                "The solvent bottle vanished on a frame the host had not published yet.");
+
+            LabRuntime.ForgetFixture(WashStation.FixtureId, station.transform);
+            Object.DestroyImmediate(station.gameObject);
+            Retire(rack);
+            Object.DestroyImmediate(runtime.gameObject);
+        }
+
+        private static BottlePlacement BottleAtStation(string id, int charges, int slot) =>
+            new(id, charges, SolventStore.BottleCapacity,
+                SampleLocation.OnSurface(WashStation.FixtureId, slot));
+
+        private static BottlePlacement BottleOnRack(string id, int charges, int slot) =>
+            new(id, charges, SolventStore.BottleCapacity,
+                SampleLocation.OnSurface(SampleRack.DefaultRackId, slot));
+
+        /// <summary>
+        /// A <see cref="LabRuntime"/> with the two prop prefabs and no lab — the shape a client is in.
         /// <c>Awake</c> does not run in edit mode, so nothing here has to be undone.
         /// </summary>
         private static LabRuntime NewRuntime()
@@ -335,17 +399,32 @@ namespace Residue.Tests.EditMode
             var go = new GameObject("LabRuntime_UnderTest");
             var runtime = go.AddComponent<LabRuntime>();
 
-            // Parented to the runtime so tearing that down takes the prefab with it, and inactive so
-            // nothing in the prefab itself ever ticks.
-            var prefabGo = new GameObject("VialPrefab");
-            prefabGo.transform.SetParent(go.transform, false);
-            prefabGo.SetActive(false);
+            // Parented to the runtime so tearing that down takes the prefabs with it, and inactive so
+            // nothing in a prefab itself ever ticks.
+            var vialGo = new GameObject("VialPrefab");
+            vialGo.transform.SetParent(go.transform, false);
+            vialGo.SetActive(false);
+
+            var bottleGo = new GameObject("BottlePrefab");
+            bottleGo.transform.SetParent(go.transform, false);
+            bottleGo.SetActive(false);
 
             var so = new UnityEditor.SerializedObject(runtime);
-            so.FindProperty("vialPrefab").objectReferenceValue = prefabGo.AddComponent<VialProp>();
+            so.FindProperty("vialPrefab").objectReferenceValue = vialGo.AddComponent<VialProp>();
+            so.FindProperty("bottlePrefab").objectReferenceValue = bottleGo.AddComponent<SolventBottle>();
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return runtime;
+        }
+
+        /// <summary>The wash station's cradles, registered the way its <c>OnEnable</c> would be.</summary>
+        private static WashStation NewWashStation()
+        {
+            var go = new GameObject("WashStation_UnderTest");
+            var station = go.AddComponent<WashStation>();
+
+            LabRuntime.RegisterFixture(WashStation.FixtureId, go.transform, station);
+            return station;
         }
 
         /// <summary>

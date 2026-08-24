@@ -15,8 +15,13 @@ namespace Residue.Gameplay.Simulation
         public float Reputation { get; private set; }
 
         /// <summary>
-        /// Solvent for machine cleaning (§5.2). Cleaning costs money, which is exactly why players
-        /// will be tempted to skip it — that temptation is the mechanic.
+        /// Solvent in the wash station's drum (§5.2). Cleaning costs money, which is exactly why
+        /// players will be tempted to skip it — that temptation is the mechanic.
+        /// <para>
+        /// It is drawn down by filling a bottle rather than by flushing an instrument (see
+        /// <see cref="SolventStore"/>): the accounting is unchanged, one unit to one flush, but the
+        /// unit now leaves the drum at the station and crosses the room in somebody's hands.
+        /// </para>
         /// </summary>
         public float SolventUnits { get; private set; }
 

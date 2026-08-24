@@ -109,6 +109,7 @@ namespace Residue.Editor.Build
             var theme = EnsureRuntimeTheme();
             var panelSettings = EnsurePanelSettings(theme);
             var vialPrefab = BuildVialPrefab(palette);
+            var bottlePrefab = BuildSolventBottlePrefab(palette);
             var inputAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.InputSystem.InputActionAsset>(
                 "Assets/InputSystem_Actions.inputactions");
 
@@ -118,7 +119,7 @@ namespace Residue.Editor.Build
             var books = new List<ReferenceBook>();
 
             BuildEnvironment(scene, palette);
-            BuildRuntime(scene, catalog, vialPrefab, printoutPrefab);
+            BuildRuntime(scene, catalog, vialPrefab, printoutPrefab, bottlePrefab);
             var stations = BuildStations(scene, palette, screenMaterial, books);
             var player = BuildPlayer(scene, palette, inputAsset, panelSettings);
 
@@ -183,6 +184,8 @@ namespace Residue.Editor.Build
             AddStatic(root, "Bench_Island", SaveMesh(island), palette,
                 new Vector3(0f, BenchHeight * 0.5f, -1.4f), addCollider: true);
 
+            BuildWashStation(root, palette);
+
             var lightGo = new GameObject("Sun");
             SceneManager.MoveGameObjectToScene(lightGo, scene);
             var light = lightGo.AddComponent<Light>();
@@ -232,7 +235,8 @@ namespace Residue.Editor.Build
         // -- Simulation host ---------------------------------------------------------------------------
 
         private static LabRuntime BuildRuntime(Scene scene, ContentCatalog catalog,
-                                               VialProp vialPrefab, PrintoutProp printoutPrefab)
+                                               VialProp vialPrefab, PrintoutProp printoutPrefab,
+                                               SolventBottle bottlePrefab)
         {
             var go = new GameObject("LabRuntime");
             SceneManager.MoveGameObjectToScene(go, scene);
@@ -242,6 +246,7 @@ namespace Residue.Editor.Build
             so.FindProperty("catalog").objectReferenceValue = catalog;
             so.FindProperty("vialPrefab").objectReferenceValue = vialPrefab;
             so.FindProperty("printoutPrefab").objectReferenceValue = printoutPrefab;
+            so.FindProperty("bottlePrefab").objectReferenceValue = bottlePrefab;
 
             var ids = so.FindProperty("installedMachineIds");
             ids.arraySize = MachineIds.Length;
@@ -1057,6 +1062,103 @@ namespace Residue.Editor.Build
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
             Object.DestroyImmediate(go);
             return prefab.GetComponent<VialProp>();
+        }
+
+        /// <summary>
+        /// The solvent bottle you fill at the wash station and carry to an instrument (§5.2, #14).
+        /// <para>
+        /// Deliberately much larger than a vial. It has to read as "the thing in your hands" from
+        /// across the room, and it has to be obvious at a glance that carrying it means you are not
+        /// carrying a sample — that trade is the mechanic §2.6 is protecting.
+        /// </para>
+        /// The fluid column is full height and scaled on Y per charge, the same way a vial shows how
+        /// much sample is left, so how many flushes you have is legible without opening anything.
+        /// </summary>
+        private static SolventBottle BuildSolventBottlePrefab(Material palette)
+        {
+            string path = $"{PrefabFolder}/SolventBottle.prefab";
+
+            var go = new GameObject("SolventBottle");
+
+            var bodyMesh = SaveMesh(ProcMesh.Cylinder("Solvent_Body", 0.035f, 0.20f, 14,
+                PaletteUv.Family.Solvent, 12));
+            var fluidMesh = SaveMesh(ProcMesh.Cylinder("Solvent_Fluid", 0.030f, 0.175f, 14,
+                PaletteUv.Family.Solvent, 9));
+            var capMesh = SaveMesh(ProcMesh.Cylinder("Solvent_Cap", 0.020f, 0.030f, 12,
+                PaletteUv.Family.Steel, 5));
+            var handleMesh = SaveMesh(ProcMesh.Box("Solvent_Handle", new Vector3(0.012f, 0.055f, 0.012f),
+                PaletteUv.Family.Steel, 6));
+
+            AddChild(go, "Body", bodyMesh, palette, Vector3.zero, addCollider: false);
+            var fluid = AddChild(go, "Fluid", fluidMesh, palette, new Vector3(0f, 0.008f, 0f), addCollider: false);
+            AddChild(go, "Cap", capMesh, palette, new Vector3(0f, 0.200f, 0f), addCollider: false);
+            AddChild(go, "Handle", handleMesh, palette, new Vector3(0f, 0.170f, 0.040f), addCollider: false);
+
+            var collider = go.AddComponent<CapsuleCollider>();
+            collider.radius = 0.045f;
+            collider.height = 0.23f;
+            collider.center = new Vector3(0f, 0.11f, 0f);
+
+            var body = go.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+
+            var bottle = go.AddComponent<SolventBottle>();
+            var so = new SerializedObject(bottle);
+            so.FindProperty("fluidRenderer").objectReferenceValue = fluid.GetComponent<Renderer>();
+            so.FindProperty("fluidTransform").objectReferenceValue = fluid.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            Object.DestroyImmediate(go);
+            return prefab.GetComponent<SolventBottle>();
+        }
+
+        /// <summary>
+        /// The wash station: a drum, a valve, and cradles for the bottles.
+        /// <para>
+        /// Placed deliberately far from the instrument bench — on the opposite wall, past the island.
+        /// The distance <i>is</i> the mechanic (#14). §5.5 makes lab layout the skill ceiling, and a
+        /// cost you pay standing still is not a layout cost at all; putting the drum next to the
+        /// machines would give the fixture without the decision.
+        /// </para>
+        /// Two colliders on purpose: the drum is a tap (stow a bottle), the valve is a hold (fill
+        /// one). <see cref="Interactable.HoldSeconds"/> belongs to whichever you are looking at.
+        /// </summary>
+        private static void BuildWashStation(GameObject root, Material palette)
+        {
+            var stationGo = new GameObject("WashStation");
+            stationGo.transform.SetParent(root.transform, false);
+            stationGo.transform.position = new Vector3(-RoomWidth * 0.5f + 0.9f, 0f, -1.2f);
+            stationGo.transform.rotation = Quaternion.Euler(0f, 90f, 0f);
+
+            var basinMesh = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.45f, 0f), new Vector3(0.9f, 0.9f, 0.6f), PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, 0.92f, 0f), new Vector3(0.82f, 0.06f, 0.54f), PaletteUv.Family.Sump, 3)
+                .Box(new Vector3(0.30f, 1.25f, -0.12f), new Vector3(0.26f, 0.60f, 0.26f),
+                    PaletteUv.Family.Solvent, 11)
+                .ToMesh("Lab_WashStation"));
+
+            AddStatic(stationGo, "Basin", basinMesh, palette, Vector3.zero, addCollider: true);
+
+            // Bottles stand along the lip. WashStation builds one cradle per SolventStore.BottleCount
+            // from this root, so the scene never hard-codes a count that could disagree with balance.
+            var cradleRoot = new GameObject("Cradles");
+            cradleRoot.transform.SetParent(stationGo.transform, false);
+            cradleRoot.transform.localPosition = new Vector3(-0.18f, 0.95f, 0f);
+
+            var station = stationGo.AddComponent<WashStation>();
+            var so = new SerializedObject(station);
+            so.FindProperty("cradleRoot").objectReferenceValue = cradleRoot.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            var valveMesh = SaveMesh(new ProcMesh.Builder()
+                .Box(Vector3.zero, new Vector3(0.07f, 0.05f, 0.05f), PaletteUv.Family.Brass, 8)
+                .Box(new Vector3(0f, -0.06f, 0f), new Vector3(0.02f, 0.08f, 0.02f), PaletteUv.Family.Steel, 4)
+                .ToMesh("Lab_SolventValve"));
+
+            var valveGo = AddChild(stationGo, "SolventValve", valveMesh, palette,
+                new Vector3(0.30f, 1.05f, 0.02f), addCollider: true);
+            valveGo.AddComponent<SolventValve>();
         }
 
         /// <summary>A results slip: a sheet with a printed header band, thin enough to read as paper.</summary>

@@ -5,7 +5,10 @@ namespace Residue.Gameplay.World
 {
     public enum MachineAction
     {
-        /// <summary>Flush the instrument. Zeroes residue, costs solvent and a real chunk of time.</summary>
+        /// <summary>
+        /// Flush the instrument. Zeroes residue, spends a charge out of the bottle in your hands
+        /// and takes a real chunk of time.
+        /// </summary>
         Clean,
 
         /// <summary>Push solvent through and read what is left behind. The tell, not the fix.</summary>
@@ -30,10 +33,12 @@ namespace Residue.Gameplay.World
     /// its own cycle, and both are charged. Adding a hold on top would tax the player's hands for
     /// something the machine is doing.
     /// <para>
-    /// <b>All four work from a joined client</b>, and were the first things that did: none of them
-    /// needs a vial, so they were operable long before a bottle could exist on a client at all.
-    /// Everything they read comes through <see cref="LabView.Current"/>, so a host and a client run
-    /// identical code.
+    /// <b>All four work from a joined client.</b> Three of them read nothing but
+    /// <see cref="LabView.Current"/>. The flush additionally needs the <see cref="SolventBottle"/> in
+    /// the player's own hands (#14) — which is a local prop, but one whose charge count the host
+    /// publishes and <see cref="BottleReconciler"/> writes on every process, so a client's prompt
+    /// quotes the same number the host will spend. A host and a client run identical code here, and
+    /// the host decides either way.
     /// </para>
     /// </summary>
     public sealed class MachineActionButton : Interactable
@@ -104,8 +109,22 @@ namespace Residue.Gameplay.World
             if (action == MachineAction.Clean)
             {
                 if (machine.IsRunning) return "Cannot flush while running";
-                if (lab != null && lab.SolventUnits < 1f) return "Out of solvent";
-                return $"Hold to flush {machine.DisplayName} ({HoldSeconds:F0}s, 1 solvent)";
+
+                // Named separately from "out of solvent". An empty bottle sends you to the wash
+                // station; no bottle at all sends you there for a different reason, and a player who
+                // walked over with the wrong one is owed the distinction (§9).
+                var bottle = player.Carried as SolventBottle;
+                if (bottle == null)
+                {
+                    return player.Carried != null
+                        ? $"{machine.DisplayName} needs a solvent bottle, not that"
+                        : $"{machine.DisplayName}: fetch a solvent bottle from the wash station";
+                }
+
+                if (bottle.IsEmpty) return "Solvent bottle is empty — refill at the wash station";
+
+                return $"Hold to flush {machine.DisplayName} " +
+                       $"({HoldSeconds:F0}s, 1 of {bottle.Charges} charge{(bottle.Charges == 1 ? "" : "s")})";
             }
 
             if (machine.IsRunning) return "Instrument busy";
@@ -144,8 +163,10 @@ namespace Residue.Gameplay.World
 
             if (action == MachineAction.Clean)
             {
-                // Flushing is housekeeping, not analysis — still allowed after the shift ends.
-                return lab.SolventUnits >= 1f;
+                // Flushing is housekeeping, not analysis — still allowed after the shift ends. What
+                // gates it now is what is in your hands, not what is in the books: the drum's balance
+                // decides whether you could have filled a bottle, and this decides whether you did.
+                return player.Carried is SolventBottle bottle && !bottle.IsEmpty;
             }
 
             // Calibration is housekeeping too: it produces no reading, so the shift clock does not

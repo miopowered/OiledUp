@@ -26,6 +26,14 @@ namespace Residue.Gameplay.Simulation
         public SampleRegistry Samples { get; } = new();
 
         /// <summary>
+        /// The wash station's drum and the bottles drawing on it (§5.2, §5.5). Separate from
+        /// <see cref="Economy"/> because the drum is money and the bottles are geography: the economy
+        /// answers "can the lab afford another flush", this answers "is there one within reach of the
+        /// instrument you are standing at".
+        /// </summary>
+        public SolventStore Solvent { get; }
+
+        /// <summary>
         /// Slips printed and not yet filed. Lives on the lab rather than on the instrument that
         /// printed it because a slip outlives the tray it landed in — see <see cref="ResultSlips"/>.
         /// </summary>
@@ -64,6 +72,7 @@ namespace Residue.Gameplay.Simulation
             Plan = plan ?? ContractPlan.Default();
             Tuning = tuning ?? new EconomyTuning();
             Economy = new Economy(Tuning);
+            Solvent = new SolventStore(Economy);
 
             rng = new Rng(seed);
             generator = new SampleGenerator(content.Faults);

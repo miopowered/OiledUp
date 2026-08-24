@@ -90,15 +90,143 @@ namespace Residue.Tests.EditMode
         /// Flushing between every sample must stay affordable against what the work pays. If a
         /// disciplined lab cannot cover its own solvent, "skip the flush" stops being a temptation
         /// and becomes the only viable strategy — which deletes the §5.2 decision entirely.
+        /// <para>
+        /// This used to read <c>tuning.SolventUnitCost</c> directly, on the unstated assumption that
+        /// one unit was one flush. Since #14 the unit is spent filling a bottle at the wash station
+        /// rather than at the instrument, so the assumption became a claim about two systems agreeing
+        /// — and it is now asked of <see cref="SolventStore.FlushCost"/>, which is the one place the
+        /// conversion lives. A future change that made a bottle cost more per charge than the drum
+        /// charges per unit would fail here instead of quietly re-pricing the mechanic.
+        /// </para>
         /// </summary>
         [Test]
         public void FlushingAfterEverySample_CostsFarLessThanTheWorkPays()
         {
-            float perSample = tuning.SolventUnitCost;
+            float perSample = SolventStore.FlushCost(tuning);
+
+            Assert.AreEqual(tuning.SolventUnitCost, perSample, 1e-3f,
+                "A flush still costs exactly one solvent unit. #14 moved where the unit is spent, " +
+                "not what it costs — the walk is the new cost, and it is paid in hands and seconds.");
+
             Assert.Less(perSample, tuning.BasePayout * 0.5f,
                 $"One flush costs {perSample:F0} against a {tuning.BasePayout:F0} base payout. " +
                 "Cleaning has to be a cost the player weighs, not one that outruns the job.");
         }
+
+        /// <summary>
+        /// Promise: carrying the solvent instead of counting it did not change the price of a clean
+        /// lab.
+        /// <para>
+        /// A bottle is a container, not a markup. Filling one draws exactly one unit per flush it
+        /// buys, so the money a disciplined shift spends on solvent is the same figure the payout
+        /// table above was balanced against. If a bottle ever cost more than the flushes in it, every
+        /// two-sided-failure test in this file would still pass while the §5.2 temptation quietly got
+        /// stronger.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void FillingABottle_DrawsOneUnitPerFlushItBuys()
+        {
+            var economy = new Economy(tuning, startingSolvent: 12f);
+            var store = new SolventStore(economy);
+            var bottle = store.All[0];
+
+            Assert.AreEqual(0, bottle.Charges,
+                "Bottles start empty. Pre-filled ones would be free flushes no economy test counts.");
+
+            Assert.IsTrue(store.TryTake(bottle.Id, 1UL, out var takeRefusal), takeRefusal);
+            Assert.IsTrue(store.TryFill(bottle.Id, 1UL, out int added, out var fillRefusal), fillRefusal);
+
+            Assert.AreEqual(SolventStore.BottleCapacity, added);
+            Assert.AreEqual(SolventStore.BottleCapacity, bottle.Charges);
+            Assert.AreEqual(12f - SolventStore.BottleCapacity * SolventStore.UnitsPerCharge,
+                            economy.SolventUnits, 1e-3f,
+                            "The drum has to fall by exactly what went into the bottle.");
+        }
+
+        /// <summary>
+        /// Promise: topping up early is free, so "top up now or risk running dry across the room" is
+        /// a decision about the walk rather than about waste.
+        /// <para>
+        /// A fill that discarded whatever was already in the bottle would answer the question for the
+        /// player — always run it to empty first — and the wash station would be a place you visit on
+        /// a schedule rather than one you choose to visit.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ToppingUpAPartFullBottle_PaysOnlyForWhatItTakes()
+        {
+            var economy = new Economy(tuning, startingSolvent: 12f);
+            var store = new SolventStore(economy);
+            var bottle = store.All[0];
+
+            Assert.IsTrue(store.TryTake(bottle.Id, 1UL, out _));
+            Assert.IsTrue(store.TryFill(bottle.Id, 1UL, out _, out _));
+            Assert.IsTrue(store.TryConsumeCharge(bottle.Id, 1UL, out var spend), spend);
+
+            float drumBefore = economy.SolventUnits;
+
+            Assert.IsTrue(store.TryFill(bottle.Id, 1UL, out int added, out var refusal), refusal);
+            Assert.AreEqual(1, added, "One charge was spent, so one charge is what a top-up costs.");
+            Assert.AreEqual(drumBefore - SolventStore.UnitsPerCharge, economy.SolventUnits, 1e-3f);
+
+            Assert.IsFalse(store.TryFill(bottle.Id, 1UL, out _, out var full),
+                "A full bottle takes nothing and says so.");
+            Assert.IsNotEmpty(full);
+        }
+
+        /// <summary>
+        /// Promise: the last of the drum still reaches an instrument.
+        /// <para>
+        /// A fill that refused unless it could top the bottle right up would strand whatever was left
+        /// below a bottle's worth — solvent the lab had already paid for and could never use. Hard
+        /// rule 3 in its other direction: never take away a fix the player was entitled to.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AnAlmostEmptyDrum_StillFillsWhatItCan()
+        {
+            var economy = new Economy(tuning, startingSolvent: SolventStore.UnitsPerCharge);
+            var store = new SolventStore(economy);
+            var bottle = store.All[0];
+
+            Assert.IsTrue(store.TryTake(bottle.Id, 1UL, out _));
+            Assert.IsTrue(store.TryFill(bottle.Id, 1UL, out int added, out var refusal), refusal);
+
+            Assert.AreEqual(1, added, "One unit left in the drum is one flush, not nothing.");
+            Assert.AreEqual(0f, economy.SolventUnits, 1e-3f);
+
+            Assert.IsFalse(store.TryFill(bottle.Id, 1UL, out _, out var dry));
+            Assert.IsNotEmpty(dry, "A dry drum has to say where more comes from.");
+        }
+
+        /// <summary>
+        /// Promise: the wash station is a room you walk to, not a corridor you live in.
+        /// <para>
+        /// #14 named both failure modes. One charge per trip makes the lab a shuttle run and turns
+        /// §5.5's layout cost into tedium; a bottle that covered every instrument would make the
+        /// station a once-a-morning ritual and then scenery. The number itself is tuning — this pins
+        /// the shape it has to keep.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ABottleHoldsSeveralFlushes_ButNotAWholeSweepOfTheLab()
+        {
+            Assert.Greater(SolventStore.BottleCapacity, 1,
+                "One flush per trip is a corridor, not a layout decision.");
+
+            Assert.Less(SolventStore.BottleCapacity, InstalledInstruments,
+                $"A bottle holding {SolventStore.BottleCapacity} covers every instrument in the lab, " +
+                "so the trip to the wash station happens once and then never again during a shift.");
+        }
+
+        /// <summary>
+        /// Instruments the MVP lab installs — <c>LabRuntime.installedMachineIds</c>. Repeated rather
+        /// than read off a MonoBehaviour because this is a claim about the balance, and the day the
+        /// lab grows is the day the capacity above should be reconsidered rather than silently
+        /// re-passed.
+        /// </summary>
+        private const int InstalledInstruments = 5;
 
         [Test]
         public void FilingCriticalOnEverything_LosesMoney()

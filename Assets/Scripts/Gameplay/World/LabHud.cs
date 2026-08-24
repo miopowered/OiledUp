@@ -252,7 +252,9 @@ namespace Residue.Gameplay.World
             statusLabel.text =
                 $"DAY {lab.Day}   {clock}\n" +
                 $"£{lab.Money:N0}   REP {lab.Reputation:F0}   " +
-                $"SOLVENT {lab.SolventUnits:F0}   STD {lab.ReferenceStandards}\n" +
+                // DRUM, not SOLVENT: since #14 this is the stock at the wash station rather than
+                // flushes in hand, and what is in the bottle you are carrying is on the hands line.
+                $"DRUM {lab.SolventUnits:F0}   STD {lab.ReferenceStandards}\n" +
                 $"{open} sample{(open == 1 ? "" : "s")} open";
         }
 

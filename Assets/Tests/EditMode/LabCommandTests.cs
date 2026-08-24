@@ -609,6 +609,199 @@ namespace Residue.Tests.EditMode
                 "A slip nobody can reach is a run the lab paid for and can never file.");
         }
 
+        // -----------------------------------------------------------------------------------------
+        // 7. Solvent is a thing you carry (#14). The flush is still at the instrument; the solvent
+        //    is not, and the host owns both halves of that.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Promise: a flush needs solvent in your hands, not solvent in the books.
+        /// <para>
+        /// This is the whole point of #14 and the one rule the executor has to hold on its own. The
+        /// button on the instrument greys itself out when you are empty-handed, but a prompt is a
+        /// drawing — if the host did not check the grip, a client could clean every instrument in the
+        /// lab from the terminal without ever visiting the wash station, and §5.2's cost would be a
+        /// suggestion.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void FlushingWithNoBottleInYourHands_IsRefused()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+            var machine = lab.FindMachine("elemental");
+
+            // Plenty of solvent in the drum, and none of it within reach.
+            Assert.Greater(lab.Economy.SolventUnits, 0f);
+
+            machine.Runtime.RunsSinceClean = 4;
+            var result = executor.Execute(new TestActor(), LabCommand.FlushMachine("elemental"));
+
+            Assert.IsFalse(result.Accepted, "An empty-handed player flushed an instrument.");
+            Assert.IsNotEmpty(result.Refusal);
+            Assert.AreEqual(4, machine.Runtime.RunsSinceClean, "The instrument was cleaned anyway.");
+        }
+
+        /// <summary>
+        /// Promise: a flush spends a charge out of the bottle the player actually walked over with,
+        /// and the drum is untouched — the units left it when the bottle was filled.
+        /// </summary>
+        [Test]
+        public void FlushingSpendsAChargeFromTheCarriedBottle_NotFromTheDrum()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+            var machine = lab.FindMachine("elemental");
+            var actor = new TestActor(2);
+
+            var bottle = lab.Solvent.All[0];
+            Assert.IsTrue(executor.Execute(actor, LabCommand.TakeBottle(bottle.Id)).Accepted);
+            Assert.AreEqual(GripKind.Bottle, actor.Grip.Kind);
+
+            Assert.IsTrue(executor.Execute(actor, LabCommand.FillBottle(SolventStore.StationId)).Accepted);
+            Assert.AreEqual(SolventStore.BottleCapacity, bottle.Charges);
+
+            float drum = lab.Economy.SolventUnits;
+            machine.Runtime.RunsSinceClean = 3;
+
+            var result = executor.Execute(actor, LabCommand.FlushMachine("elemental"));
+
+            Assert.IsTrue(result.Accepted, result.Refusal);
+            Assert.AreEqual(SolventStore.BottleCapacity - 1, bottle.Charges);
+            Assert.AreEqual(drum, lab.Economy.SolventUnits, 1e-3f,
+                "The drum pays at the wash station. Charging it again at the instrument would " +
+                "double the price of a clean lab.");
+            Assert.AreEqual(0, machine.Runtime.RunsSinceClean, "The flush did not clear the residue.");
+        }
+
+        /// <summary>
+        /// Promise: an empty bottle is a trip back to the wash station, not a free clean.
+        /// </summary>
+        [Test]
+        public void FlushingWithAnEmptyBottle_IsRefused()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+            var machine = lab.FindMachine("elemental");
+            var actor = new TestActor();
+
+            var bottle = lab.Solvent.All[0];
+            Assert.IsTrue(executor.Execute(actor, LabCommand.TakeBottle(bottle.Id)).Accepted);
+            Assert.AreEqual(0, bottle.Charges, "Bottles start empty.");
+
+            machine.Runtime.RunsSinceClean = 2;
+            var result = executor.Execute(actor, LabCommand.FlushMachine("elemental"));
+
+            Assert.IsFalse(result.Accepted);
+            Assert.IsNotEmpty(result.Refusal);
+            Assert.AreEqual(2, machine.Runtime.RunsSinceClean);
+        }
+
+        /// <summary>
+        /// Promise: you fill the bottle in your hands, standing at the drum.
+        /// <para>
+        /// The request names the station and never the bottle, so there is no field a client could put
+        /// somebody else's bottle in — but a request from a player carrying nothing still has to be
+        /// refused rather than silently filling whichever bottle happens to be first in the store.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void FillingWithEmptyHands_IsRefused()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+
+            float drum = lab.Economy.SolventUnits;
+            var result = executor.Execute(new TestActor(), LabCommand.FillBottle(SolventStore.StationId));
+
+            Assert.IsFalse(result.Accepted);
+            Assert.IsNotEmpty(result.Refusal);
+            Assert.AreEqual(drum, lab.Economy.SolventUnits, 1e-3f, "A refused fill must not charge.");
+            Assert.AreEqual(0, lab.Solvent.All[0].Charges);
+        }
+
+        /// <summary>
+        /// Promise: two bottles, and two players cannot both be holding the same one. Same race as
+        /// <see cref="TwoPlayersCannotTakeTheSameVial"/>, and it matters more here — there are only
+        /// two bottles in the lab, so a duplicated one doubles the flushing capacity of the run.
+        /// </summary>
+        [Test]
+        public void TwoPlayersCannotCarryTheSameSolventBottle()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+
+            var first = new TestActor(1);
+            var second = new TestActor(2);
+            string id = lab.Solvent.All[0].Id;
+
+            Assert.IsTrue(executor.Execute(first, LabCommand.TakeBottle(id)).Accepted);
+
+            var stolen = executor.Execute(second, LabCommand.TakeBottle(id));
+            Assert.IsFalse(stolen.Accepted, "Two players walked off with the same solvent bottle.");
+            Assert.AreEqual(GripKind.Empty, second.Grip.Kind);
+
+            // The other one is still free, so the second player is inconvenienced rather than stuck.
+            Assert.IsTrue(executor.Execute(second, LabCommand.TakeBottle(lab.Solvent.All[1].Id)).Accepted);
+        }
+
+        /// <summary>
+        /// Promise: when somebody's router dies holding the solvent, the bottle comes back.
+        /// <para>
+        /// A bottle marked held by a connection that no longer exists is a bottle nobody can pick up
+        /// — with two in the lab, half the run's flushing capacity gone for good. It cannot ride the
+        /// <c>SessionRegistry.ItemReleased</c> path a vial does, because <see cref="HeldItem"/> has no
+        /// bottle kind to describe it with, so the store releases directly and this is the test that
+        /// says so.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ADroppedPlayersSolventBottle_GoesBackToTheWashStation()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+
+            var gone = new TestActor(4);
+            var here = new TestActor(5);
+            string id = lab.Solvent.All[0].Id;
+
+            Assert.IsTrue(executor.Execute(gone, LabCommand.TakeBottle(id)).Accepted);
+            Assert.IsFalse(executor.Execute(here, LabCommand.TakeBottle(id)).Accepted);
+
+            lab.Solvent.ReleaseAllHeldBy(4);
+
+            Assert.AreEqual(SampleLocationKind.OnSurface, lab.Solvent.Find(id).Location.Kind);
+            Assert.AreEqual(SolventStore.StationId, lab.Solvent.Find(id).Location.ContainerId,
+                "It has to come back somewhere every player knows to look.");
+
+            Assert.IsTrue(executor.Execute(here, LabCommand.TakeBottle(id)).Accepted,
+                "A bottle nobody can reach is a lab that can never be cleaned again.");
+        }
+
+        /// <summary>
+        /// Promise: a bottle set down on a rack is on that rack, and the hole it is in is a hole a
+        /// vial cannot use. §5.5's shelf pressure, and §2.6's one pair of hands, applied to the thing
+        /// that makes an instrument trustworthy.
+        /// </summary>
+        [Test]
+        public void PuttingABottleDown_RecordsTheShelfAndEmptiesTheHands()
+        {
+            var lab = NewLab();
+            var executor = new LabCommandExecutor(lab);
+            var actor = new TestActor();
+
+            string id = lab.Solvent.All[0].Id;
+            Assert.IsTrue(executor.Execute(actor, LabCommand.TakeBottle(id)).Accepted);
+            Assert.IsTrue(executor.Execute(actor, LabCommand.PutDown("rack", 2)).Accepted);
+
+            Assert.AreEqual(GripKind.Empty, actor.Grip.Kind);
+
+            var location = lab.Solvent.Find(id).Location;
+            Assert.AreEqual(SampleLocationKind.OnSurface, location.Kind);
+            Assert.AreEqual("rack", location.ContainerId);
+            Assert.AreEqual(2, location.SlotIndex);
+        }
+
         /// <summary>
         /// Promise: booking in is a request like everything else, and a mis-typed tag is accepted
         /// exactly as readily as a right one. §5.1's whole mis-logging mechanic dies the moment the
