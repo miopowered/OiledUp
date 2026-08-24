@@ -40,6 +40,8 @@ namespace Residue.Gameplay.World
             previousLocalPosition = item.transform.localPosition;
             previousLocalRotation = item.transform.localRotation;
 
+            item.BeginInspection();
+
             var bounds = item.VisualBounds;
             float radius = Mathf.Max(0.08f, bounds.extents.magnitude);
             float halfFov = eye.fieldOfView * 0.5f * Mathf.Deg2Rad;
@@ -70,6 +72,7 @@ namespace Residue.Gameplay.World
             item.transform.localRotation = previousLocalRotation;
             var closed = item;
             item = null;
+            closed.EndInspection();
 
             if (player != null) player.enabled = true;
             PlayerController.SetCursorLocked(true);
@@ -85,6 +88,8 @@ namespace Residue.Gameplay.World
         private void Update()
         {
             if (!IsOpen || Keyboard.current == null) return;
+
+            item.TickInspection();
 
             if (Keyboard.current.escapeKey.wasPressedThisFrame ||
                 Keyboard.current.spaceKey.wasPressedThisFrame)

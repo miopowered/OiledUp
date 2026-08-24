@@ -7,7 +7,7 @@ using Object = UnityEngine.Object;
 namespace Residue.Tests.EditMode
 {
     /// <summary>
-    /// Guards that a player-facing screen belongs to a <i>player</i> and not to the scene.
+    /// Guards that the terminal screen belongs to a <i>player</i> and reference books do not.
     /// <para>
     /// Until M4 there was one HUD, one terminal view and one reading view, sitting at the scene root
     /// and wired to the only player there was. A station that opens a fixed screen is correct exactly
@@ -15,9 +15,9 @@ namespace Residue.Tests.EditMode
     /// cosmetic bug — the buttons on it file verdicts against the record.
     /// </para>
     /// <para>
-    /// These tests pin the resolution rule: the interacting player's own screen wins, a wired screen
-    /// is only a fallback, and nothing throws when a player has neither. What they cannot reach is
-    /// the drawing itself — a <c>UIDocument</c> only owns a panel while it is enabled and the test
+    /// These tests pin the terminal resolution rule. Books intentionally have no screen resolution
+    /// anymore: their words are rasterised on their physical page mesh during inspection. What the
+    /// terminal tests cannot reach is the drawing itself — a <c>UIDocument</c> only owns a panel while it is enabled and the test
     /// runner has no panel settings to give it, so "the right screen was raised" is asserted on the
     /// resolution and not on pixels.
     /// </para>
@@ -54,9 +54,6 @@ namespace Residue.Tests.EditMode
                 terminal.transform.SetParent(root.transform);
                 terminal.AddComponent<TerminalScreen>();
 
-                var book = new GameObject("BookUI");
-                book.transform.SetParent(root.transform);
-                book.AddComponent<BookScreen>();
             }
 
             return root.AddComponent<PlayerInteractor>();
@@ -81,17 +78,6 @@ namespace Residue.Tests.EditMode
             return station;
         }
 
-        private ReferenceBook NewBook(BookScreen fallback)
-        {
-            var book = Loose<ReferenceBook>("Book_UnderTest");
-            if (fallback == null) return book;
-
-            var so = new UnityEditor.SerializedObject(book);
-            so.FindProperty("screen").objectReferenceValue = fallback;
-            so.ApplyModifiedPropertiesWithoutUndo();
-            return book;
-        }
-
         // -- Resolution -------------------------------------------------------------------------------
 
         [Test]
@@ -102,7 +88,6 @@ namespace Residue.Tests.EditMode
             Assert.IsNotNull(player.Terminal,
                 "A player carrying its own terminal view must find it without being wired to one. " +
                 "There is no scene build step left once the player is a spawned prefab.");
-            Assert.IsNotNull(player.Manual);
         }
 
         [Test]
@@ -114,7 +99,6 @@ namespace Residue.Tests.EditMode
             Assert.IsNull(bare.Terminal,
                 "The lookup reached outside this player and found someone else's screen. That is the " +
                 "singleton coming back: whoever spawned first would own every terminal in the lab.");
-            Assert.IsNull(bare.Manual);
         }
 
         [Test]
@@ -124,7 +108,6 @@ namespace Residue.Tests.EditMode
             var b = NewPlayer(withScreens: true);
 
             Assert.AreNotSame(a.Terminal, b.Terminal);
-            Assert.AreNotSame(a.Manual, b.Manual);
         }
 
         // -- Terminal ---------------------------------------------------------------------------------
@@ -182,25 +165,28 @@ namespace Residue.Tests.EditMode
         // -- Book -------------------------------------------------------------------------------------
 
         [Test]
-        public void ABook_OpensInTheReadersOwnView()
+        public void ABook_HasNoLegacyScreenOrPrimaryUse()
         {
-            var a = NewPlayer(withScreens: true);
-            var b = NewPlayer(withScreens: true);
-
-            var shared = Loose<BookScreen>("SharedBookUI");
-            var book = NewBook(shared);
-
-            Assert.AreSame(a.Manual, book.ReaderFor(a));
-            Assert.AreSame(b.Manual, book.ReaderFor(b));
+            var book = Loose<ReferenceBook>("Book_UnderTest");
+            Assert.IsNull(book.UseHint);
+            Assert.IsNull(book.InspectionText,
+                "Reference text belongs on the physical pages, not in the HUD text overlay.");
+            Assert.IsNull(typeof(ReferenceBook).GetField("screen",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic));
         }
 
         [Test]
-        public void ABook_FallsBackToItsWiredView_ForAReaderCarryingNone()
+        public void ABook_BuildsAThreeDimensionalPageSurfaceForInspection()
         {
-            var player = NewPlayer(withScreens: false);
-            var shared = Loose<BookScreen>("SharedBookUI");
+            var book = Loose<ReferenceBook>("Book_UnderTest");
 
-            Assert.AreSame(shared, NewBook(shared).ReaderFor(player));
+            Assert.DoesNotThrow(book.BeginInspection);
+            var surface = book.GetComponent<InspectableBookSurface>();
+            Assert.IsNotNull(surface);
+            Assert.GreaterOrEqual(surface.PageCount, 1);
+            Assert.IsTrue(surface.transform.Find("OpenPages").gameObject.activeSelf);
+            book.EndInspection();
+            Assert.IsFalse(surface.transform.Find("OpenPages").gameObject.activeSelf);
         }
 
         // -- Screens with no panel --------------------------------------------------------------------
@@ -220,13 +206,5 @@ namespace Residue.Tests.EditMode
                 "player's controls disabled with no visible way to close it.");
         }
 
-        [Test]
-        public void ABookScreen_WithNoPanel_DeclinesToOpen()
-        {
-            var screen = Loose<BookScreen>("BookUI_NoPanel");
-
-            Assert.DoesNotThrow(() => screen.Open("Manual", new List<BookPage>()));
-            Assert.IsFalse(screen.IsOpen);
-        }
     }
 }

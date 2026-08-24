@@ -1,5 +1,6 @@
 using Residue.Data;
 using UnityEngine;
+using UnityEngine.InputSystem;
 
 namespace Residue.Gameplay.World
 {
@@ -20,30 +21,18 @@ namespace Residue.Gameplay.World
         [Tooltip("MachineDef id, for a per-instrument manual. Ignored by the other kinds.")]
         [SerializeField] private string machineId;
 
-        [Tooltip("Only a fallback. The reading player's own view always wins.")]
-        [SerializeField] private BookScreen screen;
-
         private MachineDef machine;
+        private InspectableBookSurface pageSurface;
 
         public BookKind Kind => kind;
         public string InventoryId => $"{kind}:{machineId ?? string.Empty}";
 
         public override string DisplayName => BookContent.TitleFor(kind, Machine);
 
-        public override string InspectionText
-        {
-            get
-            {
-                var pages = BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog);
-                var text = new System.Text.StringBuilder();
-                foreach (var page in pages)
-                {
-                    if (text.Length > 0) text.AppendLine().AppendLine();
-                    text.AppendLine(page.Title.ToUpperInvariant()).Append(page.Body);
-                }
-                return text.Length > 0 ? text.ToString() : DisplayName;
-            }
-        }
+        // The words live on the generated 3D paper surface, never in the HUD reading overlay.
+        public override string InspectionText => null;
+        public override string InspectionHelp => "Arrow keys / wheel to turn pages";
+        public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
 
         private MachineDef Machine
         {
@@ -58,48 +47,39 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public void Configure(BookKind bookKind, string targetMachineId, BookScreen reader)
+        public void Configure(BookKind bookKind, string targetMachineId)
         {
             kind = bookKind;
             machineId = targetMachineId;
-            screen = reader;
             name = $"Book_{bookKind}{(string.IsNullOrEmpty(targetMachineId) ? "" : "_" + targetMachineId)}";
         }
 
-        public override string UseHint => "read";
-
-        /// <summary>
-        /// Which reading view this book should open in.
-        /// <para>
-        /// A book is passed around, so the view cannot be a property of the book — two players
-        /// carrying two volumes to two corners of the room each need their own pages. The serialized
-        /// field survives only as a fallback for a scene that still keeps a single shared view at the
-        /// root; the reader wins whenever they have one.
-        /// </para>
-        /// <para>
-        /// Public because the precedence is otherwise only observable through a live
-        /// <c>UIDocument</c>, which no edit-mode test has.
-        /// </para>
-        /// </summary>
-        public BookScreen ReaderFor(PlayerInteractor player)
+        public override void BeginInspection()
         {
-            var mine = player != null ? player.Manual : null;
-            return mine != null ? mine : screen;
+            if (pageSurface == null) pageSurface = GetComponent<InspectableBookSurface>();
+            if (pageSurface == null) pageSurface = gameObject.AddComponent<InspectableBookSurface>();
+            pageSurface.SetContent(DisplayName,
+                BookContent.Build(kind, Machine, LabRuntime.Instance?.Catalog));
+            pageSurface.Show(true);
         }
 
-        public override void UseInHand(PlayerInteractor player)
+        public override void TickInspection()
         {
-            var reader = ReaderFor(player);
-            if (reader == null)
-            {
-                // §9: an object that refuses without saying why reads as broken. Rare enough to be a
-                // build fault rather than a rule, but silence would send the player looking for one.
-                if (player != null) player.Say("Nowhere to read that.");
-                return;
-            }
+            if (pageSurface == null) return;
+            if (Keyboard.current != null && Keyboard.current.rightArrowKey.wasPressedThisFrame)
+                pageSurface.Turn(1);
+            else if (Keyboard.current != null && Keyboard.current.leftArrowKey.wasPressedThisFrame)
+                pageSurface.Turn(-1);
 
-            var catalog = LabRuntime.Instance?.Catalog;
-            reader.Open(DisplayName, BookContent.Build(kind, Machine, catalog));
+            if (Mouse.current == null) return;
+            float wheel = Mouse.current.scroll.ReadValue().y;
+            if (wheel > 0.01f) pageSurface.Turn(-1);
+            else if (wheel < -0.01f) pageSurface.Turn(1);
+        }
+
+        public override void EndInspection()
+        {
+            if (pageSurface != null) pageSurface.Show(false);
         }
     }
 }

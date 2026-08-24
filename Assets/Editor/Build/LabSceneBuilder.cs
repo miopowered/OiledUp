@@ -130,7 +130,6 @@ namespace Residue.Editor.Build
             var player = BuildPlayer(scene, palette, inputAsset, panelSettings);
 
             WireTerminal(stations.terminal, player.terminalScreen);
-            foreach (var book in books) WireBook(book, player.bookScreen);
 
             // Scene-placed rather than spawned: the host loads this scene over the network and NGO
             // brings scene NetworkObjects up on every client as part of that load, so the lab's
@@ -595,7 +594,7 @@ namespace Residue.Editor.Build
 
         // -- Player ------------------------------------------------------------------------------------
 
-        private static (PlayerController controller, TerminalScreen terminalScreen, BookScreen bookScreen) BuildPlayer(
+        private static (PlayerController controller, TerminalScreen terminalScreen) BuildPlayer(
             Scene scene, Material palette,
             UnityEngine.InputSystem.InputActionAsset inputAsset,
             PanelSettings panelSettings)
@@ -685,10 +684,8 @@ namespace Residue.Editor.Build
             debugSo.FindProperty("interactor").objectReferenceValue = interactor;
             debugSo.ApplyModifiedPropertiesWithoutUndo();
 
-            // The three screens hang off the player, not off the scene. At M4 there are up to four
-            // players and each needs their own: a station opens the screen belonging to whoever
-            // walked up to it, and a replica's screens are switched off with the rest of that avatar.
-            // Parented here so they travel into the prefab and need no wiring after a spawn.
+            // Player-local HUD and terminal. Reference books no longer create a separate screen:
+            // their text is drawn on the physical pages during item inspection.
             var hudGo = new GameObject("HUD");
             hudGo.transform.SetParent(go.transform, false);
             var hudDoc = hudGo.AddComponent<UIDocument>();
@@ -711,18 +708,6 @@ namespace Residue.Editor.Build
             screenSo.FindProperty("interactor").objectReferenceValue = interactor;
             screenSo.ApplyModifiedPropertiesWithoutUndo();
 
-            // Reading view, above the terminal so an open manual covers it.
-            var bookGo = new GameObject("BookUI");
-            bookGo.transform.SetParent(go.transform, false);
-            var bookDoc = bookGo.AddComponent<UIDocument>();
-            SetPanelSettings(bookDoc, panelSettings, 20);
-            var bookScreen = bookGo.AddComponent<BookScreen>();
-            var bookSo = new SerializedObject(bookScreen);
-            bookSo.FindProperty("document").objectReferenceValue = bookDoc;
-            bookSo.FindProperty("player").objectReferenceValue = player;
-            bookSo.FindProperty("interactor").objectReferenceValue = interactor;
-            bookSo.ApplyModifiedPropertiesWithoutUndo();
-
             AddNetworking(go, player, interactor, headMotion, hands, thirdPerson, interactionDebug,
                 camera, controllerComponent);
 
@@ -733,7 +718,7 @@ namespace Residue.Editor.Build
             StripNetworkingFromSceneCopy(go);
             go.AddComponent<SceneOnlyPlayer>();
 
-            return (player, screen, bookScreen);
+            return (player, screen);
         }
 
         /// <summary>
@@ -1029,13 +1014,6 @@ namespace Residue.Editor.Build
         private static void WireTerminal(TerminalStation station, TerminalScreen screen)
         {
             var so = new SerializedObject(station);
-            so.FindProperty("screen").objectReferenceValue = screen;
-            so.ApplyModifiedPropertiesWithoutUndo();
-        }
-
-        private static void WireBook(ReferenceBook book, BookScreen screen)
-        {
-            var so = new SerializedObject(book);
             so.FindProperty("screen").objectReferenceValue = screen;
             so.ApplyModifiedPropertiesWithoutUndo();
         }

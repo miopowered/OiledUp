@@ -20,6 +20,14 @@ namespace Residue.Gameplay.World
         /// <summary>Initial object orientation in the inspection view.</summary>
         public virtual Quaternion InspectionRotation => Quaternion.identity;
 
+        /// <summary>Extra controls shown while this item is being inspected.</summary>
+        public virtual string InspectionHelp => null;
+
+        /// <summary>Lifecycle hooks for physical inspection presentation.</summary>
+        public virtual void BeginInspection() { }
+        public virtual void TickInspection() { }
+        public virtual void EndInspection() { }
+
         /// <summary>World-space bounds used to fit the object into the inspection camera.</summary>
         public Bounds VisualBounds
         {

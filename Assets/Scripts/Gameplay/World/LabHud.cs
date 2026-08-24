@@ -39,6 +39,7 @@ namespace Residue.Gameplay.World
         private VisualElement inspectionOverlay;
         private Label inspectionTitle;
         private Label inspectionBody;
+        private Label inspectionHelp;
         private VisualElement root;
 
         private void Awake()
@@ -228,7 +229,7 @@ namespace Residue.Gameplay.World
             {
                 string hint = carried.UseHint;
                 handsLabel.text = hint == null
-                    ? $"holding: {carried.DisplayName}"
+                    ? $"in hands: {carried.DisplayName}    [Space] inspect"
                     : $"in hands: {carried.DisplayName}    [LMB] {hint}    [Space] inspect";
             }
             else
@@ -321,7 +322,9 @@ namespace Residue.Gameplay.World
             inspectionOverlay.style.right = 0;
             inspectionOverlay.style.top = 0;
             inspectionOverlay.style.bottom = 0;
-            inspectionOverlay.style.backgroundColor = new StyleColor(new Color(0.015f, 0.018f, 0.02f, 0.78f));
+            // Keep the world quiet without veiling the inspected mesh: book text now lives on the
+            // physical page texture and must remain readable through this overlay.
+            inspectionOverlay.style.backgroundColor = new StyleColor(new Color(0.015f, 0.018f, 0.02f, 0.18f));
             inspectionOverlay.style.display = DisplayStyle.None;
             inspectionOverlay.pickingMode = PickingMode.Ignore;
             root.Add(inspectionOverlay);
@@ -342,14 +345,14 @@ namespace Residue.Gameplay.World
             inspectionBody.style.whiteSpace = WhiteSpace.Normal;
             inspectionOverlay.Add(inspectionBody);
 
-            var help = new Label("Hold LMB + move mouse to rotate    Space / Esc to close");
-            Style(help, 12, SignalPalette.Dim);
-            help.style.position = Position.Absolute;
-            help.style.left = 0;
-            help.style.right = 0;
-            help.style.bottom = 20;
-            help.style.unityTextAlign = TextAnchor.MiddleCenter;
-            inspectionOverlay.Add(help);
+            inspectionHelp = new Label();
+            Style(inspectionHelp, 12, SignalPalette.Dim);
+            inspectionHelp.style.position = Position.Absolute;
+            inspectionHelp.style.left = 0;
+            inspectionHelp.style.right = 0;
+            inspectionHelp.style.bottom = 20;
+            inspectionHelp.style.unityTextAlign = TextAnchor.MiddleCenter;
+            inspectionOverlay.Add(inspectionHelp);
         }
 
         private void UpdateInspection()
@@ -360,6 +363,9 @@ namespace Residue.Gameplay.World
             if (!open) return;
             inspectionTitle.text = view.Item.DisplayName;
             inspectionBody.text = view.Item.InspectionText ?? string.Empty;
+            inspectionHelp.text = "Hold LMB + move mouse to rotate    " +
+                (string.IsNullOrEmpty(view.Item.InspectionHelp) ? "" : view.Item.InspectionHelp + "    ") +
+                "Space / Esc to close";
         }
 
         /// <summary>

@@ -90,19 +90,12 @@ namespace Residue.Gameplay.World
         // exactly one failed search and then falls back to whatever it wired.
 
         private TerminalScreen terminal;
-        private BookScreen manual;
         private bool screensResolved;
 
         /// <summary>This player's terminal view, or null if they carry none.</summary>
         public TerminalScreen Terminal
         {
             get { ResolveScreens(); return terminal; }
-        }
-
-        /// <summary>This player's reading view for a <see cref="ReferenceBook"/>.</summary>
-        public BookScreen Manual
-        {
-            get { ResolveScreens(); return manual; }
         }
 
         private void ResolveScreens()
@@ -113,7 +106,6 @@ namespace Residue.Gameplay.World
             // Inactive included: a replica's screens are switched off, and the only thing that would
             // do with the reference is a station this player can never reach anyway.
             terminal = GetComponentInChildren<TerminalScreen>(includeInactive: true);
-            manual = GetComponentInChildren<BookScreen>(includeInactive: true);
         }
 
         // -- Diagnostics -----------------------------------------------------------------------------
