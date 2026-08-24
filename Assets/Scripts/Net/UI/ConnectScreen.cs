@@ -1,6 +1,7 @@
 using Residue.Gameplay.World;
 using Residue.Net.Connect;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 
 namespace Residue.Net.UI
@@ -49,6 +50,8 @@ namespace Residue.Net.UI
         private Slider voiceVolumeSlider;
         private Label voiceVolumeLabel;
         private bool gameplayActive;
+        private bool voiceControlsOpen;
+        private bool voiceControlsOwnCursor;
 
         private void OnEnable()
         {
@@ -68,6 +71,28 @@ namespace Residue.Net.UI
         {
             if (connection != null) connection.Changed -= Refresh;
             if (connection != null) connection.Voice.Changed -= Refresh;
+            voiceControlsOpen = false;
+            voiceControlsOwnCursor = false;
+        }
+
+        private void Update()
+        {
+            if (!gameplayActive || Keyboard.current == null) return;
+
+            if (voiceControlsOpen)
+            {
+                if (Keyboard.current.vKey.wasPressedThisFrame ||
+                    Keyboard.current.escapeKey.wasPressedThisFrame)
+                    CloseVoiceControls();
+                return;
+            }
+
+            // Do not compete with the terminal or reference book for the process-global cursor.
+            // They already have it when it is unlocked; voice controls may only claim it from
+            // normal first-person play.
+            if (Keyboard.current.vKey.wasPressedThisFrame &&
+                UnityEngine.Cursor.lockState == CursorLockMode.Locked)
+                OpenVoiceControls();
         }
 
         // -- Build -------------------------------------------------------------------------------------
@@ -315,7 +340,9 @@ namespace Residue.Net.UI
 
             // The menu goes away once the decision is made; the join code does not.
             panel.style.display = gameplay ? DisplayStyle.None : DisplayStyle.Flex;
-            root.pickingMode = gameplay ? PickingMode.Ignore : PickingMode.Position;
+            root.pickingMode = gameplay && !voiceControlsOpen
+                ? PickingMode.Ignore
+                : PickingMode.Position;
 
             if (gameplay && !gameplayActive)
             {
@@ -333,6 +360,9 @@ namespace Residue.Net.UI
                 UnityEngine.Cursor.visible = true;
             }
             gameplayActive = gameplay;
+
+            if (!gameplay && voiceControlsOpen) CloseVoiceControls();
+            card.pickingMode = voiceControlsOpen ? PickingMode.Position : PickingMode.Ignore;
 
             statusLabel.text = connection.Status;
             statusLabel.style.color = new StyleColor(
@@ -364,7 +394,8 @@ namespace Residue.Net.UI
                 ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
                   $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
                 : voice.IsConnecting ? "VOICE CONNECTING…" : voice.UnavailableText;
-            voiceVolumeLabel.text = $"[-/+] VOL {Mathf.RoundToInt(voice.OutputVolume * 100f)}%";
+            voiceVolumeLabel.text = $"[-/+] VOL {Mathf.RoundToInt(voice.OutputVolume * 100f)}%  " +
+                                    (voiceControlsOpen ? "[V/ESC] CLOSE" : "[V] MOUSE");
             voiceVolumeSlider.SetValueWithoutNotify(voice.OutputVolume * 100f);
             voiceVolumeRow.style.display = voice.IsConnected
                 ? DisplayStyle.Flex
@@ -381,6 +412,30 @@ namespace Residue.Net.UI
                 : string.Empty;
 
             RefreshEnabled();
+        }
+
+        private void OpenVoiceControls()
+        {
+            voiceControlsOpen = true;
+            voiceControlsOwnCursor = UnityEngine.Cursor.lockState == CursorLockMode.Locked;
+            PlayerController.SetCursorLocked(false);
+            Refresh();
+        }
+
+        private void CloseVoiceControls()
+        {
+            bool shouldRelock = voiceControlsOwnCursor && gameplayActive && LocalControllerIsActive();
+            voiceControlsOpen = false;
+            voiceControlsOwnCursor = false;
+            if (shouldRelock) PlayerController.SetCursorLocked(true);
+            Refresh();
+        }
+
+        private static bool LocalControllerIsActive()
+        {
+            foreach (var controller in FindObjectsByType<PlayerController>())
+                if (controller.ManagesCursor && controller.isActiveAndEnabled) return true;
+            return false;
         }
 
         private void RefreshEnabled()
