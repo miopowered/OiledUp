@@ -165,6 +165,25 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
+        // Voice. Vivox may leave an SDK task pending when the network dies mid-handshake.
+        // -----------------------------------------------------------------------------------------
+
+        [Test]
+        public async Task VoiceConnect_ACompletedSdkCallDoesNotWaitForTheDeadline()
+        {
+            await VoiceChat.AwaitWithTimeoutAsync(Task.CompletedTask, 0.02f);
+        }
+
+        [Test]
+        public void VoiceConnect_APendingSdkCallHasADeadline()
+        {
+            var never = new TaskCompletionSource<bool>();
+
+            Assert.ThrowsAsync<TimeoutException>(async () =>
+                await VoiceChat.AwaitWithTimeoutAsync(never.Task, 0.02f));
+        }
+
+        // -----------------------------------------------------------------------------------------
         // Heartbeat. A lobby that stops saying it is alive is reaped in thirty seconds.
         // -----------------------------------------------------------------------------------------
 

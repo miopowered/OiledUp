@@ -26,6 +26,13 @@ namespace Residue.Net.Connect
         private const int AudibleDistanceMetres = 24;
         private const int ConversationalDistanceMetres = 1;
 
+        /// <summary>
+        /// Vivox does not put a deadline on initialization, login, or channel connection. A dead
+        /// socket can therefore leave its task pending forever, so voice needs its own deadline.
+        /// This only disables voice; Relay, Lobby, and the game session remain live.
+        /// </summary>
+        public static float ConnectTimeoutSeconds = 12f;
+
         private readonly Dictionary<string, VivoxParticipant> participants = new();
         private readonly SemaphoreSlim lifecycle = new(1, 1);
 
@@ -86,40 +93,17 @@ namespace Residue.Net.Connect
             var service = VivoxService.Instance;
             HookEvents(service);
 
+            string joining = ChannelName(lobbyId);
+            Task connecting = null;
+
             try
             {
                 if (ticket != operation) return;
 
-                if (service.InitializationState != VivoxInitializationState.Initialized)
-                    await service.InitializeAsync();
-
-                if (ticket != operation) return;
-
-                if (!service.IsLoggedIn)
-                {
-                    await service.LoginAsync(new LoginOptions
-                    {
-                        DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
-                        ParticipantUpdateFrequency = ParticipantPropertyUpdateFrequency.StateChange
-                    });
-                }
-
-                if (ticket != operation) return;
-
-                ApplyDeviceState(service);
-
-                string joining = ChannelName(lobbyId);
-                var acoustics = new Channel3DProperties(
-                    AudibleDistanceMetres,
-                    ConversationalDistanceMetres,
-                    1f,
-                    AudioFadeModel.InverseByDistance);
-
-                await service.JoinPositionalChannelAsync(
-                    joining,
-                    ChatCapability.AudioOnly,
-                    acoustics,
-                    new ChannelOptions { MakeActiveChannelUponJoining = true });
+                connecting = ConnectServiceAsync(service, joining, displayName,
+                    () => ticket == operation);
+                await AwaitWithTimeoutAsync(connecting,
+                    Mathf.Max(1f, ConnectTimeoutSeconds));
 
                 if (ticket != operation) return;
 
@@ -132,13 +116,20 @@ namespace Residue.Net.Connect
             {
                 if (ticket != operation) return;
 
-                await ReleaseServiceAsync(service, ChannelName(lobbyId));
+                // Become terminal before touching the SDK again. Cleanup is best effort and may be
+                // waiting on the same damaged connection; the HUD must never wait on it.
+                ++operation;
                 desiredChannel = null;
                 activeChannel = null;
                 ClearParticipants();
                 Debug.LogWarning($"[VoiceChat] Proximity voice is unavailable for this session " +
                                  $"({e.GetType().Name}: {e.Message}). The game remains connected.");
                 Changed?.Invoke();
+
+                if (connecting != null && !connecting.IsCompleted)
+                    _ = ReleaseWhenSettledAsync(connecting, service, joining);
+                else
+                    _ = ReleaseServiceAsync(service, joining);
             }
             finally
             {
@@ -294,6 +285,61 @@ namespace Residue.Net.Connect
 
             if (outputMuted) service.MuteOutputDevice();
             else service.UnmuteOutputDevice();
+        }
+
+        private async Task ConnectServiceAsync(IVivoxService service, string channel,
+                                               string displayName, Func<bool> isCurrent)
+        {
+            if (service.InitializationState != VivoxInitializationState.Initialized)
+                await service.InitializeAsync();
+
+            if (!isCurrent()) return;
+
+            if (!service.IsLoggedIn)
+            {
+                await service.LoginAsync(new LoginOptions
+                {
+                    DisplayName = string.IsNullOrWhiteSpace(displayName) ? null : displayName,
+                    ParticipantUpdateFrequency = ParticipantPropertyUpdateFrequency.StateChange
+                });
+            }
+
+            if (!isCurrent()) return;
+
+            ApplyDeviceState(service);
+
+            var acoustics = new Channel3DProperties(
+                AudibleDistanceMetres,
+                ConversationalDistanceMetres,
+                1f,
+                AudioFadeModel.InverseByDistance);
+
+            await service.JoinPositionalChannelAsync(
+                channel,
+                ChatCapability.AudioOnly,
+                acoustics,
+                new ChannelOptions { MakeActiveChannelUponJoining = true });
+        }
+
+        /// <summary>Await SDK work without allowing it to hold the voice UI forever.</summary>
+        public static async Task AwaitWithTimeoutAsync(Task work, float timeoutSeconds)
+        {
+            if (work == null) throw new ArgumentNullException(nameof(work));
+
+            var timeout = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(0.001f, timeoutSeconds)));
+            if (await Task.WhenAny(work, timeout) != work)
+                throw new TimeoutException($"Vivox did not connect within {timeoutSeconds:0.#} seconds");
+
+            await work;
+        }
+
+        private static async Task ReleaseWhenSettledAsync(Task connecting, IVivoxService service,
+                                                           string channel)
+        {
+            try { await connecting; }
+            catch { /* The original warning already records the player-facing failure. */ }
+
+            await ReleaseServiceAsync(service, channel);
         }
 
         private static async Task ReleaseServiceAsync(IVivoxService service, string channel)
