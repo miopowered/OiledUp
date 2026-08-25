@@ -151,11 +151,13 @@ namespace Residue.Gameplay.World
             toastLabel.style.whiteSpace = WhiteSpace.Normal;
             root.Add(toastLabel);
 
-            // Greybox affordance. Nothing in an untextured room tells you that pickup is E and
-            // agitation is the mouse, and a player who cannot pick a vial up cannot discover
-            // anything else in the game.
+            // Greybox affordance. Nothing in an untextured room tells you that pickup is E, and a
+            // player who cannot pick a vial up cannot discover anything else in the game. Setting an
+            // item down earns its place here for the same reason: without it, the first item you pick
+            // up occupies a slot for the rest of the shift and nothing on screen suggests otherwise.
             var controls = new Label(
-                "[WASD] move    [E] interact    [1–3] select    [Space] inspect    [LMB drag] rotate    [Wheel] zoom");
+                "[WASD] move    [E] interact    [1–3] select    [G] set down    [Space] inspect    " +
+                "[LMB drag] rotate    [Wheel] zoom");
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
@@ -231,8 +233,8 @@ namespace Residue.Gameplay.World
             {
                 string hint = carried.UseHint;
                 handsLabel.text = hint == null
-                    ? $"in hands: {carried.DisplayName}    [Space] inspect"
-                    : $"in hands: {carried.DisplayName}    [LMB] {hint}    [Space] inspect";
+                    ? $"in hands: {carried.DisplayName}    [G] set down    [Space] inspect"
+                    : $"in hands: {carried.DisplayName}    [LMB] {hint}    [G] set down    [Space] inspect";
             }
             else
             {

@@ -48,14 +48,14 @@ namespace Residue.Gameplay.World
         /// <summary>Unity's built-in layer 2. Used for the player so it cannot occlude its own aim.</summary>
         public const int IgnoreRaycastLayer = 2;
 
-        [Tooltip("Seconds of shaking before a settled sample is homogeneous enough to test.")]
-        [SerializeField] private float agitateSeconds = 2.5f;
+        // The shake duration used to live here. It belongs to the instrument now — see
+        // MachineStation.loadHoldSeconds — because that is where the seconds are actually spent.
 
         private InputAction interactAction;
         private InputAction agitateAction;
+        private InputAction dropAction;
 
         private float holdElapsed;
-        private float agitateElapsed;
 
         /// <summary>The selected inventory item—the only item currently presented in the hands.</summary>
         public Carryable Carried => inventory != null ? inventory.Selected : null;
@@ -156,7 +156,16 @@ namespace Residue.Gameplay.World
 
             interactAction = map.FindAction("Interact", throwIfNotFound: false);
             agitateAction = map.FindAction("Attack", throwIfNotFound: false);
+            dropAction = map.FindAction("Drop", throwIfNotFound: false);
             map.Enable();
+
+            if (dropAction == null)
+            {
+                Debug.LogError(
+                    "[PlayerInteractor] The 'Player' map has no 'Drop' action, so nothing can be set " +
+                    "down and an item picked up is held for the rest of the run. Add it to " +
+                    "InputSystem_Actions.", this);
+            }
 
             // Unity's template ships "Interact" with a Hold interaction attached. That is fatal here:
             // with Hold, the action only reaches Performed after its own timeout, so WasPressedThisFrame
@@ -178,8 +187,9 @@ namespace Residue.Gameplay.World
 
             TickInventoryInput();
             AcquireTarget();
+            TickDrop();
             TickInteract();
-            TickAgitate();
+            TickUseInHand();
 
             if (Toast != null && Time.time > toastUntil) Toast = null;
         }
@@ -399,64 +409,49 @@ namespace Residue.Gameplay.World
             }
         }
 
-        // -- Agitation -----------------------------------------------------------------------------
+        // -- Using what is in your hands ---------------------------------------------------------------
 
         /// <summary>
-        /// Shake the carried vial until it is homogeneous. A sample that has stood in a crate has
-        /// its heavy particulates on the bottom; testing it unshaken reads low on exactly the wear
-        /// metals you care about, so the machines refuse it outright rather than lying.
+        /// Use the carried item where it stands: open a manual, glance at a slip.
+        /// <para>
+        /// <b>Shaking a vial used to live here and no longer does.</b> Preparing a sample was a hold
+        /// on this button, separate from the press that put the vial into the instrument — so the
+        /// player performed two inputs, in an order nothing told them about, and discovered the first
+        /// one only when an instrument refused the bottle. The seconds §4.5 and §9 require are still
+        /// spent, but they are spent holding Interact at the instrument, where the action is and where
+        /// the progress ring is already pointed. See <see cref="MachineStation.HoldSeconds"/>.
+        /// </para>
+        /// A vial therefore has nothing to do in the hand any more, which is why there is no branch
+        /// for one here.
         /// </summary>
-        private void TickAgitate()
+        private void TickUseInHand()
         {
-            if (agitateAction == null) { agitateElapsed = 0f; return; }
+            if (agitateAction == null || Carried == null) return;
+            if (Carried is VialProp) return;
 
-            var vial = CarriedVial;
-            if (vial == null)
-            {
-                // Anything that is not a vial gets a tap rather than a hold: open a manual, glance
-                // at a slip. A carried item cannot be looked at, so this is its only input route.
-                agitateElapsed = 0f;
-                if (Carried != null && agitateAction.WasPressedThisFrame()) Carried.UseInHand(this);
-                return;
-            }
+            if (agitateAction.WasPressedThisFrame()) Carried.UseInHand(this);
+        }
 
-            // A local read, asked every frame, never a request. On a client there is no lab to read
-            // and the gate simply opens — the hold still costs its seconds, and the host refuses on
-            // arrival if the vial was not shakeable after all.
-            var sample = LabRuntime.Instance != null
-                ? LabRuntime.Instance.SampleFor(vial.SampleId)
-                : null;
+        // -- Dropping ------------------------------------------------------------------------------
 
-            if (sample != null && sample.IsSettled) { agitateElapsed = 0f; return; }
+        /// <summary>
+        /// Set the selected item down where the player is looking, or at their feet.
+        /// <para>
+        /// Deliberately its own action rather than Interact. Interact is aimed at something that has
+        /// agreed to take the item — a rack, an instrument, a tray — and the entire point of a drop is
+        /// that there is nothing there to agree. Bound as a real action rather than read off the
+        /// keyboard so the rebinding screen can see it (#45).
+        /// </para>
+        /// Runs after <see cref="AcquireTarget"/> so the aim it resolves against is this frame's,
+        /// which is the same ray the crosshair is drawn from. Resolving it a frame late would let the
+        /// item land somewhere the player was no longer looking.
+        /// </summary>
+        private void TickDrop()
+        {
+            if (dropAction == null || Carried == null) return;
+            if (!dropAction.WasPressedThisFrame()) return;
 
-            if (!agitateAction.IsPressed()) { agitateElapsed = 0f; return; }
-
-            // Refuse before the hold rather than after it. §5.1 puts logging ahead of prep, so an
-            // unlogged vial cannot be agitated — and spending 2.5 s shaking one only to be told it
-            // was never booked in is precisely the kind of unannounced rule §9 forbids. Asked as a
-            // pure query so a player leaning on the key does not fill the console.
-            if (sample != null)
-            {
-                var refusal = Chemistry.SampleLifecycle.Refusal(sample, Chemistry.SampleStage.Prepped);
-                if (refusal != null)
-                {
-                    agitateElapsed = 0f;
-                    HoldProgress = 0f;
-                    Say(refusal);
-                    return;
-                }
-            }
-
-            agitateElapsed += Time.deltaTime;
-            HoldProgress = Mathf.Clamp01(agitateElapsed / agitateSeconds);
-
-            if (agitateElapsed < agitateSeconds) return;
-
-            agitateElapsed = 0f;
-            HoldProgress = 0f;
-
-            LabCommands.Attempt(this, LabCommand.Agitate(),
-                _ => Say($"{(sample != null ? sample.RecordTag : "Sample")}: agitated, ready to run."));
+            ItemDrop.Attempt(this);
         }
 
         // -- Carrying ------------------------------------------------------------------------------

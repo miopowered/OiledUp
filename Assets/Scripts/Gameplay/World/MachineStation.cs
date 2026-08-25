@@ -173,6 +173,36 @@ namespace Residue.Gameplay.World
 
         // -- Interaction ----------------------------------------------------------------------------
 
+        [Tooltip("Seconds of holding Interact at the instrument before the vial goes in. This is " +
+                 "where agitation happens, so it carries §4.5's time cost.")]
+        [SerializeField] private float loadHoldSeconds = 2.5f;
+
+        /// <summary>
+        /// Loading is a hold; everything else here is a tap.
+        /// <para>
+        /// <b>Why loading costs seconds.</b> A sample that has stood in a crate has its heavy
+        /// particulates on the bottom, and running it unshaken reads low on exactly the wear metals
+        /// the player is looking for — so §4.5 requires it to be agitated first, and §9 requires that
+        /// preparation to be a hand-operated task with a real cost rather than a menu click. That used
+        /// to be a separate hold on a separate button, which meant the cost was paid somewhere the
+        /// player was not looking and the instrument's refusal was the first they heard of it. Folding
+        /// it into the load keeps the seconds and puts them where the action is.
+        /// </para>
+        /// Taking a finished vial back and starting a run stay taps: neither prepares anything, and a
+        /// hold on them would be delay for its own sake.
+        /// </summary>
+        public override float HoldSeconds
+        {
+            get
+            {
+                var machine = Machine;
+                bool loading = machine != null && !machine.IsRunning && machine.IsEmpty &&
+                               !ShiftOver;
+
+                return loading ? Mathf.Max(0f, loadHoldSeconds) : 0f;
+            }
+        }
+
         public override string Prompt(PlayerInteractor player)
         {
             var machine = Machine;
@@ -186,18 +216,15 @@ namespace Residue.Gameplay.World
             {
                 var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
 
-                // Named separately rather than left to fall out as "not settled". An unlogged vial
-                // cannot be agitated either (§5.1), so without this the player is sent to shake a
-                // bottle that will refuse for a completely different reason.
-                if (sample != null && !sample.IsLogged)
-                    return $"{title}: {sample.Id} is not booked in — register it at the terminal";
-
                 return machine.CanAccept(sample) switch
                 {
-                    LoadRefusal.Accepted => $"Load into {title}",
+                    LoadRefusal.Accepted => $"Hold to load into {title}",
                     LoadRefusal.NotEnoughVolume =>
                         $"{title} needs {machine.Def.SampleVolumeMl:F0} ml — {sample?.VolumeMl:F1} ml left",
-                    LoadRefusal.NotSettled => $"{title}: sample has settled out — hold LMB to agitate first",
+
+                    // Not a refusal any more: the hold is where the shaking happens, so a settled
+                    // sample is loadable and the prompt says what the seconds are buying.
+                    LoadRefusal.NotSettled => $"Hold to shake and load into {title}",
                     LoadRefusal.NeedsPreheat => $"{title}: sample is cold, needs preheating",
                     _ => $"{title} is occupied"
                 };
@@ -242,21 +269,28 @@ namespace Residue.Gameplay.World
 
                 var sample = LabRuntime.Instance?.SampleFor(player.CarriedVial.SampleId);
 
-                // A client is holding a bottle and none of the paperwork behind it: volume, settling
-                // and whether it was ever booked in all live on a SampleState it does not have (§3.2).
-                // Offer the load and let the host refuse in a sentence the player can read — the house
-                // pattern in LabCommands, and the alternative is a second copy of §4.5 living out here
-                // to drift from the enforced one.
-                if (sample == null) return HostLab == null && machine.CanAccept(null) == LoadRefusal.Accepted;
+                // A client is holding a bottle and none of the paperwork behind it: volume and
+                // settling both live on a SampleState it does not have (§3.2). Offer the load and let
+                // the host refuse in a sentence the player can read — the house pattern in
+                // LabCommands, and the alternative is a second copy of §4.5 living out here to drift
+                // from the enforced one.
+                if (sample == null) return HostLab == null && Loadable(machine.CanAccept(null));
 
-                if (!sample.IsLogged) return false;
-                return machine.CanAccept(sample) == LoadRefusal.Accepted;
+                return Loadable(machine.CanAccept(sample));
             }
 
             if (machine.IsEmpty) return false;
             if (machine.HasResultWaiting) return true;
             return !ShiftOver;
         }
+
+        /// <summary>
+        /// A settled sample is no longer a reason to refuse the load — the hold shakes it on the way
+        /// in. Everything else <see cref="MachineInstance.CanAccept"/> says no to still means no:
+        /// there is no amount of holding that produces the millilitres the run needs.
+        /// </summary>
+        private static bool Loadable(LoadRefusal refusal) =>
+            refusal == LoadRefusal.Accepted || refusal == LoadRefusal.NotSettled;
 
         public override void Interact(PlayerInteractor player)
         {
@@ -279,13 +313,27 @@ namespace Residue.Gameplay.World
         /// on arrival, which is what makes a client asking to load a vial it is not carrying — or to
         /// operate this instrument from across the room — a refusal rather than a result.
         /// </summary>
+        /// <summary>
+        /// Shake, then load. Two requests rather than one because they are two rules, and the host
+        /// already validates each of them on its own terms — inventing a combined command would put a
+        /// third copy of §4.5 somewhere it could drift from the enforced one.
+        /// <para>
+        /// The agitate is sent unconditionally rather than only when the sample looks settled.
+        /// Prepped repeats in the lifecycle table, so shaking an already-homogeneous sample is a
+        /// legal no-op; and a client cannot see <c>IsSettled</c> at all (§3.2), so the alternative is
+        /// asking the host a question it would only have to answer again. Loading is chained inside
+        /// the acceptance callback, so a refused shake never puts the vial in the instrument.
+        /// </para>
+        /// </summary>
         private void Load(PlayerInteractor player)
         {
-            LabCommands.Attempt(player, LabCommand.LoadMachine(machineInstanceId), _ =>
-            {
-                var vial = player.ReleaseCarried();
-                if (vial != null) vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
-            });
+            LabCommands.Attempt(player, LabCommand.Agitate(), _ =>
+                LabCommands.Attempt(player, LabCommand.LoadMachine(machineInstanceId), _ =>
+                {
+                    var vial = player.ReleaseCarried();
+                    if (vial != null)
+                        vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
+                }));
         }
 
         private void StartRun(PlayerInteractor player, IMachineView machine)
@@ -378,9 +426,9 @@ namespace Residue.Gameplay.World
                 result,
                 completed.InstanceId,
                 completed.Def != null ? completed.Def.DisplayName : "Instrument",
-                // RecordTag, not EquipmentTag: an instrument prints the run under the name the lab
-                // gave it. Printing the paper label would let a slip held at the desk resolve a
-                // mis-log for free, which is the §5.1 walk this is supposed to cost.
+                // The name the record is filed under, so the player can match paper to a row on the
+                // terminal. A blank and a certified standard belong to the instrument rather than to
+                // any sample, so they are captioned as themselves.
                 sample != null ? sample.RecordTag : result.IsReference ? "CERT STANDARD" : "BLANK",
                 tray);
         }
