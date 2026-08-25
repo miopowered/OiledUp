@@ -47,6 +47,7 @@ namespace Residue.Editor.Build
         private const string PaletteMaterial = "Assets/Art/Materials/M_Palette_Opaque.mat";
         private const string EmissivePaletteMaterial = "Assets/Art/Materials/M_Palette_Emissive.mat";
         private const string CatalogPath = "Assets/Data/ContentCatalog.asset";
+        private const string InputActionsPath = "Assets/InputSystem_Actions.inputactions";
         private const string VolumeProfilePath = "Assets/Settings/LabVolumeProfile.asset";
 
         // Room is laid out on the §5.5 half-metre grid.
@@ -116,7 +117,7 @@ namespace Residue.Editor.Build
             var vialPrefab = BuildVialPrefab(palette);
             var bottlePrefab = BuildSolventBottlePrefab(palette);
             var inputAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.InputSystem.InputActionAsset>(
-                "Assets/InputSystem_Actions.inputactions");
+                InputActionsPath);
 
             var screenMaterial = EnsureScreenMaterial();
             var volumeProfile = EnsureLabVolumeProfile();
@@ -759,7 +760,55 @@ namespace Residue.Editor.Build
         private static void BuildBootScene(PanelSettings panelSettings)
         {
             var boot = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Additive);
+            PopulateBootScene(boot, panelSettings);
 
+            EditorSceneManager.MarkSceneDirty(boot);
+            EditorSceneManager.SaveScene(boot, BootScenePath);
+            EditorSceneManager.CloseScene(boot, removeScene: true);
+        }
+
+        /// <summary>
+        /// Rebuild only the front door, leaving the lab alone.
+        /// <para>
+        /// The menu changes far more often than the room does, and regenerating the whole lab to move
+        /// a button means re-saving every mesh, prefab and material the room is made of — a large
+        /// diff, a long wait, and a chance to break something unrelated to the change being made.
+        /// This is the same <see cref="PopulateBootScene"/> the full rebuild runs, so the two cannot
+        /// drift.
+        /// </para>
+        /// Single rather than additive: the Boot scene is usually the one already open, and saving
+        /// over a scene that is loaded is not something the scene manager will do.
+        /// </summary>
+        [MenuItem("Residue/Build/Rebuild Boot Scene", priority = 41)]
+        public static void RebuildBootScene()
+        {
+            var open = SceneManager.GetActiveScene();
+            if (open.isDirty)
+            {
+                Debug.LogError("[LabSceneBuilder] The open scene has unsaved changes. Save or " +
+                               "discard them before rebuilding.");
+                return;
+            }
+
+            EnsureFolders();
+
+            var panelSettings = EnsurePanelSettings(EnsureRuntimeTheme());
+            var boot = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            PopulateBootScene(boot, panelSettings);
+
+            EditorSceneManager.MarkSceneDirty(boot);
+            EditorSceneManager.SaveScene(boot, BootScenePath);
+            RegisterScenesInBuildSettings();
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log($"[LabSceneBuilder] Built {BootScenePath}. It is open now — press Play.");
+        }
+
+        private static void PopulateBootScene(Scene boot, PanelSettings panelSettings)
+        {
             var managerGo = NewRoot(boot, "NetworkManager");
             var manager = managerGo.AddComponent<NetworkManager>();
             var transport = managerGo.AddComponent<UnityTransport>();
@@ -784,19 +833,32 @@ namespace Residue.Editor.Build
 
             var doc = connectGo.AddComponent<UIDocument>();
 
-            // Above the book screen (20), which is the highest thing the lab draws. The connect menu
-            // is the only screen allowed to cover everything.
+            // Above the book screen (20), which is the highest thing the lab draws. The menu is the
+            // only screen allowed to cover everything — including, now, the pause menu it also owns.
             SetPanelSettings(doc, panelSettings, 30);
 
-            var screen = connectGo.AddComponent<ConnectScreen>();
+            // This object is DontDestroyOnLoad (see LabConnection.Awake), so the menu it carries
+            // survives into the lab. That is deliberate and it is why the lab scene needs no menu of
+            // its own: the title screen, the lobby, the settings screen and the pause menu are all
+            // pages of this one document, and the settings screen a player opens mid-shift is the
+            // same instance they opened from the title.
+            var screen = connectGo.AddComponent<MenuScreen>();
             var screenSo = new SerializedObject(screen);
             screenSo.FindProperty("document").objectReferenceValue = doc;
             screenSo.FindProperty("connection").objectReferenceValue = connection;
-            screenSo.ApplyModifiedPropertiesWithoutUndo();
 
-            EditorSceneManager.MarkSceneDirty(boot);
-            EditorSceneManager.SaveScene(boot, BootScenePath);
-            EditorSceneManager.CloseScene(boot, removeScene: true);
+            // The rebind screen needs the asset the bindings actually live on — the same instance
+            // PlayerController binds against, so an override applied here is live in the lab without
+            // a reload. There is no player in the Boot scene to borrow it from.
+            var inputAsset = AssetDatabase.LoadAssetAtPath<UnityEngine.InputSystem.InputActionAsset>(
+                InputActionsPath);
+
+            if (inputAsset == null)
+                Debug.LogError($"[LabSceneBuilder] {InputActionsPath} is missing, so the settings " +
+                               "screen has no bindings to offer and rebinding will be unavailable.");
+
+            screenSo.FindProperty("inputAsset").objectReferenceValue = inputAsset;
+            screenSo.ApplyModifiedPropertiesWithoutUndo();
         }
 
         /// <summary>
