@@ -23,8 +23,8 @@ namespace Residue.Net
     /// structural reason it holds in <see cref="Views.SampleView"/>: nothing in this type can express
     /// a <c>SampleGroundTruth</c>, so no amount of plumbing can put one on the wire.
     /// </para>
-    /// Text is <c>FixedString</c> because NGO's serializer will not take a managed string; a typed
-    /// tank tag longer than the budget is truncated rather than thrown, for the reason
+    /// Text is <c>FixedString</c> because NGO's serializer will not take a managed string; anything
+    /// longer than the budget is truncated rather than thrown, for the reason
     /// <see cref="ViewText"/> gives.
     /// </summary>
     public struct LabCommandMessage : INetworkSerializable

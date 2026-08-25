@@ -281,7 +281,7 @@ namespace Residue.Tests.EditMode
                 "Results stay on file. Re-opening invites a re-run to compare against, not a blank slate.");
             Assert.IsTrue(sample.Results[0].Suspect,
                 "The suspect flag stays too — it is the reason the record was re-opened.");
-            Assert.AreEqual("WERK-1 QUENCH 1", sample.LoggedTag,
+            Assert.AreEqual("WERK-1 QUENCH 1", sample.RecordTag,
                 "The tag was never in doubt, so re-opening must not put it back in play.");
         }
 
@@ -412,7 +412,7 @@ namespace Residue.Tests.EditMode
 
         // -- helpers ------------------------------------------------------------------------------
 
-        /// <summary>A logged, prepped sample with one filed run from <paramref name="machineId"/>.</summary>
+        /// <summary>An unpacked, prepped sample with one filed run from <paramref name="machineId"/>.</summary>
         private static SampleState Measured(int id, string tag, string machineId, int runIndex,
                                             float volumeMl = 40f)
         {
@@ -425,7 +425,6 @@ namespace Residue.Tests.EditMode
             };
 
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.Held(0), out _));
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, tag, out _));
             Assert.IsTrue(SampleLifecycle.TryPrep(sample, out _));
             Assert.IsTrue(SampleLifecycle.TryFileResult(
                 sample,

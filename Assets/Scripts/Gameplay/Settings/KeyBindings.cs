@@ -254,6 +254,7 @@ namespace Residue.Gameplay.Settings
                 "Sprint" => "Sprint",
                 "Interact" => "Interact",
                 "Attack" => "Agitate / use item",
+                "Drop" => "Set down carried item",
                 "Previous" => "Previous item",
                 "Next" => "Next item",
                 _ => Prettify(action.name)

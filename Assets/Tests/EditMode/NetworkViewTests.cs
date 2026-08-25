@@ -88,14 +88,14 @@ namespace Residue.Tests.EditMode
 
                     var healthyRequest = GenerationRequest.Default(profile, tag, 1);
                     healthyRequest.ForceHealthy = true;
-                    var healthy = Ready(generator.Generate(healthyRequest, ref rng), tag);
+                    var healthy = Ready(generator.Generate(healthyRequest, ref rng));
 
                     var doomedRequest = GenerationRequest.Default(profile, tag, 1);
                     doomedRequest.ForcedFault = fault;
                     doomedRequest.ForcedSeverity01 = 1f;
                     doomedRequest.CascadeChance = 0f;
                     doomedRequest.HealthyChance = 0f;
-                    var doomed = Ready(generator.Generate(doomedRequest, ref rng), tag);
+                    var doomed = Ready(generator.Generate(doomedRequest, ref rng));
 
                     // Guard the guard: if these two were not genuinely different underneath, the
                     // comparison below would pass for the wrong reason.
@@ -120,45 +120,33 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Promise: the terminal files a vial under the tank tag the player typed, and never tells
-        /// them they typed the wrong one.
+        /// Promise: the terminal names a vial after the tag printed on its label.
         /// <para>
-        /// §5.1 makes mis-logging a real failure mode, and its only tell is physical — walk back to
-        /// the bottle and read the label. <see cref="SampleState.IsMislogged"/> exists so systems can
-        /// act on the mismatch, but it is computed from a label no client should hold. A view that
-        /// carried either half of that comparison would turn "check your work" into a red icon.
+        /// This replaces <c>SampleView_FromAMisLoggedVial_ShowsTheTypedTagAndHidesTheMismatch</c>.
+        /// That test guarded hard rule 3 as it applied to §5.1's mis-log: the mismatch had to be
+        /// findable by walking back to the bottle and must not be handed over by a screen. #73
+        /// removed booking-in, so there is no typed tag, no mismatch, and nothing a screen could
+        /// give away. What survives is the half still worth pinning — the name a client sees is the
+        /// name the bottle carries, so two players describing the same vial use the same words.
         /// </para>
         /// </summary>
         [Test]
-        public void SampleView_FromAMisLoggedVial_ShowsTheTypedTagAndHidesTheMismatch()
+        public void SampleView_NamesTheVialAfterItsLabel()
         {
             var rng = new Rng(4242);
             var profile = content.Profiles["quench_oil_cold"];
             var generator = new SampleGenerator(content.AllFaults);
 
             const string label = "WERK-1 QUENCH 1";
-            const string typed = "WERK-2 QUENCH 1";
 
-            var mislogged = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng), typed);
-            var correct = Ready(generator.Generate(GenerationRequest.Default(profile, typed, 1), ref rng), typed);
+            var generated = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng));
 
-            Assert.IsTrue(mislogged.State.IsMislogged, "Setup failed: this vial is not actually mis-logged.");
-            Assert.IsFalse(correct.State.IsMislogged, "Setup failed: the control vial is mis-logged.");
+            var view = SampleView.From(generated.State);
 
-            var view = SampleView.From(mislogged.State);
-
-            Assert.AreEqual(typed, view.RecordTag.ToString(),
-                "A mis-logged vial must travel under the tank the player named, not the one on the label.");
-
-            foreach (var (name, value) in ReadableValues(view))
-            {
-                StringAssert.DoesNotContain(label, value?.ToString() ?? string.Empty,
-                    $"SampleView.{name} carries the paper label. The label is read off the bottle, not a screen.");
-            }
-
-            AssertViewsAgree(view, SampleView.From(correct.State),
-                "differs between a mis-logged vial and a correctly logged one. A client that can spot " +
-                "the disagreement gets §5.1's failure mode corrected for free.");
+            Assert.AreEqual(label, view.RecordTag.ToString(),
+                "A client's terminal must call the sample what the bottle calls it.");
+            Assert.AreEqual(label, VialView.From(generated.State).Label.ToString(),
+                "And so must the bottle. The two cannot disagree since #73.");
         }
 
         /// <summary>
@@ -172,76 +160,56 @@ namespace Residue.Tests.EditMode
         /// </para>
         /// </summary>
         /// <summary>
-        /// Promise: a client can walk back to the bottle and read the label, and cannot be told the
-        /// answer by a screen.
+        /// Promise: a client can walk up to a bottle and read what is on it.
         /// <para>
-        /// The two halves of this are in tension, which is why they are pinned together. The label
-        /// <b>must</b> reach a client, or §5.1's mis-log is a punishment with no available check —
-        /// hard rule 3. It must <b>not</b> reach a screen, or the screen diffs it against the typed
-        /// tag and corrects the player for free. The whole reason <see cref="VialView"/> is a separate
-        /// list from <see cref="SampleView"/> is to hold both of those true at once, and merging them
-        /// "to save a list" is exactly the tidy-up this test exists to fail.
+        /// This was <c>TheLabelReachesTheBottleAndNoScreen</c>, and it pinned two halves in tension:
+        /// the label had to reach a client (hard rule 3 — §5.1's mis-log needed an available check)
+        /// but had to stay off every screen, or a screen would diff it against the typed tag and
+        /// correct the player for free. #73 deleted the typed tag. The second half is now
+        /// unsatisfiable and pointless in the same breath: <see cref="SampleView.RecordTag"/> <i>is</i>
+        /// the label, and there is no comparison for a screen to make.
+        /// </para>
+        /// <para>
+        /// The first half stands on its own and is what is left here. A client that cannot read the
+        /// bottle cannot tell two vials apart in a rack, which is a co-op problem regardless of what
+        /// the terminal knows.
         /// </para>
         /// </summary>
         [Test]
-        public void TheLabelReachesTheBottleAndNoScreen()
+        public void TheLabelReachesTheBottle()
         {
             var rng = new Rng(20260823);
             var profile = content.Profiles["quench_oil_cold"];
             var generator = new SampleGenerator(content.AllFaults);
 
             const string label = "WERK-1 QUENCH 1";
-            const string typed = "WERK-9 BATH Z";
 
-            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng),
-                typed).State;
+            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng)).State;
 
-            Assert.IsTrue(sample.IsMislogged, "Test needs a genuine mismatch to be about anything.");
-
-            var vial = VialView.From(sample);
-            Assert.AreEqual(sample.EquipmentTag, vial.Label.ToString(),
-                "A client cannot read the label off the bottle, so a mis-log has no tell (§5.1).");
-
-            var view = SampleView.From(sample);
-            foreach (string member in MemberNames(typeof(SampleView)))
-            {
-                object value = typeof(SampleView).GetField(member)?.GetValue(view)
-                               ?? typeof(SampleView).GetProperty(member)?.GetValue(view);
-
-                Assert.AreNotEqual(sample.EquipmentTag, value?.ToString(),
-                    $"SampleView.{member} carries the paper label. Screens read this, and one that " +
-                    "can compare it to RecordTag hands the player their own mistake.");
-            }
+            Assert.AreEqual(label, VialView.From(sample).Label.ToString(),
+                "A client has to be able to read the bottle it is standing in front of.");
         }
 
         /// <summary>
-        /// Promise: a printout names its run the way the record does, not the way the bottle does.
+        /// Promise: a printout names the record it belongs to, so it can be filed against the right
+        /// one.
         /// <para>
-        /// Paper is not a screen, so <see cref="TheLabelReachesTheBottleAndNoScreen"/> does not cover
-        /// it — but a slip is carried to the terminal and read beside the record it is about to be
-        /// filed against, which makes it the one prop that can hold both halves of the §5.1
-        /// comparison at once. It reports what the lab believes; walking back to the rack is still
-        /// the only way to learn what the courier wrote.
-        /// </para>
-        /// <para>
-        /// A name sweep cannot catch this one. The field is called <c>RecordTag</c> either way; only
-        /// the value it is projected from decides whether the tell survives.
+        /// This was <c>APrintoutSaysTheTypedTag_NotTheOneOnTheBottle</c>. Its sharp half — that a slip
+        /// carried to the desk must not resolve a mis-log for free — went with booking-in (#73). The
+        /// blunt half is still load-bearing: paper with no name on it is a test you paid for and
+        /// cannot use, which is §5.1's own argument for why results do not file themselves.
         /// </para>
         /// </summary>
         [Test]
-        public void APrintoutSaysTheTypedTag_NotTheOneOnTheBottle()
+        public void APrintoutNamesTheRecordItBelongsTo()
         {
             var rng = new Rng(20260824);
             var profile = content.Profiles["quench_oil_cold"];
             var generator = new SampleGenerator(content.AllFaults);
 
             const string label = "WERK-1 QUENCH 1";
-            const string typed = "WERK-9 BATH Z";
 
-            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng),
-                typed).State;
-
-            Assert.IsTrue(sample.IsMislogged, "Test needs a genuine mismatch to be about anything.");
+            var sample = Ready(generator.Generate(GenerationRequest.Default(profile, label, 1), ref rng)).State;
 
             var paperwork = new ResultSlips();
             int ticket = paperwork.Issue(sample.Id, "karl_fischer-1",
@@ -250,23 +218,14 @@ namespace Residue.Tests.EditMode
             var printed = new List<ResultSlips.Slip>();
             paperwork.CollectInto(printed);
 
-            // Projected exactly as LabNetwork.GatherSlips does it, so this fails if that line is ever
-            // "corrected" back to the label.
+            // Projected exactly as LabNetwork.GatherSlips does it.
             var view = SlipView.From(printed.Single(s => s.Ticket == ticket), resultKey: 0,
                 "Karl Fischer", sample.RecordTag);
 
-            Assert.AreEqual(typed, view.RecordTag.ToString(),
+            Assert.AreEqual(label, view.RecordTag.ToString(),
                 "A slip has to name a record, or a client cannot tell which one to file it against.");
-
-            foreach (string member in MemberNames(typeof(SlipView)))
-            {
-                object value = typeof(SlipView).GetField(member)?.GetValue(view)
-                               ?? typeof(SlipView).GetProperty(member)?.GetValue(view);
-
-                Assert.AreNotEqual(sample.EquipmentTag, value?.ToString(),
-                    $"SlipView.{member} carries the paper label to the desk. A player holding this " +
-                    "beside the terminal gets their own mis-log corrected for free (§5.1).");
-            }
+            Assert.AreEqual(sample.Id.Value, view.Sample,
+                "And it has to name it by id too — tags repeat legitimately across a contract.");
         }
 
         [Test]
@@ -285,41 +244,29 @@ namespace Residue.Tests.EditMode
                 nameof(MachineRuntimeState.DriftSign),
                 nameof(MachineRuntimeState.DriftStartedAtRunIndex),
 
-                // The comparison a mis-log is caught by. No view may make it for the player (§5.1).
-                nameof(SampleState.IsMislogged),
-
                 // Catch-alls. Substring matching means "PrimaryFaultId" and "FaultName" fail too.
                 "Fault",
                 "Truth",
                 "Actual"
             };
 
-            // The paper label is the one piece of hidden state that has to reach a client, because
-            // reading it off the bottle is the only tell a mis-log has (§5.1). So it is banned from
-            // every view except the one describing the bottle itself — see VialView, which is kept
-            // out of SampleView precisely so no screen can hold both halves of the comparison.
-            var labelWords = new[] { nameof(SampleState.EquipmentTag), "Label" };
-
+            // The list used to hold two more entries, both about §5.1's mis-log: SampleState's
+            // IsMislogged, and a ban on the words "EquipmentTag" and "Label" everywhere except
+            // VialView. They guarded hard rule 3 — the mismatch had to be found by walking back to
+            // the bottle, so no screen could be allowed to hold both halves of the comparison. #73
+            // removed booking-in; the record is now named after the label, so there is no second
+            // name, no mismatch, and no half to keep apart. The label ban in particular would now be
+            // asserting a rule the design does not have, which is worse than not asserting one.
             var offenders = new List<string>();
 
             foreach (var view in ViewTypes())
             {
-                bool describesTheBottle = view == typeof(VialView);
-
                 foreach (string member in MemberNames(view))
                 {
                     foreach (string word in forbidden)
                     {
                         if (member.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
                             offenders.Add($"{view.Name}.{member} (matches '{word}')");
-                    }
-
-                    if (describesTheBottle) continue;
-
-                    foreach (string word in labelWords)
-                    {
-                        if (member.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0)
-                            offenders.Add($"{view.Name}.{member} (carries the paper label; only VialView may)");
                     }
                 }
             }
@@ -765,7 +712,6 @@ namespace Residue.Tests.EditMode
                 ProfileId = "corrosion_protection_oil",
                 VolumeMl = 62.5f,
                 Stage = SampleStage.Archived,
-                IsLogged = true,
                 HasVerdict = true,
                 FiledVerdict = Verdict.Critical,
                 WorstReading = ReadingSeverity.Caution,
@@ -824,7 +770,13 @@ namespace Residue.Tests.EditMode
 
         /// <summary>
         /// Promise: a tag longer than the wire budget clips instead of dropping the host mid-shift.
-        /// The player types this field, so its length is not something the content tables control.
+        /// <para>
+        /// The player used to type this field, which is why it was never safe to assume the content
+        /// tables bounded it. #73 made it come off the label instead, so the tables <i>do</i> bound
+        /// it — but a <c>FixedString64Bytes</c> that throws takes the host down for everybody, and a
+        /// content table is a much easier thing to change than that failure is to diagnose. The
+        /// promise is cheaper to keep than to re-derive, so it stays.
+        /// </para>
         /// </summary>
         [Test]
         public void SampleView_TruncatesAnAbsurdlyLongTagRatherThanThrowing()
@@ -835,12 +787,10 @@ namespace Residue.Tests.EditMode
 
             var generated = Ready(
                 new SampleGenerator(content.AllFaults).Generate(
-                    GenerationRequest.Default(profile, "WERK-1 QUENCH 1", 1), ref rng),
-                huge);
+                    GenerationRequest.Default(profile, huge, 1), ref rng));
 
             var view = SampleView.From(generated.State);
 
-            Assert.IsTrue(view.IsLogged);
             Assert.Greater(view.RecordTag.Length, 0, "A clipped tag must still be legible, not empty.");
             StringAssert.StartsWith("XXX", view.RecordTag.ToString());
             Assert.AreEqual(view, RoundTrip(view));
@@ -877,21 +827,6 @@ namespace Residue.Tests.EditMode
             }
         }
 
-        /// <summary>Public instance fields and readable properties of one view instance, by name.</summary>
-        private static IEnumerable<(string Name, object Value)> ReadableValues(object view)
-        {
-            var type = view.GetType();
-
-            foreach (var f in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
-                yield return (f.Name, f.GetValue(view));
-
-            foreach (var p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
-            {
-                if (p.GetIndexParameters().Length == 0 && p.CanRead)
-                    yield return (p.Name, p.GetValue(view));
-            }
-        }
-
         /// <summary>
         /// Compare two views field by field, ignoring the id. Reflection rather than
         /// <c>Equals</c> so that a field added later is compared without anyone editing this, and so
@@ -925,15 +860,11 @@ namespace Residue.Tests.EditMode
             return copy;
         }
 
-        /// <summary>
-        /// Walk a fresh arrival to the point an instrument would take it, booking it in under
-        /// <paramref name="typedTag"/> — which is the player's transcription, right or wrong (§5.1).
-        /// </summary>
-        private static GeneratedSample Ready(GeneratedSample generated, string typedTag)
+        /// <summary>Walk a fresh arrival to the point an instrument would take it: unpacked, agitated.</summary>
+        private static GeneratedSample Ready(GeneratedSample generated)
         {
             Assert.IsNotNull(generated, "Generator produced nothing.");
             Assert.IsTrue(SampleLifecycle.TryMove(generated.State, SampleLocation.OnSurface("bench", 0), out var move), move);
-            Assert.IsTrue(SampleLifecycle.TryLog(generated.State, typedTag, out var log), log);
             Assert.IsTrue(SampleLifecycle.TryPrep(generated.State, out var prep), prep);
             return generated;
         }

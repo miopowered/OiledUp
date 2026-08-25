@@ -44,18 +44,17 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Walk a fresh arrival up to the point an instrument will take it: out of the crate, booked
-        /// in against its own label, agitated.
+        /// Walk a fresh arrival up to the point an instrument will take it: out of the crate,
+        /// agitated.
         /// <para>
-        /// These tests used to just set <c>IsSettled</c>. That is no longer a shortcut but a
-        /// different scenario — an unlogged vial is not preppable, so poking the field skipped a
-        /// step the player cannot skip and the tests stopped describing a reachable situation.
+        /// These tests used to just set <c>IsSettled</c>. That is still not a shortcut but a
+        /// different scenario — a vial in the crate is not preppable, so poking the field skips a
+        /// step the player cannot skip and the tests stop describing a reachable situation.
         /// </para>
         /// </summary>
         private static void Ready(LabState lab, SampleState sample)
         {
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out var move), move);
-            Assert.IsTrue(lab.Samples.LogSample(sample.Id, sample.EquipmentTag, out var log), log);
             Assert.IsTrue(SampleLifecycle.TryPrep(sample, out var prep), prep);
         }
 

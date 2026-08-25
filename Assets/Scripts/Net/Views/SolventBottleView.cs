@@ -16,10 +16,10 @@ namespace Residue.Net.Views
     /// parts, because that is what a <c>NetworkList</c> element can be.
     /// </para>
     /// <para>
-    /// <b>A separate list from <see cref="VialView"/> rather than a flag on it.</b> That one carries
-    /// the paper label, which must never reach a screen (§5.1); this one carries a charge count, which
-    /// every prompt in the room wants to print. One list would be one set of rules for two things that
-    /// need opposite ones, and the rule that got relaxed would be the wrong one.
+    /// <b>A separate list from <see cref="VialView"/> rather than a flag on it.</b> The two have
+    /// nothing in common but a location, and every consumer of one wants none of the other's fields.
+    /// Folding them together would put a null half in every row and a "which kind is this" branch in
+    /// every reader.
     /// </para>
     /// Two rows, republished with everything else. §3.2's "do not spawn a NetworkObject per vial"
     /// argument is about 200 bottles a shift, not two — but the local-prop machinery already existed

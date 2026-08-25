@@ -11,11 +11,11 @@ namespace Residue.Chemistry
     {
         public SampleId Id;
 
-        /// <summary>Printed on the vial label, e.g. "RIG-7 COMPRESSOR B".</summary>
+        /// <summary>
+        /// Printed on the vial label, e.g. "RIG-7 COMPRESSOR B". This is also what the lab files the
+        /// sample under: the tag arrives with the bottle rather than being transcribed (#73).
+        /// </summary>
         public string EquipmentTag;
-
-        /// <summary>Set once the player logs the vial into the terminal. Mis-logging is a real failure mode (§5.1).</summary>
-        public string LoggedTag;
 
         public EquipmentProfileDef Profile;
 
@@ -73,20 +73,6 @@ namespace Residue.Chemistry
         /// <summary>True once the consequence has been resolved and reported back to the player.</summary>
         public bool ConsequenceResolved;
 
-        public bool IsLogged => !string.IsNullOrEmpty(LoggedTag);
-
-        /// <summary>
-        /// True if the player logged this vial against the wrong equipment tag.
-        /// <para>
-        /// Both sides of this comparison are things the player can read — the paper label on the
-        /// vial and the record on the terminal — so it is not hidden state. It is here for systems
-        /// that need to act on the mismatch; the terminal must not simply print it, because a screen
-        /// that flags your own typo removes the reason to walk back and check.
-        /// </para>
-        /// </summary>
-        public bool IsMislogged =>
-            IsLogged && LoggedTag != SampleLifecycle.NormaliseTag(EquipmentTag);
-
         /// <summary>
         /// How far along the §5.1 chain this sample is. Derived from the fields above rather than
         /// stored — see <see cref="SampleLifecycle"/> for why.
@@ -94,14 +80,16 @@ namespace Residue.Chemistry
         public SampleStage Stage => SampleLifecycle.StageOf(this);
 
         /// <summary>
-        /// What the terminal calls this sample: the tag the player typed, not the one on the label.
+        /// What the lab calls this sample, on a screen, on a printout and in an end-of-day report.
         /// <para>
-        /// The distinction is the point. A mis-logged vial is filed, cross-referenced and reported
-        /// under the tank the player named, which is what makes §5.1's logging step something other
-        /// than a formality.
+        /// The same string as <see cref="EquipmentTag"/> since #73 removed booking-in: the tag comes
+        /// off the label and there is no second, player-typed name it could disagree with. It stays
+        /// a distinct member because "what the record is filed under" is what every caller actually
+        /// means, and because a sample with no label still has to be nameable in a refusal.
         /// </para>
         /// </summary>
-        public string RecordTag => IsLogged ? LoggedTag : $"UNLOGGED {Id}";
+        public string RecordTag =>
+            string.IsNullOrEmpty(EquipmentTag) ? $"UNLABELLED {Id}" : EquipmentTag;
 
         public bool HasVolumeFor(MachineDef machine) => machine != null && VolumeMl >= machine.SampleVolumeMl;
 

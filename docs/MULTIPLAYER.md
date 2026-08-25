@@ -145,15 +145,19 @@ And the rows are on the wire **only between shifts**. `LabState.LastReports` out
 describes; `BeginDay` raises `DayInProgress` before it generates the re-draws, so publishing nothing
 while a day is open closes the window strictly before the sample walks back in.
 
-The headline names the tank the vial was *filed under*, never the paper label — a mis-log still has
-exactly one tell and it is on the bottle (§5.1).
+The headline names the tank the vial was *filed under*, which since #73 is the tag on its label — so
+a report can be matched to a bottle and to a terminal row without a lookup.
 
 ### How vial props work
 
 1. A `VialView` — sample id, the **paper label**, volume, and `SampleLocation` — replicated in its
-   own list. The label has to travel: reading it off the bottle is the only tell for a mis-log
-   (§5.1). It deliberately does **not** join `SampleView`, which feeds screens; a screen that could
-   diff the label against `RecordTag` would correct the player's mistake for them.
+   own list, separate from `SampleView`. The two answer different questions and change at different
+   rates: this one is what the world reads, that one is what screens draw.
+
+   > Before #73 the split carried a second, sharper job: keeping the label away from any screen that
+   > could diff it against a player-typed tag and hand over a mis-log for free. Booking-in is gone,
+   > so `RecordTag` *is* the label and there is no diff to make. The split now stands on the first
+   > argument alone.
 2. `IVialSlots` is the surface abstraction. `IntakeCrate`, `SampleRack` and `MachineStation` each
    hand out the transform for slot *N*, and register it alongside their position with
    `LabRuntime.RegisterFixture`, so a client can turn `rack#3` back into a place in the room.

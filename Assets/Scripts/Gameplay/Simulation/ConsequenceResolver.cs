@@ -34,15 +34,9 @@ namespace Residue.Gameplay.Simulation
         public SampleId Sample;
 
         /// <summary>
-        /// The tank the player <i>filed this under</i>, not the one printed on the bottle.
-        /// <para>
-        /// <see cref="SampleState.RecordTag"/> already states the rule — a mis-logged vial is "filed,
-        /// cross-referenced and reported under the tank the player named" — and this is the report.
-        /// Naming the paper label here would put it on a screen, which is the one place §5.1 says it
-        /// must never appear: the mis-log's only tell is walking back to the bottle, and a summary
-        /// that prints the true tag hands the correction over for free. It also happens to read
-        /// better. If you booked the oil in as the wrong tank, the incident file names the wrong tank.
-        /// </para>
+        /// The tank this was filed under, so an end-of-day headline names something the player can
+        /// find again on the terminal and on a bottle. Copied at resolve time rather than looked up
+        /// later, because the report outlives the sample's place in the day's roster.
         /// </summary>
         public string RecordTag;
 

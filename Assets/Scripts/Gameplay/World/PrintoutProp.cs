@@ -64,12 +64,9 @@ namespace Residue.Gameplay.World
         public string MachineName { get; private set; } = "instrument";
 
         /// <summary>
-        /// The name the run was printed under: the tag someone typed, not the label on the bottle.
-        /// <para>
-        /// An instrument cannot read a paper label, and this prop's text is compared against the
-        /// terminal often enough that printing the label would resolve a mis-log for free (§5.1).
-        /// A slip off an unlogged vial says so, via <see cref="SampleState.RecordTag"/>.
-        /// </para>
+        /// The name the run was printed under — <see cref="SampleState.RecordTag"/>, so the paper
+        /// and the terminal row agree. "BLANK" or "CERT STANDARD" for a run that belongs to the
+        /// instrument rather than to a sample.
         /// </summary>
         public string RecordTag { get; private set; } = "UNKNOWN";
 

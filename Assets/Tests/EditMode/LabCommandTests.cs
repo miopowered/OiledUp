@@ -113,11 +113,10 @@ namespace Residue.Tests.EditMode
             return lab;
         }
 
-        /// <summary>Out of the crate, booked in under its own label, agitated — ready for an instrument.</summary>
+        /// <summary>Out of the crate and agitated — ready for an instrument.</summary>
         private static void Ready(LabState lab, SampleState sample)
         {
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out var move), move);
-            Assert.IsTrue(lab.Samples.LogSample(sample.Id, sample.EquipmentTag, out var log), log);
             Assert.IsTrue(SampleLifecycle.TryPrep(sample, out var prep), prep);
         }
 
@@ -424,11 +423,16 @@ namespace Residue.Tests.EditMode
         /// <summary>
         /// Promise: the sentence the player reads is the one the rule wrote.
         /// <para>
-        /// §5.1 puts booking in ahead of prep and <see cref="SampleLifecycle"/> phrases that refusal
-        /// for the player. If the command layer ever started composing its own, there would be two
-        /// wordings of the same rule — the one the prompt shows before you press and the one you get
-        /// after — and §9's whole "never punish something you could not have checked" rests on those
-        /// being the same sentence.
+        /// §5.1 closes a record once a verdict is filed, and <see cref="SampleLifecycle"/> phrases
+        /// that refusal for the player. If the command layer ever started composing its own, there
+        /// would be two wordings of the same rule — the one the prompt shows before you press and the
+        /// one you get after — and §9's whole "never punish something you could not have checked"
+        /// rests on those being the same sentence.
+        /// <para>
+        /// The scenario used to be an unlogged vial, which #73 made unreachable: <c>Unpacked</c> leads
+        /// straight to <c>Prepped</c> now, so taking a bottle out of the crate is enough to make it
+        /// agitatable. An archived record is the remaining case where prep is refused by the gateway
+        /// rather than by the executor, and the promise being guarded is unchanged.
         /// </para>
         /// </summary>
         [Test]
@@ -438,10 +442,12 @@ namespace Residue.Tests.EditMode
             var executor = new LabCommandExecutor(lab);
 
             var sample = lab.OpenSamples().First();
+            Assert.IsTrue(lab.Samples.FileVerdict(sample.Id, Verdict.Normal, null, lab.Day, out var filed), filed);
+
             var actor = new TestActor();
             Assert.IsTrue(executor.Execute(actor, LabCommand.TakeVial(sample.Id)).Accepted);
 
-            // Never booked in, so §5.1 says it cannot be prepped.
+            // The record is closed, so §5.1 says it cannot be prepped.
             var expected = SampleLifecycle.Refusal(sample, SampleStage.Prepped);
             Assert.IsNotNull(expected);
 
@@ -803,12 +809,21 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Promise: booking in is a request like everything else, and a mis-typed tag is accepted
-        /// exactly as readily as a right one. §5.1's whole mis-logging mechanic dies the moment the
-        /// host starts checking the tag against the label.
+        /// Promise: a vial out of the crate is ready to work on, with no paperwork in between.
+        /// <para>
+        /// This replaces <c>BookingInAcceptsAWrongTagAsReadilyAsARightOne</c>, which asserted that
+        /// the host accepted a mis-typed tank tag as readily as a right one — §5.1's mis-logging
+        /// mechanic dies the moment the host starts checking. #73 removed the step, so there is no
+        /// tag to type and no check to refrain from making. The pillar that test served was hard
+        /// rule 3, and it is untouched: nothing is punished here at all now.
+        /// </para>
+        /// <para>
+        /// What is worth asserting instead is the thing #73 was asked for — that the loop does not
+        /// stop dead at a keyboard before any analysis can start.
+        /// </para>
         /// </summary>
         [Test]
-        public void BookingInAcceptsAWrongTagAsReadilyAsARightOne()
+        public void AnUnpackedVialIsImmediatelyWorkable()
         {
             var lab = NewLab();
             var executor = new LabCommandExecutor(lab);
@@ -816,12 +831,17 @@ namespace Residue.Tests.EditMode
             var sample = lab.OpenSamples().First();
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out _));
 
-            var result = executor.Execute(new TestActor(),
-                LabCommand.BookIn(sample.Id, "definitely the wrong tank"));
+            Assert.AreEqual(sample.EquipmentTag, sample.RecordTag,
+                "It is filed under the tag it arrived carrying — nobody registered it.");
+
+            var actor = new TestActor();
+            actor.SetGrip(LabGrip.OnVial(sample.Id));
+
+            var result = executor.Execute(actor, LabCommand.Agitate());
 
             Assert.IsTrue(result.Accepted, result.Refusal);
-            Assert.IsTrue(sample.IsLogged);
-            Assert.AreNotEqual(sample.EquipmentTag, sample.RecordTag);
+            Assert.AreEqual(SampleStage.Prepped, sample.Stage,
+                "Unpacked leads straight to Prepped. No terminal visit stands in between (#73).");
         }
     }
 }

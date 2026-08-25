@@ -290,7 +290,7 @@ namespace Residue.Net.Views
             return new SampleState
             {
                 Id = view.SampleId,
-                LoggedTag = view.IsLogged ? view.RecordTag.ToString() : null,
+                EquipmentTag = view.RecordTag.ToString(),
                 Profile = catalog.Profile(view.ProfileId.ToString()),
                 VolumeMl = view.VolumeMl,
                 HoursSinceOilChange = view.HoursSinceOilChange,

@@ -50,6 +50,16 @@
     <Reference Include="$(UnityManaged)\UnityEngine\*.dll" Private="false" />
     <Reference Include="$(ProjectRoot)\Library\PackageCache\com.unity.ext.nunit*\net472\unity-custom\nunit.framework.dll"
               Private="false" />
+    <!--
+      The Test Runner API, which TestRunReport drives so the suite can be started headlessly. Both
+      halves are needed: UnityEngine.TestRunner defines ITestAdaptor and friends, UnityEditor.TestRunner
+      defines TestRunnerApi itself. Conditional like the rest — they only exist once Unity has
+      imported the test framework package at least once.
+    -->
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\UnityEditor.TestRunner.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\UnityEditor.TestRunner.dll')" Private="false" />
+    <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\UnityEngine.TestRunner.dll"
+               Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\UnityEngine.TestRunner.dll')" Private="false" />
     <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll"
                Condition="Exists('$(ProjectRoot)\Library\ScriptAssemblies\Unity.InputSystem.dll')" Private="false" />
     <Reference Include="$(ProjectRoot)\Library\ScriptAssemblies\Unity.Netcode.Runtime.dll"

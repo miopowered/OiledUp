@@ -25,11 +25,8 @@ namespace Residue.Net.Views
     /// the paperwork — a hole in the middle of the co-op loop rather than a missing polish item.
     /// </para>
     /// <para>
-    /// <b>The equipment tag travels here and nowhere near a screen.</b> Same rule as
-    /// <see cref="VialView"/>, and for the same §5.1 reason: this is a list the <i>world</i> reads —
-    /// paper you pick up and look at — where <see cref="SampleView"/> is what displays draw and
-    /// carries the tag the player typed. A terminal able to see both could diff them and hand over the
-    /// mis-log the player was supposed to catch by walking back and reading the bottle.
+    /// A list the <i>world</i> reads — paper you pick up and look at — where <see cref="SampleView"/>
+    /// is what displays draw. Same split as <see cref="VialView"/>, for the same reason.
     /// </para>
     /// Slips are not <c>NetworkObject</c>s, for the reason §3.2 gives about vials. Only the record
     /// travels; each client snaps its own local prop to the tray, rack hole or pair of hands this
@@ -56,15 +53,9 @@ namespace Residue.Net.Views
         public FixedString64Bytes MachineName;
 
         /// <summary>
-        /// What the lab calls the sample this reports on: the tag someone typed at the terminal, not
-        /// the one on the bottle.
-        /// <para>
-        /// The paper label deliberately does <b>not</b> travel here. A printout is a machine's
-        /// output, and a player holding one beside the terminal would otherwise see a mis-log
-        /// resolve itself — which is exactly the §5.1 tell that is supposed to cost a walk back to
-        /// the rack. The label reaches the world through <c>VialView</c>, on the bottle, and nowhere
-        /// else.
-        /// </para>
+        /// What the lab calls the sample this reports on, so a player holding the paper can find the
+        /// row it belongs to. "BLANK" or "CERT STANDARD" when the run belongs to the instrument
+        /// rather than to any sample.
         /// </summary>
         public FixedString64Bytes RecordTag;
 

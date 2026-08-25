@@ -206,10 +206,9 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// Draw a finished reading a client read off the wire, captioned with the sample's id.
         /// <para>
-        /// <b>Not the tank tag.</b> Neither one, in fact: the paper label reaches a client through
-        /// <c>VialView</c> and must never reach a screen (§5.1 — a display that could show it beside
-        /// what someone typed corrects the mis-log for free), and the typed tag would caption this
-        /// screen differently from the host's, which is the co-op divergence the whole view layer
+        /// <b>Not the tank tag.</b> A client reading a finished run off the wire has the sample's id
+        /// and not its paperwork, so captioning with a tag would either print nothing or print
+        /// something the host's own screen does not — the co-op divergence the whole view layer
         /// exists to prevent. The id is what both sides can print, and the terminal prints it beside
         /// the record so the two can be matched.
         /// </para>

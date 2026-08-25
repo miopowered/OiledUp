@@ -54,9 +54,8 @@ namespace Residue.Net.Views
     /// generates the re-draws, which means the rows are already gone by the time the sample they talk
     /// about is back through the door.
     /// </para>
-    /// No paper label rides in here. The headline names the tank the player <i>filed the vial
-    /// under</i>, so a mis-log (§5.1) still has exactly one tell and it is on the bottle — see
-    /// <see cref="VialView"/> for why that boundary is a separate list rather than a comment.
+    /// The headline names the tank the vial was filed under, which is the tag on its label (#73), so
+    /// a player can match a report to a bottle and to a terminal row without a lookup.
     /// </summary>
     public struct ReportView : INetworkSerializable, IEquatable<ReportView>
     {

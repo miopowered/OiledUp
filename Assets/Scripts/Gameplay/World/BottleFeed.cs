@@ -14,10 +14,10 @@ namespace Residue.Gameplay.World
     /// </para>
     /// <para>
     /// <b>Kept apart from <see cref="VialFeed"/> rather than folded into it.</b> The two lists have
-    /// nothing in common but a location: a vial carries a paper label that must never reach a screen
-    /// (§5.1), a solvent bottle carries a charge count that every prompt wants. One list would mean
-    /// one set of rules for two things with opposite ones. <see cref="VialFeed.Hands"/> is shared,
-    /// because whose hands are whose is genuinely one question.
+    /// nothing in common but a location: a vial carries a label, a volume and a record behind it, a
+    /// solvent bottle carries a charge count. One list would mean a null half in every row and a
+    /// "which kind is this" branch in every reader. <see cref="VialFeed.Hands"/> is shared, because
+    /// whose hands are whose is genuinely one question.
     /// </para>
     /// Null in single player and on a host: a process that simulates reads its own
     /// <c>SolventStore</c> — see <see cref="BottleReconciler"/>, which is the one place that choice

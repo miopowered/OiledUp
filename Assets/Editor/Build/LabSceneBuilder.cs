@@ -415,25 +415,7 @@ namespace Residue.Editor.Build
 
             var terminal = terminalGo.AddComponent<TerminalStation>();
 
-            // Shelf of general references beside the desk. Keeping them here rather than as a
-            // terminal tab means looking something up costs the walk and the shift time — §6.1
-            // assumes reading is expensive.
-            var shelfMesh = SaveMesh(ProcMesh.Box("Lab_Shelf", new Vector3(0.9f, 0.04f, 0.24f),
-                PaletteUv.Family.Steel, 7));
-            var shelfGo = new GameObject("BookShelf");
-            SceneManager.MoveGameObjectToScene(shelfGo, scene);
-            shelfGo.transform.SetParent(root.transform, false);
-            shelfGo.transform.position = new Vector3(RoomWidth * 0.5f - 1.1f, BenchHeight + 0.5f, 1.98f);
-            AddChild(shelfGo, "Plank", shelfMesh, palette, Vector3.zero, addCollider: true);
-
-            // Shelf books are parented to the shelf, which is fine: the shelf has no Interactable,
-            // so nothing's bounds are polluted by them.
-            books.Add(AddBook(shelfGo, "Elements",
-                new Vector3(-0.28f, 0.04f, 0f), BookKind.ElementIndex, null));
-            books.Add(AddBook(shelfGo, "Diagnostics",
-                new Vector3(0f, 0.04f, 0f), BookKind.DiagnosticGuide, null));
-            books.Add(AddBook(shelfGo, "Thresholds",
-                new Vector3(0.28f, 0.04f, 0f), BookKind.ThresholdTables, null));
+            BuildBookRack(root, scene, palette, books);
 
             return (terminal, crate);
         }
@@ -534,6 +516,103 @@ namespace Residue.Editor.Build
                 PaletteUv.Family.Sump, 2);
 
             return b.ToMesh(name);
+        }
+
+        // -- Reference case ----------------------------------------------------------------------------
+
+        /// <summary>
+        /// The case the general manuals live in, against the wall beside the terminal desk.
+        /// <para>
+        /// Keeping references physical rather than making them a terminal tab means looking something
+        /// up costs the walk and the shift time — §6.1 assumes reading is expensive. A case rather
+        /// than the flat plank this replaces, because a manual now has to be <i>returnable</i>: an
+        /// empty pigeonhole in a row of full ones is what tells a player holding a book where it
+        /// goes, and a plank with three books lying on it says nothing at all.
+        /// </para>
+        /// Instrument manuals are deliberately left beside their instruments (§5.5 — where you keep a
+        /// reference matters); this is where the ones that belong to no machine start, and where any
+        /// of them can be put back.
+        /// </summary>
+        private static void BuildBookRack(GameObject root, Scene scene, Material palette,
+                                          List<ReferenceBook> books)
+        {
+            // Cell geometry. These four numbers and BookRack.SlotOffset describe the same holes from
+            // two sides, so they are commented together: cells are ColumnSpacing apart across and
+            // RowSpacing apart up, and slotRoot sits at the middle of the bottom cell.
+            const float width = 0.86f;
+            const float depth = 0.28f;
+            const float panel = 0.02f;
+            const float plinthHeight = 0.55f;
+            const float rowPitch = 0.20f;   // BookRack.RowSpacing
+            const int rows = 4;
+
+            float openTop = plinthHeight + rows * rowPitch;              // 1.35
+            float openMid = (plinthHeight + openTop) * 0.5f;             // 0.95
+            float openHeight = openTop - plinthHeight + panel * 2f;      // 0.84
+
+            var caseBuilder = new ProcMesh.Builder()
+                // A closed base, so the whole thing reads as a piece of lab furniture standing on the
+                // floor rather than a plank hanging in the air.
+                .Box(new Vector3(0f, plinthHeight * 0.5f, 0f), new Vector3(width, plinthHeight, depth),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, plinthHeight + 0.02f, depth * 0.5f + 0.003f),
+                    new Vector3(0.42f, 0.09f, 0.006f), PaletteUv.Family.NeutralWarm, 13)
+                // Sides, centre divider and back. Two columns of cells.
+                .Box(new Vector3(-(width - panel) * 0.5f, openMid, 0f),
+                    new Vector3(panel, openHeight, depth), PaletteUv.Family.Steel, 6)
+                .Box(new Vector3((width - panel) * 0.5f, openMid, 0f),
+                    new Vector3(panel, openHeight, depth), PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, openMid, 0f), new Vector3(panel, openHeight, depth),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, openMid, -(depth - panel) * 0.5f),
+                    new Vector3(width, openHeight, panel), PaletteUv.Family.Sump, 4);
+
+            for (int row = 0; row <= rows; row++)
+            {
+                caseBuilder.Box(new Vector3(0f, plinthHeight + row * rowPitch, 0f),
+                    new Vector3(width, panel, depth), PaletteUv.Family.Steel, 8);
+            }
+
+            var rackGo = new GameObject("BookRack");
+            SceneManager.MoveGameObjectToScene(rackGo, scene);
+            rackGo.transform.SetParent(root.transform, false);
+
+            // Backed onto the far wall a step from the terminal desk, open face into the room. Close
+            // enough that checking a threshold and typing it in are one walk, far enough that it is
+            // still a walk.
+            rackGo.transform.position = new Vector3(RoomWidth * 0.5f - 0.16f, 0f, 0.5f);
+            rackGo.transform.rotation = Quaternion.Euler(0f, -90f, 0f);
+
+            AddChild(rackGo, "Case", SaveMesh(caseBuilder.ToMesh("Lab_BookRack")), palette,
+                Vector3.zero, addCollider: true);
+
+            var slotRoot = new GameObject("Slots");
+            slotRoot.transform.SetParent(rackGo.transform, false);
+            slotRoot.transform.localPosition =
+                new Vector3(0f, plinthHeight + rowPitch * 0.5f, panel * 0.25f);
+
+            // The cells are authored rather than built on the first frame of play, so the saved scene
+            // shows the manuals in the holes they live in. BookRack adopts these by name.
+            var cells = new Transform[BookRack.SlotCount];
+            for (int i = 0; i < BookRack.SlotCount; i++)
+            {
+                var cell = new GameObject($"Slot_{i:D2}");
+                cell.transform.SetParent(slotRoot.transform, false);
+                cell.transform.localPosition = BookRack.SlotOffset(i);
+                cell.transform.localRotation = Quaternion.Euler(BookRack.SlotTilt);
+                cells[i] = cell.transform;
+            }
+
+            var rack = rackGo.AddComponent<BookRack>();
+            var so = new SerializedObject(rack);
+            so.FindProperty("rackId").stringValue = BookRack.FixtureId;
+            so.FindProperty("slotRoot").objectReferenceValue = slotRoot.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            // At eye level, and not filling the case: the empty cells are what say a manual is out.
+            books.Add(AddBook(cells[4].gameObject, "Elements", Vector3.zero, BookKind.ElementIndex, null));
+            books.Add(AddBook(cells[5].gameObject, "Diagnostics", Vector3.zero, BookKind.DiagnosticGuide, null));
+            books.Add(AddBook(cells[6].gameObject, "Thresholds", Vector3.zero, BookKind.ThresholdTables, null));
         }
 
         private static ReferenceBook AddBook(GameObject parent, string name,

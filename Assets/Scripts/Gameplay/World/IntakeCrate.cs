@@ -171,9 +171,10 @@ namespace Residue.Gameplay.World
         }
 
         /// <summary>
-        /// Reads the paper label out loud, because the tag has to be transcribed at the terminal from
-        /// memory or from a second look at the vial. That transcription is where §5.1's mis-logging
-        /// comes from, so the tag is stated once, here.
+        /// Reads the paper label out loud as the bottle comes out of the crate. The tag is on the
+        /// glass and on the terminal either way; saying it here is what lets a player call the vial
+        /// something out loud to the person across the room before either of them has walked to a
+        /// screen.
         /// </summary>
         private static void ReadLabelAloud(PlayerInteractor player, VialProp vial)
         {
@@ -182,17 +183,15 @@ namespace Residue.Gameplay.World
             if (sample == null)
             {
                 // A client has the bottle and the label on it, and none of the paperwork behind it.
-                // The label is the half §5.1 turns on — a mis-log is only catchable because the tag is
-                // still on the glass — so a client that said nothing here would be a client that could
-                // not check its own booking-in. The profile and the hours are the host's to know.
-                player.Say($"{vial.SampleId} — {vial.Label}. Book it in at the terminal.", 5f);
+                // The profile and the hours are the host's to know, so this says what is on the glass
+                // and stops there rather than saying nothing at all.
+                player.Say($"{vial.SampleId} — {vial.Label}.", 5f);
                 return;
             }
 
             player.Say($"{sample.Id} — {sample.EquipmentTag} — {sample.Profile.DisplayName}, " +
                        $"{sample.HoursSinceOilChange:F0} h on the oil." +
-                       (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\"") +
-                       " Book it in at the terminal.",
+                       (string.IsNullOrEmpty(sample.FieldTechNote) ? "" : $" \"{sample.FieldTechNote}\""),
                 5f);
         }
     }

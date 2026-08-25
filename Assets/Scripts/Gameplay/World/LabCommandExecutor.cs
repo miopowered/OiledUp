@@ -77,7 +77,6 @@ namespace Residue.Gameplay.World
                 LabCommandKind.FillBottle => FillBottle(actor, command),
 
                 LabCommandKind.FileSlip => FileSlip(actor, command),
-                LabCommandKind.BookIn => BookIn(actor, command),
                 LabCommandKind.FileVerdict => FileVerdict(actor, command),
                 LabCommandKind.OrderSolvent => OrderSolvent(actor, command),
                 LabCommandKind.OrderStandards => OrderStandards(actor, command),
@@ -131,8 +130,18 @@ namespace Residue.Gameplay.World
             if (!lab.Slips.TryGet(command.Amount, out var slip))
                 return LabCommandResult.No("That slip has already been filed.");
 
-            if (OutOfReach(actor, slip.MachineInstanceId, DisplayNameOf(slip.MachineInstanceId), out var far))
-                return far;
+            // Reach is checked against where the paper IS, not against the instrument that printed
+            // it. While a slip could only ever sit in the tray it came out of, those were the same
+            // place; now that paperwork can be set down anywhere, they are not. Checking the printer
+            // leaves a slip lying at your feet on the far side of the room refusing to be picked up,
+            // with a refusal naming an instrument you are nowhere near.
+            bool inATray = slip.Location.Kind != SampleLocationKind.OnSurface ||
+                           string.IsNullOrEmpty(slip.Location.ContainerId);
+
+            string standingAt = inATray ? slip.MachineInstanceId : slip.Location.ContainerId;
+            string what = inATray ? DisplayNameOf(slip.MachineInstanceId) : "that slip";
+
+            if (OutOfReach(actor, standingAt, what, out var far)) return far;
 
             if (!lab.Slips.TryClaim(slip.Ticket, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
@@ -289,14 +298,6 @@ namespace Residue.Gameplay.World
             if (grip.Kind != GripKind.Vial) return LabCommandResult.No("You are not holding a sample.");
             if (!lab.Samples.TryGet(grip.Sample, out var sample))
                 return LabCommandResult.No("No such sample.");
-
-            // Named before the load refusal rather than left to fall out of it. §5.1 puts booking in
-            // ahead of everything, and "not settled" is the wrong sentence for a vial that was never
-            // registered — it sends the player off to shake a bottle that will refuse for a different
-            // reason entirely.
-            if (!sample.IsLogged)
-                return LabCommandResult.No(
-                    $"{sample.RecordTag} is not booked in — register the tank tag at the terminal first (§5.1).");
 
             if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
 
@@ -468,15 +469,6 @@ namespace Residue.Gameplay.World
             lab.Slips.Discard(grip.Ticket);
             actor.SetGrip(LabGrip.Empty);
             return LabCommandResult.Yes(sample.Id);
-        }
-
-        private LabCommandResult BookIn(ILabActor actor, LabCommand command)
-        {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
-
-            return lab.Samples.LogSample(command.Sample, command.Text, out string refusal)
-                ? LabCommandResult.Yes(command.Sample)
-                : LabCommandResult.No(refusal);
         }
 
         private LabCommandResult FileVerdict(ILabActor actor, LabCommand command)
