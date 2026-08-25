@@ -30,12 +30,27 @@ namespace Residue.Net.UI
 
         private readonly LabConnection connection;
 
+        private const string DefaultCodeHint = "Send this to whoever is joining you.";
+
+        /// <summary>
+        /// How long the copy button stays saying it worked. Long enough to be read after the click
+        /// that caused it, short enough not to still be lying when the player looks back.
+        /// </summary>
+        private const long CopiedMilliseconds = 1600;
+
         private readonly Label codeLabel;
         private readonly Label codeHint;
         private readonly Label countdownLabel;
         private readonly Label waitingLabel;
         private readonly Button readyButton;
         private readonly Button startButton;
+        private readonly Button copyButton;
+
+        /// <summary>
+        /// Set while the button is showing its confirmation, so <see cref="Refresh"/> — which runs
+        /// several times a second — does not immediately overwrite it with the resting label.
+        /// </summary>
+        private bool copied;
 
         public LobbyPanel(LabConnection connection, Action leave)
         {
@@ -50,12 +65,20 @@ namespace Residue.Net.UI
 
             var code = UiKit.Column(4f);
 
+            var codeRow = UiKit.Row();
+
             codeLabel = UiKit.Title(string.Empty);
             codeLabel.style.letterSpacing = 6;
             codeLabel.style.color = new StyleColor(ConnectPalette.Code);
-            code.Add(codeLabel);
+            codeRow.Add(codeLabel);
 
-            codeHint = UiKit.Hint("Read this out to whoever is joining you.");
+            codeRow.Add(UiKit.Spacer());
+
+            copyButton = UiKit.QuietButton("COPY", CopyCode);
+            codeRow.Add(copyButton);
+            code.Add(codeRow);
+
+            codeHint = UiKit.Hint(DefaultCodeHint);
             code.Add(codeHint);
             column.Add(code);
 
@@ -110,7 +133,11 @@ namespace Residue.Net.UI
             bool showCode = host && !string.IsNullOrEmpty(code);
             codeLabel.text = showCode ? JoinCode.ForReading(code) : string.Empty;
             codeLabel.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
+            copyButton.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
             codeHint.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
+
+            // Left alone while the copy confirmation is up; it owns both of these until it expires.
+            if (!copied) codeHint.text = DefaultCodeHint;
 
             var seats = lobby.Seats;
             for (int i = 0; i < rows.Count; i++)
@@ -137,6 +164,37 @@ namespace Residue.Net.UI
             startButton.text = counting
                 ? "CANCEL"
                 : $"START SHIFT ({lobby.ReadyCount}/{seats.Count} READY)";
+        }
+
+        /// <summary>
+        /// Put the code on the system clipboard.
+        /// <para>
+        /// The copied string is <see cref="LabConnection.JoinCodeText"/> itself, not what the label
+        /// shows — the label is a presentation of the code and has already had a space in it once.
+        /// Whatever is pasted into the other player's field has to be the thing the service will
+        /// accept.
+        /// </para>
+        /// The button says so afterwards rather than staying silent: a clipboard write produces no
+        /// visible effect anywhere on this machine, so a copy button with no confirmation is
+        /// indistinguishable from a copy button that is broken.
+        /// </summary>
+        private void CopyCode()
+        {
+            string code = connection != null ? connection.JoinCodeText : null;
+            if (string.IsNullOrEmpty(code)) return;
+
+            GUIUtility.systemCopyBuffer = code;
+
+            copied = true;
+            copyButton.text = "COPIED";
+            codeHint.text = $"{code} is on your clipboard. Paste it to whoever is joining you.";
+
+            copyButton.schedule.Execute(() =>
+            {
+                copied = false;
+                copyButton.text = "COPY";
+                codeHint.text = DefaultCodeHint;
+            }).StartingIn(CopiedMilliseconds);
         }
 
         private void StartOrCancel()

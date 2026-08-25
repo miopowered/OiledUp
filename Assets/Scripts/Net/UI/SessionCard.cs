@@ -121,9 +121,12 @@ namespace Residue.Net.UI
                 return;
             }
 
-            // A session exists — hosting or joined. Not ShiftStarted: the code is worth showing in
-            // the lobby too, and single player has nothing to put here.
-            bool live = connection.IsLive;
+            // Only once the shift is actually running. A session existing is not enough: during the
+            // lobby this card sat in the corner repeating the join code the lobby panel is already
+            // showing at four times the size, with voice hints for keys that do nothing useful while
+            // nobody is in the lab yet. The card exists because the code is needed *after* the menu
+            // has gone away — before that it is a second, worse copy of what is on screen.
+            bool live = connection.IsLive && connection.ShiftStarted;
             Root.style.display = live ? DisplayStyle.Flex : DisplayStyle.None;
             Root.pickingMode = clickable ? PickingMode.Position : PickingMode.Ignore;
             if (!live) return;
