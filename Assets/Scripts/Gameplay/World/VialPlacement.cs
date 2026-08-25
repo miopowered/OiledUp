@@ -12,11 +12,9 @@ namespace Residue.Gameplay.World
     /// the same code on a host and on a client.
     /// </para>
     /// <para>
-    /// <see cref="Label"/> is what is printed on the bottle, never what anybody typed. §5.1's mis-log
-    /// is only a fair mechanic because walking back and reading the label is a tell the player can
-    /// use, so the label has to reach a client — and nothing that reaches a <i>screen</i> may carry it,
-    /// or a terminal could diff the two and hand the correction over. Hence a separate record from
-    /// the one the screens read, all the way down.
+    /// <see cref="Label"/> is what is printed on the bottle, which since #73 is also what the record
+    /// is filed under. It travels in this record rather than in the one the screens read because the
+    /// two answer different questions and change at different rates — see <c>VialView</c>.
     /// </para>
     /// </summary>
     public readonly struct VialPlacement

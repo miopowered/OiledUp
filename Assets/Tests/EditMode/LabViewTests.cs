@@ -302,7 +302,8 @@ namespace Residue.Tests.EditMode
                 "The crate's third hole is where the host says it is; two players have to be able to " +
                 "talk about the same bottle.");
             Assert.AreEqual("WERK-1 QUENCH 1", prop.Label,
-                "The label on the glass is the only tell for a mis-log (§5.1) and has to reach a client.");
+                "A client has to be able to read the bottle it is standing in front of, or two " +
+                "players cannot tell each other which vial they mean.");
 
             // Moved.
             reconciler.Reconcile(new[] { OnRack(sample, slot: 1) });
@@ -959,7 +960,6 @@ namespace Residue.Tests.EditMode
 
             Assert.IsNotNull(generated, "Generator produced nothing.");
             Assert.IsTrue(SampleLifecycle.TryMove(generated.State, SampleLocation.OnSurface("bench", 0), out var move), move);
-            Assert.IsTrue(SampleLifecycle.TryLog(generated.State, "WERK-1 QUENCH 1", out var log), log);
             Assert.IsTrue(SampleLifecycle.TryPrep(generated.State, out var prep), prep);
             return generated.State;
         }

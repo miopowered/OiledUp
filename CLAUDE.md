@@ -205,6 +205,7 @@ Deliberate. Do not "correct" these back without reading the reasoning.
 | `Severity` | `FaultSeverity` | Avoids collision with `ReadingSeverity`. |
 | Balance authored as `.asset` files | Authored in `ContentTables.cs`, projected to `.asset` | A ScriptableObject `.asset` is a wall of GUIDs. Balance changes must be reviewable in a diff. |
 | M0 before M1 | M1 built first | M1 is explicitly "no rendering work" and is verifiable headlessly; M0 needs scene authoring in the GUI. |
+| §5.1's `log` step, and mis-logging as a failure mode | Booking-in removed; a sample carries its label's tag from the moment it exists (#73) | The loop stopped dead at a keyboard: nothing could be prepped or run until it had been typed into the terminal. The cost was paid knowingly — §5.1's named failure mode is gone, `SampleStage.Logged` and the `Unpacked → Logged → Prepped` gate with it, and so is the hard-rule-3 argument built on "walk back and read the bottle". `RecordTag` now equals `EquipmentTag`, so `VialView` and `SampleView` stay separate lists on their remaining argument (world vs. screens) rather than on the label boundary. Do not reintroduce a typed tag without reintroducing the tell. |
 
 ---
 

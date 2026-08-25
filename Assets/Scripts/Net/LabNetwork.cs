@@ -94,9 +94,9 @@ namespace Residue.Net
         /// The bottles, as physical objects: where each one is and what its label says.
         /// <para>
         /// Separate from <see cref="Samples"/> on purpose — see <see cref="VialView"/>. That list is
-        /// what screens read and carries the tag the player typed; this one is what the world reads
-        /// and carries the tag on the bottle. Keeping them apart is what stops a terminal being able
-        /// to point out a mis-log the player was supposed to catch by walking back and looking.
+        /// what screens read; this one is what the world reads. They answer different questions and
+        /// change at different rates, so a client that only cares about where the bottles are does
+        /// not churn through the paperwork every time a verdict is filed.
         /// </para>
         /// </summary>
         public NetworkList<VialView> Vials => vials;
@@ -709,9 +709,8 @@ namespace Residue.Net
             {
                 var slip = outstanding[i];
 
-                // The tag the lab filed it under, not the one on the bottle (§5.1). The paper label
-                // travels on VialView and reaches nothing but the bottle; a printout is a machine's
-                // output and names its run the way the record does.
+                // The tag the lab filed it under, so the paper and the terminal row agree. A run that
+                // belongs to the instrument rather than to a sample is captioned as itself.
                 string tag = slip.Sample.IsValid && Lab.Samples.TryGet(slip.Sample, out var sample)
                     ? sample.RecordTag
                     : slip.Result != null && slip.Result.IsReference ? "CERT STANDARD" : "BLANK";

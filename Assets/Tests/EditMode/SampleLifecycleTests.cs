@@ -10,9 +10,17 @@ namespace Residue.Tests.EditMode
 {
     /// <summary>
     /// Guards the §5.1 sample lifecycle. Every test here protects a promise about the <i>record</i>
-    /// rather than about the chemistry: that work happens in the order the lab says it does, that a
-    /// closed record stays closed, and that the one step the player can get wrong — logging — is
-    /// wrong in a way they can find and fix rather than one the game hides from them.
+    /// rather than about the chemistry: that work happens in the order the lab says it does, and that
+    /// a closed record stays closed.
+    /// <para>
+    /// <b>What used to be here.</b> A block of tests guarded booking-in: that a wrong tank tag was
+    /// accepted as readily as a right one, that typography was not a failure mode, and that a mis-log
+    /// spotted before work started could be amended. They defended one pillar — hard rule 3, "never
+    /// punish something the player could not have checked" — as it applied to a transcription step.
+    /// #73 deleted the step: a sample now carries the tag printed on its label from the moment it
+    /// exists, so there is nothing to transcribe, nothing to get wrong, and no punishment left for
+    /// hard rule 3 to make fair. The pillar is untouched; the mechanic it was protecting is gone.
+    /// </para>
     /// </summary>
     public sealed class SampleLifecycleTests
     {
@@ -26,12 +34,8 @@ namespace Residue.Tests.EditMode
             (SampleStage.InCrate, SampleStage.Unpacked),
             (SampleStage.InCrate, SampleStage.Archived),
 
-            (SampleStage.Unpacked, SampleStage.Logged),
+            (SampleStage.Unpacked, SampleStage.Prepped),
             (SampleStage.Unpacked, SampleStage.Archived),
-
-            (SampleStage.Logged, SampleStage.Logged),
-            (SampleStage.Logged, SampleStage.Prepped),
-            (SampleStage.Logged, SampleStage.Archived),
 
             (SampleStage.Prepped, SampleStage.Prepped),
             (SampleStage.Prepped, SampleStage.Measured),
@@ -69,9 +73,6 @@ namespace Residue.Tests.EditMode
 
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.Held(0), out _), "unload");
             if (stage == SampleStage.Unpacked) return sample;
-
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, tag, out _), "log");
-            if (stage == SampleStage.Logged) return sample;
 
             Assert.IsTrue(SampleLifecycle.TryPrep(sample, out _), "prep");
             if (stage == SampleStage.Prepped) return sample;
@@ -191,30 +192,35 @@ namespace Residue.Tests.EditMode
         /// A derived stage has one failure mode a stored one does not: it can report a stage the
         /// transition table cannot produce.
         /// <para>
-        /// Settling used to be read as <see cref="SampleStage.Prepped"/> on its own, so anything
-        /// that set <c>IsSettled</c> without going through <c>TryPrep</c> put the sample at Prepped
-        /// while still unlogged — off-chain, since Prepped is only reachable via Logged. Booking in
-        /// was then refused forever with "already been worked on", and the vial was stranded:
-        /// unloggable, so never legally preppable, with no way back.
+        /// This test used to be about booking in. Settling was read as <see cref="SampleStage.Prepped"/>
+        /// on its own, so a stray <c>IsSettled</c> write put an unlogged vial at Prepped — off-chain,
+        /// since Prepped was only reachable via Logged — and booking in was then refused forever,
+        /// stranding it. #73 removed the logging step, and with it that particular strand.
+        /// </para>
+        /// <para>
+        /// The <i>class</i> of bug it was guarding did not go away, so the test moved down one step
+        /// rather than being deleted. Unloading is still a real edge, and a stray write on a vial
+        /// still in the crate would still derive a stage <see cref="SampleStage.InCrate"/> has no
+        /// edge to. The pillar — a derived stage must never report something the table cannot
+        /// produce — is exactly the one <see cref="SampleLifecycle"/> is built on.
         /// </para>
         /// </summary>
         [Test]
-        public void SettlingAnUnloggedVial_DoesNotStrandItPastTheBookInStep()
+        public void SettlingAVialStillInTheCrate_DoesNotPutItOffTheChain()
         {
             var sample = Arriving();
-            Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out _));
 
             // Reach around the lifecycle, the way a careless call site would.
             sample.IsSettled = true;
 
-            Assert.AreEqual(SampleStage.Unpacked, sample.Stage,
-                "An unlogged vial cannot be Prepped — the table has no edge that gets there.");
+            Assert.AreEqual(SampleStage.InCrate, sample.Stage,
+                "A vial in the crate cannot be Prepped — the table has no edge that gets there.");
 
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, "WERK-1 BATH A", out var refusal),
-                $"Booking in must still be possible after a stray write: {refusal}");
+            Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out var refusal),
+                $"Unloading must still be possible after a stray write: {refusal}");
 
             Assert.AreEqual(SampleStage.Prepped, sample.Stage,
-                "Once booked in, the settling that already happened counts as prep.");
+                "Once it is out of the crate, the settling that already happened counts as prep.");
         }
 
         [Test]
@@ -224,8 +230,6 @@ namespace Residue.Tests.EditMode
             var seen = new List<SampleStage> { sample.Stage };
 
             SampleLifecycle.TryMove(sample, SampleLocation.Held(0), out _);
-            seen.Add(sample.Stage);
-            SampleLifecycle.TryLog(sample, Tag, out _);
             seen.Add(sample.Stage);
             SampleLifecycle.TryPrep(sample, out _);
             seen.Add(sample.Stage);
@@ -245,8 +249,8 @@ namespace Residue.Tests.EditMode
         // -----------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Storage is a location, not progress. §5.1 branches to [fridge | bench] between logging and
-        /// prep; if putting a vial down counted as a step, a shelf would become part of the record.
+        /// Storage is a location, not progress. §5.1 branches to [fridge | bench] before prep; if
+        /// putting a vial down counted as a step, a shelf would become part of the record.
         /// </summary>
         [Test]
         public void OnlyTheMoveOutOfTheCrate_AdvancesTheChain()
@@ -254,8 +258,6 @@ namespace Residue.Tests.EditMode
             var sample = At(SampleStage.InCrate);
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.Held(0), out _));
             Assert.AreEqual(SampleStage.Unpacked, sample.Stage);
-
-            SampleLifecycle.TryLog(sample, Tag, out _);
 
             foreach (var destination in new[]
                      {
@@ -265,53 +267,33 @@ namespace Residue.Tests.EditMode
                      })
             {
                 Assert.IsTrue(SampleLifecycle.TryMove(sample, destination, out _));
-                Assert.AreEqual(SampleStage.Logged, sample.Stage,
+                Assert.AreEqual(SampleStage.Unpacked, sample.Stage,
                     $"Moving to {destination.Kind} must not change how far along the sample is.");
                 Assert.AreEqual(destination.Kind, sample.Location.Kind);
             }
         }
 
+        /// <summary>
+        /// The other half of #73. This replaces <c>Prep_IsRefusedUntilTheVialIsBookedIn</c>, which
+        /// guarded "§5.1 happens in order" against a step that no longer exists. The ordering pillar
+        /// is unchanged and still has one real gate in front of prep — the crate — so the test now
+        /// asserts both directions of it: refused while boxed, available the moment it is not.
+        /// </summary>
         [Test]
-        public void Logging_IsRefusedWhileTheVialIsStillInTheCrate()
+        public void Prep_IsRefusedInTheCrate_AndAvailableAsSoonAsTheVialIsOut()
         {
             var sample = At(SampleStage.InCrate);
 
-            Assert.IsFalse(SampleLifecycle.TryLog(sample, Tag, out string refusal));
-            Assert.IsFalse(sample.IsLogged, "A refused transition must not half-apply.");
+            Assert.IsFalse(SampleLifecycle.TryPrep(sample, out string refusal),
+                "A vial nobody has unpacked cannot be agitated.");
+            Assert.IsFalse(sample.IsSettled, "A refused transition must not half-apply.");
             StringAssert.Contains("crate", refusal);
-        }
 
-        [Test]
-        public void Logging_IsRefusedOnceWorkHasStarted()
-        {
-            foreach (var stage in new[]
-                     {
-                         SampleStage.Prepped, SampleStage.Measured,
-                         SampleStage.Archived, SampleStage.Resolved
-                     })
-            {
-                var sample = At(stage);
-                string onFile = sample.LoggedTag;
+            Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.Held(0), out _));
 
-                Assert.IsFalse(SampleLifecycle.TryLog(sample, "HALLE-3 BATH C", out string refusal),
-                    $"A {stage} sample must not be re-tagged.");
-                Assert.AreEqual(onFile, sample.LoggedTag, "A refused amendment must not rewrite the record.");
-                Assert.IsNotNull(refusal);
-            }
-        }
-
-        [Test]
-        public void Prep_IsRefusedUntilTheVialIsBookedIn()
-        {
-            foreach (var stage in new[] { SampleStage.InCrate, SampleStage.Unpacked })
-            {
-                var sample = At(stage);
-
-                Assert.IsFalse(SampleLifecycle.TryPrep(sample, out string refusal),
-                    $"A {stage} sample has no record to attach a run to.");
-                Assert.IsFalse(sample.IsSettled);
-                StringAssert.Contains("booked in", refusal);
-            }
+            Assert.IsTrue(SampleLifecycle.TryPrep(sample, out refusal),
+                $"Unloading is the only thing standing in front of prep: {refusal}");
+            Assert.AreEqual(SampleStage.Prepped, sample.Stage);
         }
 
         [Test]
@@ -328,7 +310,7 @@ namespace Residue.Tests.EditMode
         [Test]
         public void Results_AreRefusedBeforeTheSampleCouldHaveBeenRun()
         {
-            foreach (var stage in new[] { SampleStage.InCrate, SampleStage.Unpacked, SampleStage.Logged })
+            foreach (var stage in new[] { SampleStage.InCrate, SampleStage.Unpacked })
             {
                 var sample = At(stage);
 
@@ -388,7 +370,7 @@ namespace Residue.Tests.EditMode
         {
             foreach (var stage in new[]
                      {
-                         SampleStage.InCrate, SampleStage.Unpacked, SampleStage.Logged,
+                         SampleStage.InCrate, SampleStage.Unpacked,
                          SampleStage.Prepped, SampleStage.Measured
                      })
             {
@@ -413,7 +395,7 @@ namespace Residue.Tests.EditMode
         {
             foreach (var stage in new[]
                      {
-                         SampleStage.InCrate, SampleStage.Unpacked, SampleStage.Logged,
+                         SampleStage.InCrate, SampleStage.Unpacked,
                          SampleStage.Prepped, SampleStage.Measured
                      })
             {
@@ -439,107 +421,56 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
-        // §5.1 logging. Mis-logging has to be reachable, or the step is a formality.
+        // §5.1 naming. The record and the bottle are the same name, by construction.
         // -----------------------------------------------------------------------------------------
+        //
+        // Five tests stood here before #73 — AWrongTag_IsAcceptedAsReadilyAsTheRightOne,
+        // ACorrectlyLoggedSample_IsNotFlaggedAsMislogged, Typography_IsNotAFailureMode,
+        // AnEmptyTag_IsNotARecord and AMislogSpottedBeforeWorkStarts_CanBeCorrected. Between them
+        // they guarded that mis-logging was reachable (§5.1's stated failure mode), that it was
+        // punished for inattention rather than for typing, and that a player who walked back and
+        // read the label could act on what they found (hard rule 3).
+        //
+        // All five described a transcription step that no longer exists. There is no typed tag to
+        // be wrong, no keyboard to be unfair about, and nothing to amend. Deleting them removes no
+        // pillar: hard rule 3 still holds, vacuously, because the thing it was making fair is gone.
+        // What replaces them is the one assertion that still means something — the record cannot
+        // disagree with the bottle, so the two can never be diffed to anyone's advantage.
 
-        /// <summary>
-        /// Nothing checks the typed tag against the label, on purpose. If the terminal validated the
-        /// entry there would be no way to get it wrong, and §5.1's "a discrepancy between note and
-        /// contents" would never happen. The tag the player typed is what the record is named after
-        /// from here on, so the mistake travels with the sample instead of being caught for them.
-        /// </summary>
         [Test]
-        public void AWrongTag_IsAcceptedAsReadilyAsTheRightOne()
+        public void ASampleIsFiledUnderTheTagPrintedOnItsLabel()
         {
             var sample = At(SampleStage.Unpacked, "WERK-1 QUENCH 1");
 
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, "WERK-1 QUENCH 4", out _));
-            Assert.IsTrue(sample.IsMislogged, "Mis-logging must be reachable, not merely representable.");
-            Assert.AreEqual("WERK-1 QUENCH 4", sample.RecordTag,
-                "The record is named after what the player typed, or the mistake has no consequences.");
-            Assert.AreEqual("WERK-1 QUENCH 1", sample.EquipmentTag,
-                "The paper label is untouched — reading it is how the player catches this.");
-        }
-
-        [Test]
-        public void ACorrectlyLoggedSample_IsNotFlaggedAsMislogged()
-        {
-            var sample = At(SampleStage.Logged, "HALLE-6 MARTEMPER 2");
-
-            Assert.IsFalse(sample.IsMislogged);
-            Assert.AreEqual("HALLE-6 MARTEMPER 2", sample.RecordTag);
+            Assert.AreEqual("WERK-1 QUENCH 1", sample.RecordTag,
+                "The lab files a sample under the tag it arrived carrying (#73).");
+            Assert.AreEqual(sample.EquipmentTag, sample.RecordTag,
+                "The record and the bottle must be the same name. Nothing transcribes one into the " +
+                "other any more, so they cannot drift apart.");
         }
 
         /// <summary>
-        /// The mechanic is attention, not typing. Punishing a lower-case entry or a double space
-        /// would make the failure mode about the keyboard, and hard rule 3 does not permit a cost
-        /// the player has no way to see coming.
+        /// A sample with no label still has to be nameable, because refusals are built out of
+        /// <see cref="SampleState.RecordTag"/> and §9 requires a sentence rather than a blank.
         /// </summary>
         [Test]
-        public void Typography_IsNotAFailureMode()
+        public void AnUnlabelledSample_StillHasSomethingToCallIt()
         {
-            var sample = At(SampleStage.Unpacked, "WERK-2 BATH A");
+            var sample = new SampleState { Id = new SampleId(9), Location = SampleLocation.Held(0) };
 
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, "  werk-2   bath a  ", out _));
-            Assert.AreEqual("WERK-2 BATH A", sample.LoggedTag);
-            Assert.IsFalse(sample.IsMislogged);
-        }
-
-        [Test]
-        public void AnEmptyTag_IsNotARecord()
-        {
-            var sample = At(SampleStage.Unpacked);
-
-            foreach (string typed in new[] { null, "", "   ", "\t\n" })
-            {
-                Assert.IsFalse(SampleLifecycle.TryLog(sample, typed, out string refusal),
-                    $"'{typed}' must not count as booking a vial in.");
-                Assert.IsFalse(sample.IsLogged);
-                Assert.AreEqual(SampleStage.Unpacked, sample.Stage);
-                Assert.IsNotNull(refusal);
-            }
-        }
-
-        /// <summary>
-        /// Hard rule 3. The tell for a mis-log is walking back to the vial and reading the label, so
-        /// a player who does that must be able to act on what they find. What is punished is never
-        /// checking — not the typo itself.
-        /// </summary>
-        [Test]
-        public void AMislogSpottedBeforeWorkStarts_CanBeCorrected()
-        {
-            var sample = At(SampleStage.Unpacked, "LINE-7 QUENCH 2");
-
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, "LINE-9 QUENCH 2", out _));
-            Assert.IsTrue(sample.IsMislogged);
-
-            Assert.IsTrue(SampleLifecycle.TryLog(sample, "LINE-7 QUENCH 2", out _),
-                "A record that has had no work done against it must be amendable.");
-            Assert.IsFalse(sample.IsMislogged);
-            Assert.AreEqual(SampleStage.Logged, sample.Stage);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(sample.RecordTag));
+            StringAssert.Contains("9", sample.RecordTag);
         }
 
         // -----------------------------------------------------------------------------------------
         // The registry is the only door the rest of the game comes through.
         // -----------------------------------------------------------------------------------------
-
-        [Test]
-        public void Registry_BooksInThroughTheLifecycle_AndKnowsWhatIsStillWaiting()
-        {
-            var sample = At(SampleStage.Unpacked, "BAU-2 DIP TANK 1");
-            var registry = RegistryWith(sample);
-
-            CollectionAssert.Contains(registry.AwaitingLog(), sample,
-                "An unpacked, unlogged vial is exactly the book-in queue.");
-
-            Assert.IsTrue(registry.LogSample(sample.Id, "BAU-2 DIP TANK 2", out _));
-            CollectionAssert.IsEmpty(registry.AwaitingLog());
-            Assert.IsTrue(sample.IsMislogged, "The registry must not quietly correct the player.");
-
-            Assert.IsFalse(registry.LogSample(new SampleId(4242), "BAU-2 DIP TANK 1", out string refusal),
-                "Logging against a sample that does not exist must fail loudly.");
-            Assert.IsNotNull(refusal);
-        }
+        //
+        // Registry_BooksInThroughTheLifecycle_AndKnowsWhatIsStillWaiting was deleted with #73. It
+        // guarded that the registry routed booking-in through the lifecycle rather than writing the
+        // field itself, and that it did not quietly correct a player's typo. Both doors it tested —
+        // LogSample and AwaitingLog — are gone, and the "one door" pillar they belonged to is still
+        // covered by the verdict tests below, which are the registry's remaining lifecycle entries.
 
         [Test]
         public void Registry_RefusesASecondVerdict_AndDoesNotQueueASecondConsequence()

@@ -7,9 +7,10 @@ namespace Residue.Net.Views
     /// <para>
     /// NGO's serializer will not accept a <see cref="string"/> at all, so every piece of text in a
     /// view is a <c>FixedString</c>. The implicit <c>string</c> conversion those types offer throws
-    /// when the source does not fit, which would turn a player typing a long tank tag at the terminal
-    /// into a host-side exception mid-replication. Truncating instead is the right failure: a tag is
-    /// something the player reads back off a screen, and a clipped one is still legible.
+    /// when the source does not fit, which would turn one over-long tank tag in a content table into
+    /// a host-side exception mid-replication — taking the session down for everybody, at a distance
+    /// from the row that caused it. Truncating instead is the right failure: a tag is something the
+    /// player reads back off a screen, and a clipped one is still legible.
     /// </para>
     /// Internal because it is a wire detail. Nothing outside <c>Residue.Net</c> should be thinking
     /// about byte budgets.
@@ -30,8 +31,8 @@ namespace Residue.Net.Views
         }
 
         /// <summary>
-        /// 29 bytes of payload, for the ids the content tables mint rather than the text a player
-        /// types: the longest element id is 6 characters ("TCRmax"), the longest machine id 12
+        /// 29 bytes of payload, for the ids the content tables mint rather than the names they
+        /// write: the longest element id is 6 characters ("TCRmax"), the longest machine id 12
         /// ("karl_fischer"), the longest placed id 14 ("karl_fischer-0"). Readings are the one thing
         /// on this wire there are thousands of, so the size that fits an id with room to double is
         /// worth having as its own budget — <see cref="Fixed64"/> would cost 32 bytes a reading to
@@ -46,9 +47,8 @@ namespace Residue.Net.Views
 
         /// <summary>
         /// 125 bytes of payload, against a longest field note of 62 characters. Notes are free text
-        /// written in the content tables rather than typed by a player, so this is headroom against
-        /// an author, not against an attacker — and it still truncates rather than throwing, for the
-        /// reason the type doc gives.
+        /// written in the content tables, so this is headroom against an author — and it still
+        /// truncates rather than throwing, for the reason the type doc gives.
         /// </summary>
         public static FixedString128Bytes Fixed128(string value)
         {

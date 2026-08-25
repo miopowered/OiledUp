@@ -110,8 +110,9 @@ namespace Residue.Gameplay.World
             // promised, so the first draw after a press can legitimately be a frame early.
             //
             // Only while the summary is up, or on its way. Rebuilding the rest of the terminal on a
-            // timer would clear the text field under a player halfway through typing a tank tag, and
-            // §5.1's booking-in step is the last thing that should be fighting a refresh.
+            // timer would tear down whatever the player is part-way through — a root cause half
+            // chosen, a scroll position — for no gain, since every other panel already redraws on the
+            // reply to the action that changed it.
             if (!RecordFeed.IsReplicated) return;
             if (!summaryOnScreen && !endingTheDay) return;
 
@@ -152,8 +153,8 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// Send a terminal action and redraw once it has been answered.
         /// <para>
-        /// Every button on this screen goes through here, including on a host. Booking a tag in,
-        /// filing a verdict, ordering stock and ending the day are all §3.1 requests the host
+        /// Every button on this screen goes through here, including on a host. Filing a slip, filing
+        /// a verdict, ordering stock and ending the day are all §3.1 requests the host
         /// validates — the terminal is a keyboard, not an authority — and routing the local player
         /// down the same path is what stops "works in single player" and "works in co-op" from
         /// becoming two different code paths that drift.
@@ -343,18 +344,14 @@ namespace Residue.Gameplay.World
                     sample.Results.Count == 0 ? SignalPalette.Off : SignalPalette.For(sample.WorstReading()));
                 LabHud.Round(row, 3);
 
-                // RecordTag, not EquipmentTag: the terminal shows what the player typed, never the
-                // paper label. Printing the true tag here would make a mis-log both impossible to
-                // commit and trivial to spot, which deletes the §5.1 logging step.
                 var tag = new Label(sample.RecordTag);
                 tag.style.fontSize = 14;
-                tag.style.color = new StyleColor(
-                    sample.IsLogged ? SignalPalette.Ink : SignalPalette.Dim);
+                tag.style.color = new StyleColor(SignalPalette.Ink);
                 row.Add(tag);
 
-                // The id is printed because an instrument's own screen captions a run with it — the
-                // paper label is on the bottle, not on a display (§5.1) — so this is what lets a
-                // player match the numbers on the machine to the record on the desk.
+                // The id is printed because an instrument's own screen captions a run with it, and
+                // because tags repeat legitimately across a contract (§5.4 re-draws the same unit).
+                // This is what lets a player match numbers on a machine to a record on the desk.
                 var meta = new Label(
                     $"{sample.Id} · {ProfileName(sample)} · {sample.VolumeMl:F0} ml · " +
                     $"{sample.Results.Count} run{(sample.Results.Count == 1 ? "" : "s")}");
@@ -424,61 +421,6 @@ namespace Residue.Gameplay.World
             }
 
             box.Add(SolventRow(records));
-            return box;
-        }
-
-        /// <summary>
-        /// The §5.1 book-in step: type the tank tag off the vial's paper label.
-        /// <para>
-        /// Nothing is prefilled and nothing is checked against
-        /// <see cref="SampleState.EquipmentTag"/>. A wrong tag is accepted exactly as readily as a
-        /// right one — that is the mechanic, not an oversight. The tell is physical: the label is on
-        /// the bottle, so catching your own mistake means walking back and reading it.
-        /// </para>
-        /// Amendable while the sample is only logged, fixed once work starts. Hard rule 3 punishes
-        /// never checking, not the typo itself.
-        /// </summary>
-        private VisualElement BookInRow(SampleState sample)
-        {
-            var box = new VisualElement();
-            box.style.marginTop = 4;
-            box.style.marginBottom = 6;
-
-            bool amendable = sample.Stage <= SampleStage.Logged;
-
-            if (!amendable)
-            {
-                if (sample.IsLogged) return box;
-
-                box.Add(Tiny("Not booked in, and work has already started — the record is closed.",
-                    SignalPalette.Caution));
-                return box;
-            }
-
-            var row = Row();
-            row.style.alignItems = Align.Center;
-
-            var field = new TextField { value = sample.IsLogged ? sample.RecordTag : "" };
-            field.style.width = 220;
-            field.style.marginRight = 6;
-            row.Add(field);
-
-            var refusal = Tiny("", SignalPalette.Caution);
-
-            var book = new Button(() => Ask(LabCommand.BookIn(sample.Id, field.value), refusal))
-            { text = sample.IsLogged ? "AMEND TAG" : "BOOK IN" };
-
-            StyleButton(book, SignalPalette.Accent);
-            row.Add(book);
-
-            box.Add(row);
-            box.Add(sample.IsLogged
-                ? Tiny("Amendable until the first run. Check it against the label on the bottle.",
-                    SignalPalette.Dim)
-                : Tiny("Type the tank tag from the vial's label. Nothing will run until it is booked in.",
-                    SignalPalette.Dim));
-            box.Add(refusal);
-
             return box;
         }
 
@@ -734,7 +676,6 @@ namespace Residue.Gameplay.World
             }
 
             panel.Add(SectionTitle(sample.RecordTag));
-            panel.Add(BookInRow(sample));
 
             var sub = new Label(
                 $"{ProfileName(sample)} · {(sample.Profile != null ? sample.Profile.BaseOilGrade : "—")} · " +

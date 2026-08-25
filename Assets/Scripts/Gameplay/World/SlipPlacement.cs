@@ -38,9 +38,8 @@ namespace Residue.Gameplay.World
         public readonly string MachineName;
 
         /// <summary>
-        /// What the lab calls the sample this reports on — the tag someone typed, never the one on
-        /// the label (§5.1). An instrument does not read bottles; it prints the run under the name
-        /// the record gave it, and a mis-logged vial prints under the tank the player named.
+        /// What the lab calls the sample this reports on, so paper and terminal row agree. An
+        /// instrument does not read bottles; it prints the run under the name the record gave it.
         /// </summary>
         public readonly string RecordTag;
 

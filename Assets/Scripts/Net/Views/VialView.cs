@@ -8,17 +8,16 @@ namespace Residue.Net.Views
     /// <summary>
     /// One physical bottle: where it is, how full, and what is printed on its label.
     /// <para>
-    /// Deliberately a <b>separate list from <see cref="SampleView"/></b>, and the separation is the
-    /// whole design. §5.1 makes mis-logging a real failure mode, and it is only fair because the
-    /// paper label is still on the bottle — walking back and reading it is the one tell. So the label
-    /// has to reach a client, or a client can never check their own booking-in.
+    /// Deliberately a <b>separate list from <see cref="SampleView"/></b>. The two answer different
+    /// questions: this one is read by things in the <i>world</i> — where a bottle is standing, which
+    /// prop to snap to which rack hole — and <see cref="SampleView"/> is what screens draw. They
+    /// change at different rates and for different reasons, so a client that only cares about the
+    /// room does not resubscribe to the paperwork every time a verdict is filed.
     /// </para>
     /// <para>
-    /// But <see cref="SampleView"/> feeds <i>screens</i>, and it carries <c>RecordTag</c> — what the
-    /// player typed. Put the label in that same struct and any screen could diff the two and print
-    /// "you meant WERK-1 BATH A", which hands over the correction for free and deletes the mechanic.
-    /// Two lists, one rule each: this one is read by things in the world, that one by things on a
-    /// display. The boundary is structural, not a comment asking people to be careful.
+    /// The separation used to carry a second, sharper job: keeping the paper label away from any
+    /// screen that could diff it against a typed tag. #73 removed booking-in, so there is no typed
+    /// tag and no diff to make. The split stands on its first argument alone now.
     /// </para>
     /// Vials are not <c>NetworkObject</c>s — §3.2 is explicit that a busy shift has 200+ of them and
     /// one per bottle would drown the connection. Only the record travels; each client snaps its own
@@ -30,11 +29,9 @@ namespace Residue.Net.Views
         public int Id;
 
         /// <summary>
-        /// The tag printed on the bottle, exactly as the courier wrote it. Not what anyone typed.
-        /// <para>
-        /// This is the only place it crosses the wire, and it must stay out of anything a screen
-        /// draws — see the type doc.
-        /// </para>
+        /// The tag printed on the bottle, exactly as the courier wrote it. Since #73 this is also
+        /// what the record is filed under, so it agrees with <see cref="SampleView.RecordTag"/> by
+        /// construction rather than by anyone typing it correctly.
         /// </summary>
         public FixedString64Bytes Label;
 

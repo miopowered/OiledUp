@@ -71,9 +71,6 @@ namespace Residue.Gameplay.World
         /// <summary>Transcribe the carried slip into a sample's record at the terminal.</summary>
         FileSlip,
 
-        /// <summary>Register a vial against a typed tank tag (§5.1).</summary>
-        BookIn,
-
         /// <summary>File the verdict and close the record (§5.4).</summary>
         FileVerdict,
 
@@ -128,7 +125,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         public readonly int Amount;
 
-        /// <summary>A typed tank tag, or a <c>RootCauseDef</c> id. Null otherwise.</summary>
+        /// <summary>A <c>RootCauseDef</c> id, or an item id for a grip. Null otherwise.</summary>
         public readonly string Text;
 
         public LabCommand(LabCommandKind kind, string fixtureId = null, SampleId sample = default,
@@ -206,9 +203,6 @@ namespace Residue.Gameplay.World
 
         public static LabCommand FileSlip(int ticket) =>
             new(LabCommandKind.FileSlip, amount: ticket);
-
-        public static LabCommand BookIn(SampleId sample, string typedTag) =>
-            new(LabCommandKind.BookIn, sample: sample, text: typedTag);
 
         public static LabCommand FileVerdict(SampleId sample, Verdict verdict, string rootCauseId) =>
             new(LabCommandKind.FileVerdict, sample: sample, amount: (int)verdict, text: rootCauseId);

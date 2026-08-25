@@ -17,12 +17,9 @@ namespace Residue.Net.Views
     /// <see cref="From"/>, and the projection is the only thing that crosses.
     /// </para>
     /// <para>
-    /// Note what is absent and why. <see cref="SampleState.EquipmentTag"/> — the paper label — is not
-    /// here; <see cref="RecordTag"/> carries what the player typed instead, so a mis-logged vial
-    /// travels under the tank they named (§5.1). <see cref="SampleState.IsMislogged"/> is not here
-    /// either: both halves of that comparison are readable in the world, but only one of them is
-    /// readable on a screen, and a client that could diff them would be handed the answer to a
-    /// mistake the design wants found by walking back to the bottle.
+    /// <see cref="RecordTag"/> is the name the lab files this sample under, which since #73 is simply
+    /// the tag printed on its label. There is no longer a second, typed name it could disagree with,
+    /// so no screen can hand the player a discrepancy — there is none to hand them.
     /// </para>
     /// A struct, and <c>IEquatable</c>, so it is legal inside a <c>NetworkList</c> — §3.2 rules out a
     /// NetworkObject per vial, which makes a list of these the shape the sample roster has to take.
@@ -32,7 +29,7 @@ namespace Residue.Net.Views
         /// <summary><see cref="Chemistry.SampleId.Value"/>. Local vial props are keyed on this (§3.2).</summary>
         public int Id;
 
-        /// <summary>What the terminal calls this sample: the tag the player typed, or an unlogged placeholder.</summary>
+        /// <summary>What the terminal calls this sample — the tag printed on its label.</summary>
         public FixedString64Bytes RecordTag;
 
         /// <summary><see cref="EquipmentProfileDef.Id"/>, so the client can look up thresholds it already ships.</summary>
@@ -68,8 +65,6 @@ namespace Residue.Net.Views
         public int ResampleOf;
 
         public SampleStage Stage;
-
-        public bool IsLogged;
 
         /// <summary>False when <see cref="FiledVerdict"/> is meaningless. <c>Verdict?</c> does not serialize.</summary>
         public bool HasVerdict;
@@ -121,7 +116,6 @@ namespace Residue.Net.Views
                 FieldTechNote = ViewText.Fixed128(state.FieldTechNote),
                 ResampleOf = state.ResampleOf.Value,
                 Stage = state.Stage,
-                IsLogged = state.IsLogged,
                 HasVerdict = state.FiledVerdict.HasValue,
                 FiledVerdict = state.FiledVerdict ?? Verdict.Normal,
                 FiledOnDay = state.FiledOnDay,
@@ -140,7 +134,6 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref FieldTechNote);
             serializer.SerializeValue(ref ResampleOf);
             serializer.SerializeValue(ref Stage);
-            serializer.SerializeValue(ref IsLogged);
             serializer.SerializeValue(ref HasVerdict);
             serializer.SerializeValue(ref FiledVerdict);
             serializer.SerializeValue(ref FiledOnDay);
@@ -157,7 +150,6 @@ namespace Residue.Net.Views
             FieldTechNote.Equals(other.FieldTechNote) &&
             ResampleOf == other.ResampleOf &&
             Stage == other.Stage &&
-            IsLogged == other.IsLogged &&
             HasVerdict == other.HasVerdict &&
             FiledVerdict == other.FiledVerdict &&
             FiledOnDay == other.FiledOnDay &&

@@ -5,10 +5,10 @@ namespace Residue.Gameplay.Simulation
     /// <summary>
     /// Builds the labels on arriving vials, e.g. "WERK-2 QUENCH 4".
     /// <para>
-    /// Tags identify a customer's plant and the specific tank the oil was drawn from. They matter
-    /// more than flavour: the player types one into the terminal to register a vial against a
-    /// delivery note, and mis-logging is a real failure mode (§5.1). So tags need to be similar
-    /// enough to each other that transcribing one carelessly is plausible.
+    /// Tags identify a customer's plant and the specific tank the oil was drawn from, and they are
+    /// what the lab files a sample under (#73). They are deliberately similar to each other: a rack
+    /// of vials from one plant should take a moment to tell apart, because §5.4's re-draws and §6.1's
+    /// unit history are only interesting if the player has to look rather than glance.
     /// </para>
     /// </summary>
     public static class EquipmentTags

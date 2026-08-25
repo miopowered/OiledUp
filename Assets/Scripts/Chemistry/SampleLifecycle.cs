@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 using Residue.Data;
 using UnityEngine;
 
@@ -28,7 +27,7 @@ namespace Residue.Chemistry
         /// Every legal transition, indexed by the stage being left. This is the only place the shape
         /// of the lifecycle is written down; call sites ask, they do not assume.
         /// <para>
-        /// Four entries deserve their reasons in the open:
+        /// Three entries deserve their reasons in the open:
         /// </para>
         /// <list type="bullet">
         /// <item><description>
@@ -37,11 +36,6 @@ namespace Residue.Chemistry
         /// that you <i>can</i> call a tank without testing it; §5.6 requires blanket-verdict
         /// strategies to be playable and to lose money. The lifecycle constrains analysis, not the
         /// player's right to make a call.
-        /// </description></item>
-        /// <item><description>
-        /// <b><see cref="SampleStage.Logged"/> repeats.</b> The record can be amended while it is
-        /// still only a record. Hard rule 3 — a mis-log the player spots must be fixable, or the
-        /// punishment is for a typo rather than for not checking.
         /// </description></item>
         /// <item><description>
         /// <b><see cref="SampleStage.Prepped"/> and <see cref="SampleStage.Measured"/> repeat.</b>
@@ -54,9 +48,9 @@ namespace Residue.Chemistry
         /// drifting was filed on numbers the lab got wrong. The spec names the remedy in the same
         /// breath: show the affected archived samples and let them be re-opened. Hard rule 3 cuts
         /// both ways here. The player checked, found the fault, and has to be able to act on it, or
-        /// the check was theatre. The edge lands on Measured rather than Logged because a re-opening
-        /// withdraws the <i>verdict</i> and nothing else: the tag stays fixed, and the results stay
-        /// on file — suspect flags included — because the point is to run them again and compare.
+        /// the check was theatre. The edge lands on Measured rather than further back because a
+        /// re-opening withdraws the <i>verdict</i> and nothing else: the results stay on file —
+        /// suspect flags included — because the point is to run them again and compare.
         /// <see cref="TryReopen"/> is the only gateway that uses it; <see cref="TryFileResult"/>
         /// refuses it by hand, since appending a slip to a record that still carries a verdict would
         /// quietly change what the player was looking at when they made the call.
@@ -66,8 +60,7 @@ namespace Residue.Chemistry
         private static readonly SampleStage[][] Table =
         {
             /* InCrate  */ new[] { SampleStage.Unpacked, SampleStage.Archived },
-            /* Unpacked */ new[] { SampleStage.Logged, SampleStage.Archived },
-            /* Logged   */ new[] { SampleStage.Logged, SampleStage.Prepped, SampleStage.Archived },
+            /* Unpacked */ new[] { SampleStage.Prepped, SampleStage.Archived },
             /* Prepped  */ new[] { SampleStage.Prepped, SampleStage.Measured, SampleStage.Archived },
             /* Measured */ new[] { SampleStage.Measured, SampleStage.Archived },
             /* Archived */ new[] { SampleStage.Measured, SampleStage.Resolved },
@@ -85,18 +78,19 @@ namespace Residue.Chemistry
             if (state.FiledVerdict.HasValue) return SampleStage.Archived;
             if (state.Results.Count > 0) return SampleStage.Measured;
 
-            // Settling only counts as prep once the vial is booked in. Without the IsLogged guard,
-            // anything that sets IsSettled without going through TryPrep derives Prepped — a stage
-            // the chain says is unreachable except via Logged — and TryLog then refuses forever with
-            // "already been worked on". That strands the vial: unloggable, so never legally
-            // preppable, with no way back. Deriving a stage the table cannot produce is the one
-            // failure mode a derived stage has that a stored one does not.
-            if (state.IsSettled && state.IsLogged) return SampleStage.Prepped;
-            if (state.IsLogged) return SampleStage.Logged;
+            bool inTheCrate = state.Location.Kind == SampleLocationKind.InCrate;
 
-            return state.Location.Kind == SampleLocationKind.InCrate
-                ? SampleStage.InCrate
-                : SampleStage.Unpacked;
+            // Settling only counts as prep once the vial is out of the crate. Deriving a stage the
+            // table cannot produce is the one failure mode a derived stage has that a stored one
+            // does not: without this guard a stray IsSettled write on a vial still in the crate
+            // reads as Prepped, which InCrate has no edge to, and the record is off-chain with the
+            // unload step skipped behind it. Prepped is reachable straight from Unpacked, so the
+            // guard costs nothing on the real path — a vial anywhere but the crate that has been
+            // agitated is genuinely prepped, however it got that way, and it can still be moved,
+            // run and filed from there.
+            if (state.IsSettled && !inTheCrate) return SampleStage.Prepped;
+
+            return inTheCrate ? SampleStage.InCrate : SampleStage.Unpacked;
         }
 
         public static bool IsLegal(SampleStage from, SampleStage to)
@@ -126,15 +120,8 @@ namespace Residue.Chemistry
             {
                 SampleStage.Unpacked => "is already out of the delivery crate.",
 
-                SampleStage.Logged when from == SampleStage.InCrate =>
-                    "is still in the delivery crate — unload it before booking it in.",
-                SampleStage.Logged when from >= SampleStage.Archived =>
-                    "has been filed. An archived record cannot be re-tagged.",
-                SampleStage.Logged =>
-                    "has already been worked on; the tag is fixed once analysis starts.",
-
-                SampleStage.Prepped when from < SampleStage.Logged =>
-                    "is not booked in — register the tank tag at the terminal first (§5.1).",
+                SampleStage.Prepped when from == SampleStage.InCrate =>
+                    "is still in the delivery crate — unload it before working on it (§5.1).",
                 SampleStage.Prepped when from >= SampleStage.Archived =>
                     "has been filed and archived.",
                 SampleStage.Prepped => "has already been through an instrument.",
@@ -212,34 +199,6 @@ namespace Residue.Chemistry
             if (leavingTheCrate && !CanAdvance(state, SampleStage.Unpacked, out refusal)) return false;
 
             state.Location = destination;
-            return true;
-        }
-
-        /// <summary>
-        /// Register the vial against a tank tag the player has typed.
-        /// <para>
-        /// Nothing here checks the tag against the label. That is the whole mechanic: §5.1 makes
-        /// mis-logging a real failure mode, and it is only a failure mode if a wrong tag is accepted
-        /// exactly as readily as a right one. What the player typed is what the terminal shows from
-        /// here on, so the tell is walking back to the vial and reading the paper label — which is
-        /// what keeps hard rule 3 satisfied.
-        /// </para>
-        /// </summary>
-        public static bool TryLog(SampleState state, string typedTag, out string refusal)
-        {
-            refusal = null;
-            if (state == null) { refusal = "No such sample."; return false; }
-
-            string tag = NormaliseTag(typedTag);
-            if (string.IsNullOrEmpty(tag))
-            {
-                refusal = "Type the tank tag printed on the vial label.";
-                return false;
-            }
-
-            if (!CanAdvance(state, SampleStage.Logged, out refusal)) return false;
-
-            state.LoggedTag = tag;
             return true;
         }
 
@@ -349,29 +308,5 @@ namespace Residue.Chemistry
             return true;
         }
 
-        // -- Tags ---------------------------------------------------------------------------------
-
-        /// <summary>
-        /// Fold a typed tag onto the form the labels are printed in: trimmed, single-spaced, upper
-        /// case. Case and stray spaces are transcription noise, and punishing those would make the
-        /// mechanic about typing rather than about attention. Naming the wrong tank still is.
-        /// </summary>
-        public static string NormaliseTag(string raw)
-        {
-            if (string.IsNullOrWhiteSpace(raw)) return null;
-
-            var builder = new StringBuilder(raw.Length);
-            bool pendingSpace = false;
-
-            foreach (char c in raw)
-            {
-                if (char.IsWhiteSpace(c)) { pendingSpace = builder.Length > 0; continue; }
-                if (pendingSpace) builder.Append(' ');
-                pendingSpace = false;
-                builder.Append(char.ToUpperInvariant(c));
-            }
-
-            return builder.ToString();
-        }
     }
 }

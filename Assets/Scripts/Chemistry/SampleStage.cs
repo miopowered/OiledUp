@@ -1,7 +1,7 @@
 namespace Residue.Chemistry
 {
     /// <summary>
-    /// How far a sample has got along the §5.1 chain: crate → unload → log → prep → instrument →
+    /// How far a sample has got along the §5.1 chain: crate → unload → prep → instrument →
     /// results → verdict → archive → consequence.
     /// <para>
     /// Declared in order so stages compare with <c>&lt;</c> and <c>&gt;</c>. Several rules are
@@ -9,20 +9,22 @@ namespace Residue.Chemistry
     /// them from drifting apart when a stage is inserted later.
     /// </para>
     /// Note what is deliberately absent. <b>Storage is not a stage</b> — §5.1 branches to
-    /// <c>[fridge | bench]</c> between logging and prep, and which one you chose is a
+    /// <c>[fridge | bench]</c> before prep, and which one you chose is a
     /// <see cref="SampleLocation"/>, not a step. Nor is "in an instrument": a sample visits several
     /// machines and would have to travel backwards through any stage that encoded occupancy.
+    /// <para>
+    /// There is no <c>Logged</c> stage. A vial arrives carrying the tag printed on its label, so
+    /// registering it at a terminal is not a step the player takes and not a state it passes
+    /// through (#73).
+    /// </para>
     /// </summary>
     public enum SampleStage
     {
         /// <summary>Arrived on this morning's delivery and still in the crate.</summary>
         InCrate,
 
-        /// <summary>Out of the crate, with nothing on file against it yet.</summary>
+        /// <summary>Out of the crate and ready to work on, with nothing on file against it yet.</summary>
         Unpacked,
-
-        /// <summary>Registered at the terminal under a tank tag — the player's, which may be wrong (§5.1).</summary>
-        Logged,
 
         /// <summary>Agitated back to homogeneous, so an instrument will accept it.</summary>
         Prepped,

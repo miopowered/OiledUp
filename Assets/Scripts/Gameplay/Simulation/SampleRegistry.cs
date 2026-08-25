@@ -40,39 +40,6 @@ namespace Residue.Gameplay.Simulation
 
         public SampleState Get(SampleId id) => states.TryGetValue(id, out var s) ? s : null;
 
-        // -- Lifecycle ---------------------------------------------------------------------------------
-
-        /// <summary>
-        /// Register a vial against the tank tag the player typed at the terminal (§5.1).
-        /// <para>
-        /// Deliberately does not compare the tag to the label. Mis-logging is a failure mode the
-        /// design wants reachable, so a wrong tag is accepted exactly as readily as a right one;
-        /// <see cref="SampleState.IsMislogged"/> is how a later system notices.
-        /// </para>
-        /// </summary>
-        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
-        public bool LogSample(SampleId id, string typedTag, out string refusal)
-        {
-            if (!states.TryGetValue(id, out var state))
-            {
-                refusal = "No such sample.";
-                return false;
-            }
-            return SampleLifecycle.TryLog(state, typedTag, out refusal);
-        }
-
-        /// <summary>Samples out of the crate with nothing on file against them yet — the book-in queue.</summary>
-        public List<SampleState> AwaitingLog()
-        {
-            var waiting = new List<SampleState>();
-            foreach (var s in states.Values)
-            {
-                if (s.Stage == SampleStage.Unpacked) waiting.Add(s);
-            }
-            waiting.Sort((a, b) => a.Id.CompareTo(b.Id));
-            return waiting;
-        }
-
         // -- Operations that need the truth, and therefore live here ---------------------------------
 
         /// <summary>

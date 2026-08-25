@@ -29,17 +29,17 @@ namespace Residue.Gameplay.World
 
         public SampleId SampleId { get; private set; }
 
-        /// <summary>The paper label, exactly as the customer wrote it. Never the logged tag (§5.1).</summary>
+        /// <summary>The paper label, exactly as the customer wrote it — and what the lab files it under.</summary>
         public string Label { get; private set; } = "UNLABELLED";
 
         /// <summary>
-        /// Label and sample id together, because the terminal lists an unlogged vial by its id and
-        /// the player has to be able to tell which bottle a row is asking about. Reading a vial is
-        /// also how a mis-log is caught, so this is the tell the design leans on.
+        /// Label and sample id together. Tags repeat legitimately across a contract (§5.4 re-draws
+        /// the same unit), so the label alone does not always say which bottle a terminal row is
+        /// asking about; the id always does.
         /// </summary>
         public override string DisplayName => $"{Label} · {SampleId}";
         public override string InspectionText =>
-            $"SAMPLE {SampleId}\nCustomer label: {Label}\n\nThe handwritten label is the source of truth for checking a booking-in tag.";
+            $"SAMPLE {SampleId}\nCustomer label: {Label}";
 
         public void Bind(SampleId id, string label)
         {

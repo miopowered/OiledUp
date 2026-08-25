@@ -237,7 +237,7 @@ real decision.
 ### 5.1 Sample lifecycle
 
 ```
-Truck arrives → unload cartons → unbox → reconcile against delivery note → log
+Truck arrives → unload cartons → unbox
   → [fridge | bench] → prep (agitate, preheat) → instrument (load, run, unload, clean)
   → read display → carry printout to terminal → file results
   → cross-reference history → file verdict → archive
@@ -248,9 +248,16 @@ Each arrow is a player action. **Results do not file themselves**: an instrument
 shows it on its own display, and prints a slip. The reading joins the record only when someone
 carries that slip to the terminal. A slip left on a bench is a test you paid for and cannot use.
 
-**Logging:** samples arrive against a delivery note. The player registers each vial's tank
-identifier at the terminal. Mis-logging is a real failure mode; a discrepancy between note and
-contents is only fair because the note is in the box.
+**Naming:** a vial arrives carrying the tank identifier printed on its label, and the lab files it
+under exactly that. The record and the bottle cannot disagree.
+
+> **Booking-in was removed (#73).** This section used to put a *log* step between unbox and prep: the
+> player typed each vial's tank identifier into the terminal, nothing checked it against the label,
+> and mis-logging was a real failure mode whose only tell was walking back and reading the bottle.
+> That mechanic is gone deliberately. It stopped the loop dead at a keyboard before any analysis
+> could start, and the cost — an entire named failure mode, plus the reason `VialView` and
+> `SampleView` are separate lists — was judged worth paying. Nothing else in this section changed:
+> results still do not file themselves, and the walk to the terminal still costs what it cost.
 
 ### 5.2 The contamination system
 
@@ -353,7 +360,6 @@ slowness:
 
 | Upgrade | Removes |
 |---|---|
-| Barcode scanner + printer | Mis-logging errors entirely |
 | Autosampler | Standing at the instrument; queue slots |
 | Second cooling curve tester | The primary occupancy bottleneck |
 | Closed-loop solvent recycler | Solvent cost; makes cleaning free |
