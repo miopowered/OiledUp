@@ -13,7 +13,9 @@ using Unity.Services.Relay;
 using Unity.Services.Relay.Models;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using Lobby = Unity.Services.Lobbies.Models.Lobby;
+// Aliased rather than imported plainly: this class now has a Lobby property of its own (the
+// in-game room, LobbyRoom) and a bare `Lobby` would be a member and a type with one name.
+using UgsLobby = Unity.Services.Lobbies.Models.Lobby;
 
 namespace Residue.Net.Connect
 {
@@ -35,10 +37,21 @@ namespace Residue.Net.Connect
     /// </para>
     /// <para>
     /// <b>Ordering that is load-bearing:</b> a client sets <see cref="LabRuntime.SimulatesLocally"/>
-    /// to false <i>before</i> <c>StartClient</c>, because the host pushes the lab scene the instant
-    /// the connection is approved and <c>LabRuntime.Awake</c> reads that static as it loads. Setting
-    /// it afterwards means every client builds its own <c>LabState</c> — and its own ground truth —
-    /// which is hard rule 2 broken without a byte crossing the wire.
+    /// to false <i>before</i> <c>StartClient</c>, because the host may push the lab scene the instant
+    /// the connection is approved — it does exactly that for anyone joining a shift already in
+    /// progress — and <c>LabRuntime.Awake</c> reads that static as it loads. Setting it afterwards
+    /// means every client builds its own <c>LabState</c> — and its own ground truth — which is hard
+    /// rule 2 broken without a byte crossing the wire.
+    /// </para>
+    /// <para>
+    /// <b>A session is not a shift.</b> <see cref="HostAsync"/> stops once the host is up; everyone
+    /// gathers in <see cref="Lobby"/>, and the lab scene is not loaded until <see cref="StartShift"/>.
+    /// So <see cref="IsLive"/> — "a session exists" — is no longer the same question as "is the
+    /// player in the game", which is what <see cref="InLobby"/> and <see cref="ShiftStarted"/> are
+    /// for. <see cref="ShiftStarted"/> is derived from the scene actually changing rather than from
+    /// any message, because the scene is the thing that is true: it reads the same for a host, for a
+    /// client NGO pulled across, for a client that joined a shift already running, and for single
+    /// player, which gets it without a line of netcode.
     /// </para>
     /// </summary>
     [DisallowMultipleComponent]
@@ -52,8 +65,11 @@ namespace Residue.Net.Connect
 
         public static LabConnection Instance { get; private set; }
 
-        [Tooltip("Scene loaded once a session exists. Must be in Build Settings.")]
+        [Tooltip("Scene loaded when the shift starts. Must be in Build Settings.")]
         [SerializeField] private string labSceneName = "Lab";
+
+        [Tooltip("Menu scene. Leaving a session returns here. Must be in Build Settings.")]
+        [SerializeField] private string bootSceneName = "Boot";
 
         [Tooltip("Shown in the Lobby dashboard. Players never see it; they see the join code.")]
         [SerializeField] private string lobbyName = "Oiled Up";
@@ -63,8 +79,9 @@ namespace Residue.Net.Connect
 
         private readonly LobbyHeartbeat heartbeat = new();
         private readonly VoiceChat voice = new();
+        private readonly LobbyRoom lobbyRoom = new();
 
-        private Lobby lobby;
+        private UgsLobby lobby;
         private bool ownsLobby;
         private bool quitting;
 
@@ -86,10 +103,46 @@ namespace Residue.Net.Connect
         public event Action Changed;
 
         public bool IsBusy => ConnectStates.IsBusy(State);
+
+        /// <summary>
+        /// A session exists. Note that this is <b>not</b> "the player is in the game" any more — a
+        /// lobby is a live session with no lab in it. See <see cref="InLobby"/>.
+        /// </summary>
         public bool IsLive => ConnectStates.IsLive(State);
 
         /// <summary>Proximity voice state and its local mute/deafen controls.</summary>
         public VoiceChat Voice => voice;
+
+        /// <summary>
+        /// Who is here and who is ready, before the shift starts. Opened by a successful host or join
+        /// and closed by teardown; never null, so a screen can bind to it once and read
+        /// <see cref="LobbyRoom.IsOpen"/> rather than null-checking on every frame.
+        /// </summary>
+        public LobbyRoom Lobby => lobbyRoom;
+
+        /// <summary>
+        /// The lab scene is loaded. Derived from the scene transition itself rather than from a
+        /// message — see the type doc.
+        /// </summary>
+        public bool ShiftStarted { get; private set; }
+
+        /// <summary>
+        /// The player is gathering, not playing: hide the world, show the lobby, and leave the cursor
+        /// alone. This is the question <see cref="IsLive"/> used to answer.
+        /// <para>
+        /// The <see cref="LobbyRoom.IsOpen"/> clause is what keeps a lobby from flashing at somebody
+        /// who joined a shift already in progress: their room stays shut because the host, having
+        /// sealed it, never sends them a roster. Without it there is a window between "approved" and
+        /// "the host's scene load arrived" in which a running game would show a lobby screen.
+        /// </para>
+        /// </summary>
+        public bool InLobby => IsLive && !ShiftStarted && lobbyRoom.IsOpen;
+
+        /// <summary>The scene a shift runs in. Exposed so a screen can name it in a diagnostic.</summary>
+        public string LabSceneName => labSceneName;
+
+        /// <summary>The menu scene <see cref="LeaveAsync"/> returns to.</summary>
+        public string BootSceneName => bootSceneName;
 
         private static UnityTransport Transport =>
             NetworkManager.Singleton != null
@@ -110,12 +163,23 @@ namespace Residue.Net.Connect
             Instance = this;
             DontDestroyOnLoad(gameObject);
             Application.wantsToQuit += OnWantsToQuit;
+
+            SceneManager.activeSceneChanged += OnActiveSceneChanged;
+            lobbyRoom.Starting += StartShift;
+
+            // The lab may already be the active scene if this component was dropped into it directly,
+            // and a Boot-scene start is the normal case. Either way the answer is the current scene.
+            ShiftStarted = SceneManager.GetActiveScene().name == labSceneName;
         }
 
         private void Update()
         {
             heartbeat.Tick(Time.realtimeSinceStartupAsDouble);
             voice.Tick(Time.realtimeSinceStartup);
+
+            // Unscaled, and deliberately: a pause menu that sets Time.timeScale to zero must not stop
+            // a countdown. A countdown that stops is a hang with a number on it.
+            lobbyRoom.Tick(Time.realtimeSinceStartup);
         }
 
         private void OnDestroy()
@@ -123,6 +187,9 @@ namespace Residue.Net.Connect
             if (Instance != this) return;
 
             Application.wantsToQuit -= OnWantsToQuit;
+            SceneManager.activeSceneChanged -= OnActiveSceneChanged;
+            lobbyRoom.Starting -= StartShift;
+            lobbyRoom.Close();
             Instance = null;
 
             // Play-mode exit in the Editor lands here rather than in the quit handler. Fire and
@@ -172,6 +239,30 @@ namespace Residue.Net.Connect
             var work = TearDownAsync();
             await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(QuitGraceSeconds)));
             Application.Quit();
+        }
+
+        /// <summary>
+        /// The one place <see cref="ShiftStarted"/> is decided.
+        /// <para>
+        /// Every way into the lab ends here — the host's own <see cref="StartShift"/>, NGO dragging a
+        /// client across, a client synchronised into a shift that was already running, and single
+        /// player, which has no netcode to ask. Every way out of it does too, so leaving mid-shift and
+        /// hosting again works without a flag anybody has to remember to clear.
+        /// </para>
+        /// </summary>
+        private void OnActiveSceneChanged(Scene from, Scene to)
+        {
+            bool started = to.IsValid() && to.name == labSceneName;
+            if (started == ShiftStarted) return;
+
+            ShiftStarted = started;
+
+            // The lobby is over the moment the lab is up — on the host and on every client alike.
+            // Sealing rather than closing: LabNetwork has not spawned yet and, when it does, it reads
+            // the room's stable-id map to seat everybody who was already standing in it.
+            if (started) lobbyRoom.Seal();
+
+            Changed?.Invoke();
         }
 
         // -- Single player -----------------------------------------------------------------------------
@@ -231,7 +322,7 @@ namespace Residue.Net.Connect
 
             Set(ConnectState.Allocating, "Opening the lobby…");
 
-            Lobby created;
+            UgsLobby created;
             try
             {
                 created = await LobbyService.Instance.CreateLobbyAsync(
@@ -288,20 +379,49 @@ namespace Residue.Net.Connect
                 return;
             }
 
+            // Before the next await, and that is not an accident. NGO auto-approves the host's own
+            // local client inside StartHost — there was no callback installed yet — and then queues
+            // every remote connection request for its next update. Opening the room here means our
+            // approval callback is in place before that update runs, so nobody can slip in
+            // unapproved, and the host's own seat is recorded by hand for exactly the reason
+            // LabNetwork.SeatTheHost explains.
+            lobbyRoom.OpenAsHost(Identity.DisplayName, Identity.StableId);
+
             _ = voice.JoinAsync(created.Id, Identity.DisplayName);
 
             JoinCodeText = created.LobbyCode;
             Set(ConnectState.Hosting, $"Hosting — join code {JoinCode.ForReading(JoinCodeText)}");
 
-            // Through NGO's scene manager, not Unity's. Scene-placed NetworkObjects — LabNetwork
-            // among them — only spawn for a scene the netcode layer loaded, and clients are handed
-            // this same load as part of their connection.
+            // And that is where hosting stops. The lab is not loaded until StartShift; everyone
+            // gathers in the lobby first, which is the whole point of there being one.
+        }
+
+        /// <summary>
+        /// Load the lab for everybody. Host only, and normally reached through
+        /// <see cref="LobbyRoom.Starting"/> rather than called directly.
+        /// <para>
+        /// Through NGO's scene manager, not Unity's. Scene-placed NetworkObjects — <c>LabNetwork</c>
+        /// among them — only spawn for a scene the netcode layer loaded, and a client joining later is
+        /// handed this same load as part of its connection.
+        /// </para>
+        /// </summary>
+        public void StartShift()
+        {
+            var manager = NetworkManager.Singleton;
+            if (manager == null || !manager.IsServer || !manager.IsListening) return;
+            if (ShiftStarted) return;
+
             var progress = manager.SceneManager.LoadScene(labSceneName, LoadSceneMode.Single);
             if (progress != SceneEventProgressStatus.Started)
             {
                 Debug.LogError($"[LabConnection] Could not load '{labSceneName}' over the network " +
                                $"({progress}). Is it in Build Settings?", this);
+                return;
             }
+
+            Set(ConnectState.Hosting, string.IsNullOrEmpty(JoinCodeText)
+                ? "Starting the shift…"
+                : $"Starting the shift — join code {JoinCode.ForReading(JoinCodeText)}");
         }
 
         // -- Join --------------------------------------------------------------------------------------
@@ -334,7 +454,7 @@ namespace Residue.Net.Connect
 
             Set(ConnectState.Resolving, "Looking up that join code…");
 
-            Lobby found;
+            UgsLobby found;
             try
             {
                 found = await LobbyService.Instance.JoinLobbyByCodeAsync(code);
@@ -403,18 +523,47 @@ namespace Residue.Net.Connect
         // -- Leaving -----------------------------------------------------------------------------------
 
         /// <summary>
-        /// Give everything back and return to <see cref="ConnectState.Idle"/>. Idempotent.
+        /// Give everything back and return to <see cref="ConnectState.Idle"/>, in the menu.
+        /// Idempotent.
+        /// <para>
+        /// The scene load is the half that is easy to forget. Leaving mid-shift without it drops the
+        /// player back to <see cref="ConnectState.Idle"/> while they are still standing in a lab whose
+        /// host is gone — no simulation, no menu to press anything on, and the failure text this class
+        /// writes so carefully is on a screen that only exists in the Boot scene. It also has to work
+        /// from single player, which is not <see cref="IsLive"/> and would otherwise be skipped: play,
+        /// leave, play again has to work in one process, and it does because
+        /// <see cref="TearDownAsync"/> has already put <see cref="LabRuntime.SimulatesLocally"/> back
+        /// to true by the time Boot loads.
+        /// </para>
         /// </summary>
         public async Task LeaveAsync()
         {
             await TearDownAsync();
             Error = null;
             Set(ConnectState.Idle);
+            ReturnToBoot();
+        }
+
+        /// <summary>
+        /// Back to the menu, unless that is already where we are. Unity's scene manager rather than
+        /// NGO's — by the time this runs there is no session left to load a scene for.
+        /// </summary>
+        private void ReturnToBoot()
+        {
+            if (string.IsNullOrWhiteSpace(bootSceneName)) return;
+            if (SceneManager.GetActiveScene().name == bootSceneName) return;
+
+            SceneManager.LoadScene(bootSceneName);
         }
 
         private async Task TearDownAsync()
         {
             heartbeat.Release();
+
+            // Before the shutdown, so the room's message handlers and its approval callback come off a
+            // NetworkManager that is still there to take them off.
+            lobbyRoom.Close();
+
             await voice.LeaveAsync();
 
             var manager = NetworkManager.Singleton;
@@ -446,7 +595,7 @@ namespace Residue.Net.Connect
         /// is a teardown that leaves half the session behind.
         /// </para>
         /// </summary>
-        private static async Task CloseLobbyAsync(Lobby target, bool owned)
+        private static async Task CloseLobbyAsync(UgsLobby target, bool owned)
         {
             if (target == null || string.IsNullOrEmpty(target.Id)) return;
 
@@ -500,6 +649,12 @@ namespace Residue.Net.Connect
             if (manager.IsServer) return;   // the host's own connect; already Hosting
 
             _ = voice.JoinAsync(lobby.Id, Identity.DisplayName);
+
+            // Not IsOpen yet — that waits for the host's first roster. A host that has already
+            // started the shift never sends one, which is what stops a lobby flashing on the way into
+            // a running game (see InLobby).
+            lobbyRoom.OpenAsClient(Identity.DisplayName);
+
             Set(ConnectState.Joined);
         }
 
@@ -515,10 +670,18 @@ namespace Residue.Net.Connect
                 : $"Disconnected: {reason}");
         }
 
+        /// <summary>
+        /// Losing the host, as opposed to choosing to leave. Same unwind, and the same return to the
+        /// menu for the same reason: <see cref="Fail"/> writes a sentence for the player to read, and
+        /// the only screen that shows it lives in the Boot scene. Being dropped mid-shift and left
+        /// standing in a dead lab with no explanation is the worse half of the bug
+        /// <see cref="ReturnToBoot"/> exists to fix, because nobody chose it.
+        /// </summary>
         private async Task DroppedAsync(string reason)
         {
             await TearDownAsync();
             Fail(reason);
+            ReturnToBoot();
         }
 
         // -- Plumbing ----------------------------------------------------------------------------------
@@ -624,7 +787,7 @@ namespace Residue.Net.Connect
             return udp;
         }
 
-        private static string ReadRelayCode(Lobby source)
+        private static string ReadRelayCode(UgsLobby source)
         {
             if (source?.Data == null) return null;
             if (!source.Data.TryGetValue(RelayJoinCodeKey, out var entry)) return null;

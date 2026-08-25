@@ -4,6 +4,7 @@ using System.Text;
 using Residue.Chemistry;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
+using Residue.Net.Connect;
 using Residue.Net.Session;
 using Residue.Net.Views;
 using Unity.Collections;
@@ -189,7 +190,7 @@ namespace Residue.Net
                 manager.ConnectionApprovalCallback = Approve;
                 manager.OnClientDisconnectCallback += OnClientDisconnect;
                 manager.OnClientConnectedCallback += OnClientConnected;
-                SeatTheHost(manager);
+                SeatEveryoneAlreadyHere(manager);
             }
 
             // This object lives in the lab scene, so by the time it spawns there is a floor to stand
@@ -294,59 +295,89 @@ namespace Residue.Net
         }
 
         /// <summary>
-        /// Give the person hosting a seat, by hand.
+        /// Give everybody who was already connected a seat, by hand.
         /// <para>
-        /// <b>This looks redundant and is not.</b> <c>NetworkManager</c> approves the host's own
-        /// connection during <c>StartHost</c>, and only <i>if a connection-approval callback is
-        /// already installed</i>. Ours is installed two lines above, in <see cref="OnNetworkSpawn"/>
-        /// — which cannot run until the lab scene has loaded, which the host does not do until
-        /// <c>StartHost</c> has already returned. So the host takes the auto-approve path,
-        /// <see cref="Approve"/> never sees them, and <see cref="SessionRegistry"/> ends up with an
-        /// entry for every player except the one running the game. Nothing errors: it looks fine
-        /// until the host drops something (nothing tracks their hands, so nothing puts it back) or
-        /// reconnects (no session to restore).
+        /// <b>This looks redundant and is not.</b> <c>NetworkManager</c> approves a connection only
+        /// <i>if a connection-approval callback is already installed</i>. Ours is installed two lines
+        /// above, in <see cref="OnNetworkSpawn"/> — which cannot run until the lab scene has loaded.
+        /// Everyone who arrived before that has been approved by somebody else, so <see cref="Approve"/>
+        /// never saw them and <see cref="SessionRegistry"/> would have no entry for them at all.
+        /// Nothing errors on the way in: it looks fine right up until one of them tries to do
+        /// anything, at which point <see cref="ActorFor"/> returns null and every action is refused
+        /// with "You have no seat in this lab."
         /// </para>
         /// <para>
-        /// Fixing it by installing the callback earlier would mean taking it off this
-        /// <c>NetworkBehaviour</c> entirely — its spawn hook is by definition after the scene, and the
-        /// scene is by definition after <c>StartHost</c>. Seating the host explicitly keeps approval
-        /// in one place doing one job (remote clients) and puts the special case where it can be read
-        /// next to the reason for it.
+        /// <b>Two different people are missing, for two different reasons.</b> The host has always
+        /// been: NGO auto-approves its own local client inside <c>StartHost</c>, before any callback
+        /// exists, and their stable id is therefore only ever readable from the same
+        /// <c>NetworkConfig.ConnectionData</c> the connect flow filled in beforehand. Since there is a
+        /// lobby, <i>every</i> player is in the same position — they were approved by
+        /// <c>LobbyRoom</c>, in a session that had no lab in it yet — and their stable ids are in the
+        /// map that class kept for exactly this handover (<c>LobbyRoom.StableIdOf</c>). Reached
+        /// through <c>LabConnection.Instance</c> rather than injected: it is the same assembly, it is
+        /// already a singleton, and a serialized reference from a scene object to a
+        /// <c>DontDestroyOnLoad</c> one cannot be authored anyway.
         /// </para>
-        /// The stable id is read from the same <c>NetworkConfig.ConnectionData</c> the connect flow
-        /// filled in before <c>StartHost</c>, so the host is keyed exactly as they would have been had
-        /// approval run — which is what makes their rejoin work.
+        /// <para>
+        /// Fixing this by installing the approval callback earlier would mean taking it off this
+        /// <c>NetworkBehaviour</c> entirely — its spawn hook is by definition after the scene. Seating
+        /// the existing room explicitly keeps <see cref="Approve"/> doing one job (people who arrive
+        /// after the lab is up) and puts the special case where it can be read next to the reason for
+        /// it.
+        /// </para>
         /// </summary>
-        private void SeatTheHost(NetworkManager manager)
+        private void SeatEveryoneAlreadyHere(NetworkManager manager)
         {
-            if (!manager.IsHost) return;   // a dedicated server has no player of its own to seat
+            var lobby = LabConnection.Instance != null ? LabConnection.Instance.Lobby : null;
 
-            ulong hostId = manager.LocalClientId;
-            if (Sessions.TryGet(hostId, out _)) return;
+            // Snapshotted: Sessions.Join can decide to drop a stale connection, and NGO's own list is
+            // not something to be iterating while that happens.
+            already.Clear();
+            foreach (var client in manager.ConnectedClientsList) already.Add(client.ClientId);
 
-            var payload = manager.NetworkConfig.ConnectionData;
-            string stableId = payload != null && payload.Length > 0
-                ? Encoding.UTF8.GetString(payload)
-                : null;
+            double now = Time.realtimeSinceStartupAsDouble;
 
-            if (string.IsNullOrWhiteSpace(stableId))
+            for (int i = 0; i < already.Count; i++)
             {
-                // Nothing better is available, and a host with no session at all is worse than a host
-                // whose rejoin is keyed on something ephemeral.
-                stableId = $"host-{hostId}";
-                Debug.LogWarning(
-                    "[LabNetwork] The host started with no identity in NetworkConfig.ConnectionData, " +
-                    $"so their session is keyed on '{stableId}' and will not survive a rejoin. The " +
-                    "connect flow sets this before StartHost; something started the host without it.",
-                    this);
+                ulong clientId = already[i];
+                if (Sessions.TryGet(clientId, out _)) continue;
+
+                string stableId = lobby != null ? lobby.StableIdOf(clientId) : null;
+
+                // The host's own fallback, exactly as before: their id never travelled over a wire, so
+                // the connect flow's own copy is the only place it has ever been.
+                if (string.IsNullOrWhiteSpace(stableId) &&
+                    manager.IsHost && clientId == manager.LocalClientId)
+                {
+                    var payload = manager.NetworkConfig.ConnectionData;
+                    if (payload != null && payload.Length > 0)
+                        stableId = Encoding.UTF8.GetString(payload);
+                }
+
+                if (string.IsNullOrWhiteSpace(stableId))
+                {
+                    // Nothing better is available, and a player with no session at all is worse than
+                    // one whose rejoin is keyed on something ephemeral.
+                    stableId = $"seat-{clientId}";
+                    Debug.LogWarning(
+                        $"[LabNetwork] Client {clientId} reached the lab with no identity to key a " +
+                        $"session on, so it is keyed on '{stableId}' and will not survive a rejoin. " +
+                        "LobbyRoom records one at approval and the connect flow sets the host's in " +
+                        "NetworkConfig.ConnectionData; something got here past both.", this);
+                }
+
+                var join = Sessions.Join(stableId, clientId, now);
+                if (!join.Accepted)
+                {
+                    Debug.LogError($"[LabNetwork] Could not seat client {clientId}: " +
+                                   $"{join.RefusalReason}", this);
+                }
             }
 
-            var join = Sessions.Join(stableId, hostId, Time.realtimeSinceStartupAsDouble);
-            if (!join.Accepted)
-            {
-                Debug.LogError($"[LabNetwork] Could not seat the host: {join.RefusalReason}", this);
-            }
+            already.Clear();
         }
+
+        private readonly List<ulong> already = new();
 
         // -- Connection ------------------------------------------------------------------------------
 
