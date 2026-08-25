@@ -58,11 +58,35 @@ namespace Residue.Gameplay.World
         private float holdElapsed;
 
         /// <summary>The selected inventory item—the only item currently presented in the hands.</summary>
-        public Carryable Carried => inventory != null ? inventory.Selected : null;
+        public Carryable Carried => Inventory != null ? Inventory.Selected : null;
 
-        public PlayerInventory Inventory => inventory;
+        /// <summary>
+        /// The three slots, resolved on demand rather than only in <c>Awake</c>.
+        /// <para>
+        /// Lazy for the same reason <see cref="Terminal"/> is: this component is reached before its
+        /// <c>Awake</c> has run. A component added to a deactivated <c>GameObject</c> does not get one
+        /// until the object is enabled, and until then a field assigned in <c>Awake</c> is null — so
+        /// <see cref="TryCarry"/> refused every pickup and returned false with nothing logged, which
+        /// is the quietest possible way for a player to be unable to hold anything.
+        /// </para>
+        /// Awake still does the wiring, because it is also where the hand socket is handed over; this
+        /// only makes reading it safe before that point.
+        /// </summary>
+        public PlayerInventory Inventory
+        {
+            get
+            {
+                if (inventory != null) return inventory;
+
+                inventory = GetComponent<PlayerInventory>();
+                if (inventory == null) inventory = gameObject.AddComponent<PlayerInventory>();
+                inventory.Initialize(CarrySocket);
+                return inventory;
+            }
+        }
+
         public ItemInspectionView Inspection => inspection;
-        public bool InventoryHasSpace => inventory != null && inventory.HasSpace;
+        public bool InventoryHasSpace => Inventory != null && Inventory.HasSpace;
 
         /// <summary>The carried item as a vial, or null if you are holding something else.</summary>
         public VialProp CarriedVial => Carried as VialProp;
@@ -471,7 +495,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         public void Take(Carryable item)
         {
-            if (item == null || inventory == null || !inventory.HasSpace) return;
+            if (item == null || Inventory == null || !Inventory.HasSpace) return;
 
             var command = item switch
             {
@@ -492,7 +516,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         public bool TryCarry(Carryable item)
         {
-            if (item == null || inventory == null || !inventory.Add(item)) return false;
+            if (item == null || Inventory == null || !Inventory.Add(item)) return false;
 
             if (item is VialProp vial)
             {
@@ -508,7 +532,7 @@ namespace Residue.Gameplay.World
         /// <summary>Hand the carried item over. Caller is responsible for re-parenting or destroying it.</summary>
         public Carryable ReleaseCarried()
         {
-            return inventory != null ? inventory.RemoveSelected() : null;
+            return Inventory != null ? Inventory.RemoveSelected() : null;
         }
     }
 }

@@ -63,7 +63,14 @@ namespace Residue.Tests.EditMode
         {
             const string code = "K7QM2Z";
             Assert.AreEqual(code, JoinCode.Normalise(JoinCode.ForReading(code)));
-            Assert.AreEqual("K7Q M2Z", JoinCode.ForReading(code));
+
+            // Shown as one unbroken run. This used to assert "K7Q M2Z": the code was grouped in
+            // threes on the theory that six characters read aloud get miscounted. In practice it is
+            // passed by copying far more often than by dictation, and a space in the label is a space
+            // in what gets copied and pasted — so the grouping that helped one player read it out cost
+            // every player who took the obvious route. Normalise would strip it, but a code that
+            // visibly disagrees with what the host is looking at reads as the wrong code.
+            Assert.AreEqual(code, JoinCode.ForReading(code));
         }
 
         /// <summary>
