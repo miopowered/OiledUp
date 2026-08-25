@@ -165,6 +165,229 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
+        // The lobby. Everything below runs with no NetworkManager at all, which is what a
+        // LobbyRoom degrades to: a roster of one and a working countdown. The messaging half needs
+        // two processes and a Relay allocation and is verified by hand; the clock is the half that
+        // has a bug in it, and it is the half UGS cannot help us check.
+        // -----------------------------------------------------------------------------------------
+
+        private static LobbyRoom SoloRoom()
+        {
+            var room = new LobbyRoom();
+            room.OpenAsHost("Tester", "stable-1");
+            return room;
+        }
+
+        /// <summary>
+        /// The countdown has to actually end, and end once. Firing twice loads the lab twice; never
+        /// firing is a lobby with a number frozen on it that nobody can leave.
+        /// </summary>
+        [Test]
+        public void Lobby_CountdownEndsExactlyOnce()
+        {
+            var room = SoloRoom();
+            int started = 0;
+            room.Starting += () => started++;
+
+            room.Tick(0f);
+            room.StartCountdown();
+
+            Assert.IsTrue(room.IsCountingDown);
+            Assert.AreEqual(LobbyRoom.CountdownSeconds, room.CountdownRemaining, 0.001f);
+
+            room.Tick(LobbyRoom.CountdownSeconds - 0.5f);
+            Assert.AreEqual(0, started, "The countdown ended half a second early.");
+            Assert.AreEqual(0.5f, room.CountdownRemaining, 0.001f);
+
+            room.Tick(LobbyRoom.CountdownSeconds);
+            room.Tick(LobbyRoom.CountdownSeconds + 1f);
+            room.Tick(LobbyRoom.CountdownSeconds + 2f);
+
+            Assert.AreEqual(1, started, "Starting fired more than once; that is two scene loads.");
+            Assert.IsFalse(room.IsCountingDown);
+            Assert.AreEqual(0f, room.CountdownRemaining);
+        }
+
+        /// <summary>
+        /// Cancelling has to be final. A countdown that resumes after a cancel starts a shift the
+        /// host explicitly stopped.
+        /// </summary>
+        [Test]
+        public void Lobby_CancellingTheCountdownStopsItForGood()
+        {
+            var room = SoloRoom();
+            int started = 0;
+            room.Starting += () => started++;
+
+            room.Tick(0f);
+            room.StartCountdown();
+            room.Tick(1f);
+            room.CancelCountdown();
+
+            Assert.IsFalse(room.IsCountingDown);
+
+            room.Tick(LobbyRoom.CountdownSeconds * 3f);
+
+            Assert.AreEqual(0, started);
+            Assert.IsFalse(room.IsCountingDown);
+        }
+
+        /// <summary>
+        /// A second press while it is already running must not push the deadline out. Otherwise a
+        /// host tapping the button holds everyone at four seconds indefinitely.
+        /// </summary>
+        [Test]
+        public void Lobby_StartingACountdownTwiceDoesNotExtendIt()
+        {
+            var room = SoloRoom();
+
+            room.Tick(0f);
+            room.StartCountdown();
+            room.Tick(2f);
+            room.StartCountdown();
+
+            Assert.AreEqual(LobbyRoom.CountdownSeconds - 2f, room.CountdownRemaining, 0.001f);
+        }
+
+        /// <summary>
+        /// The host is not blocked by an unready room — see the type doc on why a lobby you cannot
+        /// leave because somebody walked away from their keyboard is the worse failure. The counts
+        /// exist so the button can say how many are ready instead.
+        /// </summary>
+        [Test]
+        public void Lobby_TheHostCanStartWithNobodyReady()
+        {
+            var room = SoloRoom();
+
+            Assert.IsFalse(room.LocalReady);
+            Assert.IsFalse(room.EveryoneReady);
+            Assert.AreEqual(0, room.ReadyCount);
+
+            room.Tick(0f);
+            room.StartCountdown();
+
+            Assert.IsTrue(room.IsCountingDown, "An unready room refused to start.");
+        }
+
+        [Test]
+        public void Lobby_ReadyTogglesAndIsCounted()
+        {
+            var room = SoloRoom();
+
+            Assert.AreEqual(1, room.Seats.Count);
+            Assert.IsTrue(room.Seats[0].IsHost);
+
+            room.ToggleReady();
+
+            Assert.IsTrue(room.LocalReady);
+            Assert.AreEqual(1, room.ReadyCount);
+            Assert.IsTrue(room.EveryoneReady);
+            Assert.IsTrue(room.Seats[0].Ready, "The roster row did not follow the ready flag.");
+
+            room.ToggleReady();
+
+            Assert.IsFalse(room.LocalReady);
+            Assert.AreEqual(0, room.ReadyCount);
+            Assert.IsFalse(room.EveryoneReady);
+        }
+
+        /// <summary>
+        /// Readying up during the countdown does not cancel it, and neither does readying down. Only
+        /// somebody arriving does — they are the one person who has not seen the roster.
+        /// </summary>
+        [Test]
+        public void Lobby_ReadyingDuringTheCountdownDoesNotStopIt()
+        {
+            var room = SoloRoom();
+
+            room.Tick(0f);
+            room.StartCountdown();
+            room.SetReady(true);
+            room.SetReady(false);
+
+            Assert.IsTrue(room.IsCountingDown);
+        }
+
+        /// <summary>
+        /// A client pressing START is ignored, not refused loudly. The same screen runs on both sides
+        /// and a shared path that quietly does nothing where it has no authority is easier to keep
+        /// correct than one that throws into a UI callback.
+        /// </summary>
+        [Test]
+        public void Lobby_AClientCannotStartTheCountdown()
+        {
+            var room = new LobbyRoom();
+            room.OpenAsClient("Guest");
+
+            Assert.IsFalse(room.IsHost);
+            Assert.IsFalse(room.IsOpen,
+                "A client's room must stay shut until the host answers, or somebody joining a shift " +
+                "already in progress gets a lobby flashed at them.");
+
+            Assert.DoesNotThrow(() => room.StartCountdown());
+            Assert.DoesNotThrow(() => room.CancelCountdown());
+            Assert.DoesNotThrow(() => room.Tick(10f));
+
+            Assert.IsFalse(room.IsCountingDown);
+        }
+
+        /// <summary>
+        /// The stable-id map is the handover to <c>LabNetwork</c>: it seats everyone already in the
+        /// room from this, and a null there is a player with no seat who is refused every action they
+        /// take. It has to survive <c>Seal</c>, because that runs before <c>LabNetwork</c> spawns.
+        /// </summary>
+        [Test]
+        public void Lobby_TheStableIdOutlivesTheLobbyItWasCollectedIn()
+        {
+            var room = SoloRoom();
+
+            Assert.AreEqual("stable-1", room.StableIdOf(0));
+            Assert.IsNull(room.StableIdOf(7), "An unknown client must answer null, not a placeholder.");
+
+            room.Seal();
+
+            Assert.IsFalse(room.IsOpen);
+            Assert.AreEqual("stable-1", room.StableIdOf(0),
+                "Sealing dropped the map LabNetwork reads to seat the room.");
+
+            room.Close();
+
+            Assert.IsNull(room.StableIdOf(0));
+        }
+
+        /// <summary>
+        /// Teardown runs on every failure path there is, including ones where nothing was ever
+        /// started. A close that can fail is a close that leaves half a session behind.
+        /// </summary>
+        [Test]
+        public void Lobby_ClosingIsSafeAndIdempotent()
+        {
+            var room = new LobbyRoom();
+
+            Assert.DoesNotThrow(() => room.Close());
+            Assert.DoesNotThrow(() => room.Close());
+            Assert.DoesNotThrow(() => room.Tick(1f));
+
+            room.OpenAsHost("Tester", "stable-1");
+            room.Close();
+            room.Close();
+
+            Assert.IsFalse(room.IsOpen);
+            Assert.IsFalse(room.IsHost);
+            Assert.AreEqual(0, room.Seats.Count);
+        }
+
+        /// <summary>
+        /// Capacity is the lab's, not a second number that can drift from it. The lobby refuses the
+        /// fifth player before the lab ever gets the chance to.
+        /// </summary>
+        [Test]
+        public void Lobby_SeatsTheSameNumberOfPlayersTheLabDoes()
+        {
+            Assert.AreEqual(SessionRegistry.DefaultCapacity, SoloRoom().Capacity);
+        }
+
+        // -----------------------------------------------------------------------------------------
         // Voice. Vivox may leave an SDK task pending when the network dies mid-handshake.
         // -----------------------------------------------------------------------------------------
 

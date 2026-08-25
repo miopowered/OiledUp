@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Residue.Gameplay.Settings;
 using Unity.Services.Vivox;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -44,7 +45,6 @@ namespace Residue.Net.Connect
         private bool eventsHooked;
         private bool microphoneMuted;
         private bool outputMuted;
-        private float outputVolume = 1f;
         private string unavailableText = "VOICE UNAVAILABLE";
         private RelayVoice relayVoice;
 
@@ -55,8 +55,19 @@ namespace Residue.Net.Connect
         public bool IsConnecting => desiredChannel != null && activeChannel == null;
         public bool MicrophoneMuted => microphoneMuted;
         public bool OutputMuted => outputMuted;
-        public float OutputVolume => outputVolume;
         public string UnavailableText => unavailableText;
+
+        /// <summary>
+        /// Playback gain, held in <see cref="GameSettings.VoiceVolume"/> rather than in a field here.
+        /// <para>
+        /// There are three ways to move this — the card's slider, the <c>-</c>/<c>+</c> keys, and the
+        /// audio tab of the settings screen — and the settings screen is in <c>Residue.Gameplay</c>,
+        /// which cannot reference this assembly. A local field would mean the two ends each held their
+        /// own idea of the volume and whichever the player touched last would silently win. Reading
+        /// the setting directly makes that impossible, and gets persistence across sessions for free.
+        /// </para>
+        /// </summary>
+        public float OutputVolume => GameSettings.VoiceVolume;
 
         /// <summary>
         /// Every peer in one session must use the same voice transport. Selecting this only on
@@ -223,7 +234,9 @@ namespace Residue.Net.Connect
 
             if (relayVoice != null)
             {
-                relayVoice.Tick(microphoneMuted, outputMuted, outputVolume);
+                // Pushed every tick rather than only on change, so the settings screen's audio tab
+                // reaches the transport without this class having to hear about it.
+                relayVoice.Tick(microphoneMuted, outputMuted, OutputVolume);
                 return;
             }
 
@@ -269,16 +282,16 @@ namespace Residue.Net.Connect
         public void SetOutputVolume(float volume)
         {
             float clamped = Mathf.Clamp01(volume);
-            if (Mathf.Approximately(outputVolume, clamped)) return;
+            if (Mathf.Approximately(GameSettings.VoiceVolume, clamped)) return;
 
-            outputVolume = clamped;
-            relayVoice?.SetOutputVolume(outputVolume);
+            GameSettings.VoiceVolume = clamped;
+            relayVoice?.SetOutputVolume(clamped);
             Changed?.Invoke();
         }
 
         private void AdjustOutputVolume(float amount)
         {
-            SetOutputVolume(Mathf.Round((outputVolume + amount) * 10f) / 10f);
+            SetOutputVolume(Mathf.Round((OutputVolume + amount) * 10f) / 10f);
         }
 
         /// <summary>Derive a Vivox-safe channel name deterministically from the Lobby id.</summary>

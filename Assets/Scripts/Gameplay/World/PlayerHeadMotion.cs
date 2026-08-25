@@ -1,3 +1,4 @@
+using Residue.Gameplay.Settings;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -41,7 +42,10 @@ namespace Residue.Gameplay.World
         [SerializeField] private float landingRecovery = 7f;
 
         [Header("Field of view")]
+        [Tooltip("Authored default only. The live base is GameSettings.FieldOfView, which this seeds " +
+                 "on a profile that has never set one.")]
         [SerializeField] private float baseFov = 70f;
+
         [SerializeField] private float sprintFovBonus = 6f;
         [SerializeField] private float fovLerp = 6f;
 
@@ -52,6 +56,12 @@ namespace Residue.Gameplay.World
         {
             player = GetComponentInParent<PlayerController>();
             rig = transform;
+        }
+
+        private void Awake()
+        {
+            GameSettings.Load();
+            GameSettings.SeedDefaultFieldOfView(baseFov);
         }
 
         private void LateUpdate()
@@ -65,16 +75,22 @@ namespace Residue.Gameplay.World
 
         private void ApplyBob()
         {
-            float speed = player.SpeedFraction;
+            // Head bob is the usual motion-sickness trigger, so it is a switch rather than a taste
+            // (#43). Off is expressed as zero amplitude through the same filter below, not as an
+            // early return: bailing out would freeze the rig wherever the last step left it and
+            // leave the camera permanently off-centre, which looks like the toggle broke something.
+            bool bob = GameSettings.HeadBob;
+
+            float speed = bob ? player.SpeedFraction : 0f;
 
             // Advance the phase by speed so the cycle slows with you rather than running at a fixed
             // rate and sliding out of step with the legs.
-            if (player.IsGrounded && speed > 0.05f)
+            if (bob && player.IsGrounded && speed > 0.05f)
                 bobPhase += Time.deltaTime * bobFrequency * Mathf.PI * 2f * Mathf.Max(0.6f, speed);
             else
                 bobPhase = Mathf.MoveTowards(bobPhase % (Mathf.PI * 2f), 0f, Time.deltaTime * 6f);
 
-            float amount = player.IsGrounded ? speed : 0f;
+            float amount = bob && player.IsGrounded ? speed : 0f;
 
             // Vertical runs at double frequency: one dip per footfall, two per stride.
             float y = Mathf.Sin(bobPhase * 2f) * bobVertical * amount;
@@ -107,7 +123,9 @@ namespace Residue.Gameplay.World
         {
             if (eyeCamera == null) return;
 
-            float target = baseFov + (player.IsSprinting ? sprintFovBonus : 0f);
+            // GameSettings owns the base; the sprint kick modulates it rather than replacing it, so
+            // a player who chose 90 gets 96 while sprinting instead of being yanked back to 70.
+            float target = GameSettings.FieldOfView + (player.IsSprinting ? sprintFovBonus : 0f);
             eyeCamera.fieldOfView = Mathf.Lerp(eyeCamera.fieldOfView, target, Time.deltaTime * fovLerp);
         }
     }

@@ -19,7 +19,18 @@ namespace Residue.Net.Connect
             state == ConnectState.Resolving ||
             state == ConnectState.Connecting;
 
-        /// <summary>A session exists — hosting one, or connected to someone else's.</summary>
+        /// <summary>
+        /// A session exists — hosting one, or connected to someone else's.
+        /// <para>
+        /// <b>Not the same question as "is the player in the game".</b> It used to be, because hosting
+        /// loaded the lab in the same breath; since there is a lobby it is possible to have a whole
+        /// session and no lab, and anything deciding whether to hide the menu or lock the cursor wants
+        /// <c>LabConnection.InLobby</c> or <c>LabConnection.ShiftStarted</c> instead. Deliberately not
+        /// a new <see cref="ConnectState"/>: the states are split by <i>what would have to be
+        /// unwound</i> (see the type doc), and a lobby and a running shift unwind identically. A state
+        /// that meant something else would be the first one that did.
+        /// </para>
+        /// </summary>
         public static bool IsLive(ConnectState state) =>
             state == ConnectState.Hosting || state == ConnectState.Joined;
 

@@ -61,15 +61,19 @@ namespace Residue.Net.Connect
         }
 
         /// <summary>
-        /// The host's copy, spaced into two groups of three. Purely for reading aloud — six
-        /// characters in one run get miscounted, three and three do not. Never send this to the
-        /// service; <see cref="Normalise"/> would strip the space again anyway.
+        /// The host's copy, as one unbroken run.
+        /// <para>
+        /// This used to insert a space after the third character, on the theory that six characters
+        /// read aloud in one run get miscounted. In practice the code is passed by copying it rather
+        /// than by dictation, and a space in the displayed string is a space in what gets copied,
+        /// pasted and then typed back — so the grouping that helped one player read it out cost every
+        /// player who took the obvious route. The joiner's field normalises whitespace away anyway,
+        /// but a code that visibly does not match what the host is looking at reads as the wrong code.
+        /// </para>
+        /// Kept as a seam rather than inlined: it is the one place the code's presentation is
+        /// decided, and this is the second time that decision has changed.
         /// </summary>
-        public static string ForReading(string code)
-        {
-            if (string.IsNullOrEmpty(code)) return string.Empty;
-            if (code.Length != Length) return code;
-            return $"{code.Substring(0, 3)} {code.Substring(3)}";
-        }
+        public static string ForReading(string code) =>
+            string.IsNullOrEmpty(code) ? string.Empty : code;
     }
 }
