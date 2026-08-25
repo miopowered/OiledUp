@@ -1,0 +1,629 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+namespace Residue.Gameplay.Settings
+{
+    /// <summary>
+    /// Every player-facing option that is not a key binding, and the only thing that reads or writes
+    /// them. Bindings live in <see cref="KeyBindings"/> because they persist as one opaque blob with
+    /// its own version.
+    /// <para>
+    /// <b>Applied on change, not on a confirm step.</b> Every setter here pushes its effect at Unity
+    /// and raises <see cref="Changed"/> immediately. A settings screen you have to press Apply on
+    /// makes the player guess at the result of a slider they cannot see the effect of, and look
+    /// sensitivity in particular is the single most likely reason someone bounces off a first-person
+    /// game in the first minute — it has to be adjustable while looking around, not after an OK.
+    /// </para>
+    /// <para>
+    /// The display mode is the one exception, and <see cref="ApplyDisplay"/> /
+    /// <see cref="CommitDisplay"/> / <see cref="RevertDisplay"/> are that exception's mechanism. A
+    /// resolution or refresh rate the monitor cannot show soft-locks the game: nothing is on screen
+    /// to click, so nothing can undo it. So the mode is applied, the player is asked, and it reverts
+    /// on its own if nobody answers. This class owns applying and reverting; the screen owns the
+    /// countdown and the dialog.
+    /// </para>
+    /// <para>
+    /// Persisted in <see cref="PlayerPrefs"/> under <c>oiledup.settings.*</c>, deliberately nowhere
+    /// near <c>player-id.txt</c>. Rejoin is keyed on that file, and a settings write that truncated
+    /// or rewrote it would cost a player their seat in the lab rather than their brightness slider.
+    /// </para>
+    /// <para>
+    /// Setters record into PlayerPrefs' in-memory store but do not flush; <see cref="Save"/> flushes.
+    /// Dragging a slider is hundreds of writes a second and a disk write per frame is not worth the
+    /// crash-safety it buys, given Unity flushes on quit anyway.
+    /// </para>
+    /// </summary>
+    public static class GameSettings
+    {
+        // -- Keys --------------------------------------------------------------------------------
+
+        private const string Prefix = "oiledup.settings.";
+
+        private const string KeyWidth = Prefix + "display.width";
+        private const string KeyHeight = Prefix + "display.height";
+        private const string KeyRefreshHz = Prefix + "display.hz";
+        private const string KeyScreenMode = Prefix + "display.mode";
+        private const string KeyVSync = Prefix + "display.vsync";
+        private const string KeyQuality = Prefix + "display.quality";
+        private const string KeyFieldOfView = Prefix + "display.fov";
+
+        private const string KeyMaster = Prefix + "audio.master";
+        private const string KeyEffects = Prefix + "audio.effects";
+        private const string KeyAmbience = Prefix + "audio.ambience";
+        private const string KeyVoice = Prefix + "audio.voice";
+
+        private const string KeySensitivity = Prefix + "controls.sensitivity";
+        private const string KeyInvertLook = Prefix + "controls.invert";
+        private const string KeyHeadBob = Prefix + "controls.headbob";
+
+        // -- Ranges ------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Below this a full turn is an arm sweep; above it the crosshair jumps past a 2.5 m
+        /// interaction target between frames. Both ends are unusable rather than merely extreme, so
+        /// the slider refuses to reach them.
+        /// </summary>
+        public const float MinLookSensitivity = 0.01f;
+
+        public const float MaxLookSensitivity = 0.4f;
+
+        /// <summary>
+        /// §2.1 fixes eye height at 1.7 m and the room is read against it. Much below 60 the bench
+        /// scale stops reading; much above 100 the flat-shaded geometry distorts at the edges.
+        /// </summary>
+        public const float MinFieldOfView = 60f;
+
+        public const float MaxFieldOfView = 100f;
+
+        /// <summary>Used only if no <c>PlayerController</c> ever seeded one — a menu-only scene.</summary>
+        private const float FallbackLookSensitivity = 0.075f;
+
+        private const float FallbackFieldOfView = 70f;
+
+        // -- State -------------------------------------------------------------------------------
+
+        /// <summary>Raised after any value changes, including by <see cref="Load"/> and <see cref="Apply"/>.</summary>
+        public static event Action Changed;
+
+        private static bool loaded;
+
+        private static DisplayMode display;
+        private static DisplayMode committedDisplay;
+        private static bool vSync = true;
+        private static int qualityLevel;
+        private static float fieldOfView = FallbackFieldOfView;
+
+        private static float masterVolume = 1f;
+        private static float effectsVolume = 1f;
+        private static float ambienceVolume = 1f;
+        private static float voiceVolume = 1f;
+
+        private static float lookSensitivity = FallbackLookSensitivity;
+        private static bool invertLook;
+        private static bool headBob = true;
+
+        private static float defaultLookSensitivity = FallbackLookSensitivity;
+        private static float defaultFieldOfView = FallbackFieldOfView;
+        private static bool hasSavedLookSensitivity;
+        private static bool hasSavedFieldOfView;
+
+        private static List<DisplayMode> availableModes;
+        private static FullScreenMode availableModesBuiltFor;
+        private static string[] qualityLevels;
+
+        // -- Lifecycle ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// Reads the saved profile and pushes it at Unity. Idempotent — the second call and every
+        /// call after it does nothing.
+        /// <para>
+        /// Runs at <see cref="RuntimeInitializeLoadType.BeforeSceneLoad"/> so it is already done
+        /// before any <c>Awake</c> in any scene, in a build and in the Editor alike. Nothing then
+        /// has to remember to initialise it, and no screen can read a default that the player
+        /// overrode three sessions ago.
+        /// </para>
+        /// </summary>
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        public static void Load()
+        {
+            if (loaded) return;
+            loaded = true;
+
+            // The screen as it is right now is the only default that is guaranteed to be displayable,
+            // so a profile with no saved mode adopts it rather than guessing at the monitor.
+            committedDisplay = CurrentScreenMode();
+
+            if (PlayerPrefs.HasKey(KeyWidth) && PlayerPrefs.HasKey(KeyHeight))
+            {
+                committedDisplay = new DisplayMode(
+                    PlayerPrefs.GetInt(KeyWidth, committedDisplay.Width),
+                    PlayerPrefs.GetInt(KeyHeight, committedDisplay.Height),
+                    PlayerPrefs.GetInt(KeyRefreshHz, committedDisplay.RefreshHz),
+                    (FullScreenMode)PlayerPrefs.GetInt(KeyScreenMode, (int)committedDisplay.Mode));
+            }
+
+            display = committedDisplay;
+
+            vSync = PlayerPrefs.GetInt(KeyVSync, QualitySettings.vSyncCount > 0 ? 1 : 0) != 0;
+            qualityLevel = ClampQuality(PlayerPrefs.GetInt(KeyQuality, QualitySettings.GetQualityLevel()));
+
+            hasSavedFieldOfView = PlayerPrefs.HasKey(KeyFieldOfView);
+            fieldOfView = Mathf.Clamp(PlayerPrefs.GetFloat(KeyFieldOfView, defaultFieldOfView),
+                MinFieldOfView, MaxFieldOfView);
+
+            masterVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyMaster, 1f));
+            effectsVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyEffects, 1f));
+            ambienceVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyAmbience, 1f));
+            voiceVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyVoice, 1f));
+
+            hasSavedLookSensitivity = PlayerPrefs.HasKey(KeySensitivity);
+            lookSensitivity = Mathf.Clamp(PlayerPrefs.GetFloat(KeySensitivity, defaultLookSensitivity),
+                MinLookSensitivity, MaxLookSensitivity);
+
+            invertLook = PlayerPrefs.GetInt(KeyInvertLook, 0) != 0;
+            headBob = PlayerPrefs.GetInt(KeyHeadBob, 1) != 0;
+
+            Apply();
+        }
+
+        /// <summary>Writes every value and flushes PlayerPrefs to disk.</summary>
+        public static void Save()
+        {
+            PlayerPrefs.SetInt(KeyWidth, committedDisplay.Width);
+            PlayerPrefs.SetInt(KeyHeight, committedDisplay.Height);
+            PlayerPrefs.SetInt(KeyRefreshHz, committedDisplay.RefreshHz);
+            PlayerPrefs.SetInt(KeyScreenMode, (int)committedDisplay.Mode);
+
+            PlayerPrefs.SetInt(KeyVSync, vSync ? 1 : 0);
+            PlayerPrefs.SetInt(KeyQuality, qualityLevel);
+            PlayerPrefs.SetFloat(KeyFieldOfView, fieldOfView);
+
+            PlayerPrefs.SetFloat(KeyMaster, masterVolume);
+            PlayerPrefs.SetFloat(KeyEffects, effectsVolume);
+            PlayerPrefs.SetFloat(KeyAmbience, ambienceVolume);
+            PlayerPrefs.SetFloat(KeyVoice, voiceVolume);
+
+            PlayerPrefs.SetFloat(KeySensitivity, lookSensitivity);
+            PlayerPrefs.SetInt(KeyInvertLook, invertLook ? 1 : 0);
+            PlayerPrefs.SetInt(KeyHeadBob, headBob ? 1 : 0);
+
+            hasSavedLookSensitivity = true;
+            hasSavedFieldOfView = true;
+
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>
+        /// Pushes the current values at Unity. Quality first: <c>SetQualityLevel</c> also writes
+        /// <c>vSyncCount</c> from the quality asset, so setting vsync before it would be silently
+        /// undone.
+        /// </summary>
+        public static void Apply()
+        {
+            if (ClampQuality(qualityLevel) != QualitySettings.GetQualityLevel())
+                QualitySettings.SetQualityLevel(ClampQuality(qualityLevel), true);
+
+            QualitySettings.vSyncCount = vSync ? 1 : 0;
+            AudioListener.volume = masterVolume;
+            PushDisplay(display);
+
+            Raise();
+        }
+
+        /// <summary>
+        /// Back to the authored defaults. Bindings are not touched — they are the other agent's blob
+        /// and reachable only with the action asset in hand; the screen calls
+        /// <see cref="KeyBindings.ResetAll"/> alongside this.
+        /// <para>
+        /// The display mode resets to whatever is on screen right now rather than to a stored
+        /// "native" one, for the same reason the commit dance exists: the only mode certain to be
+        /// displayable is the one the player is looking at.
+        /// </para>
+        /// </summary>
+        public static void ResetToDefaults()
+        {
+            foreach (string key in new[]
+                     {
+                         KeyWidth, KeyHeight, KeyRefreshHz, KeyScreenMode, KeyVSync, KeyQuality,
+                         KeyFieldOfView, KeyMaster, KeyEffects, KeyAmbience, KeyVoice,
+                         KeySensitivity, KeyInvertLook, KeyHeadBob
+                     })
+            {
+                PlayerPrefs.DeleteKey(key);
+            }
+
+            PlayerPrefs.Save();
+
+            committedDisplay = CurrentScreenMode();
+            display = committedDisplay;
+
+            vSync = true;
+            qualityLevel = ClampQuality(QualitySettings.GetQualityLevel());
+
+            fieldOfView = Mathf.Clamp(defaultFieldOfView, MinFieldOfView, MaxFieldOfView);
+            hasSavedFieldOfView = false;
+
+            masterVolume = 1f;
+            effectsVolume = 1f;
+            ambienceVolume = 1f;
+            voiceVolume = 1f;
+
+            lookSensitivity = Mathf.Clamp(defaultLookSensitivity,
+                MinLookSensitivity, MaxLookSensitivity);
+            hasSavedLookSensitivity = false;
+
+            invertLook = false;
+            headBob = true;
+
+            Apply();
+        }
+
+        // -- Authored defaults -------------------------------------------------------------------
+
+        /// <summary>
+        /// Adopt a component's authored value as the default, but only while nothing is saved.
+        /// <para>
+        /// The authored numbers live on <c>PlayerController</c> and <c>PlayerHeadMotion</c> where
+        /// they can be tuned against the actual walk cycle, and this is the door they come through.
+        /// A saved profile always wins: a designer retuning the default must not silently reach into
+        /// the sensitivity of every player who already set their own.
+        /// </para>
+        /// </summary>
+        public static void SeedDefaultLookSensitivity(float authoredDefault)
+        {
+            defaultLookSensitivity = Mathf.Clamp(authoredDefault,
+                MinLookSensitivity, MaxLookSensitivity);
+
+            if (hasSavedLookSensitivity) return;
+
+            if (Mathf.Approximately(lookSensitivity, defaultLookSensitivity)) return;
+
+            lookSensitivity = defaultLookSensitivity;
+            Raise();
+        }
+
+        /// <inheritdoc cref="SeedDefaultLookSensitivity"/>
+        public static void SeedDefaultFieldOfView(float authoredDefault)
+        {
+            defaultFieldOfView = Mathf.Clamp(authoredDefault, MinFieldOfView, MaxFieldOfView);
+
+            if (hasSavedFieldOfView) return;
+
+            if (Mathf.Approximately(fieldOfView, defaultFieldOfView)) return;
+
+            fieldOfView = defaultFieldOfView;
+            Raise();
+        }
+
+        /// <summary>The value a "reset this row" affordance should show, after seeding.</summary>
+        public static float DefaultLookSensitivity => defaultLookSensitivity;
+
+        public static float DefaultFieldOfView => defaultFieldOfView;
+
+        // -- Display -----------------------------------------------------------------------------
+
+        /// <summary>The mode currently on screen, committed or not.</summary>
+        public static DisplayMode Display => display;
+
+        /// <summary>The last mode the player confirmed. <see cref="RevertDisplay"/> returns here.</summary>
+        public static DisplayMode CommittedDisplay => committedDisplay;
+
+        /// <summary>True while a mode is on screen that nobody has confirmed yet.</summary>
+        public static bool DisplayAwaitingConfirmation => !display.Equals(committedDisplay);
+
+        /// <summary>
+        /// Show this mode now. Deliberately does not persist: if it turns out the monitor cannot
+        /// display it, the game is unusable and the next launch must not repeat the mistake.
+        /// </summary>
+        public static void ApplyDisplay(DisplayMode mode)
+        {
+            if (!mode.IsValid) return;
+
+            display = mode;
+            PushDisplay(mode);
+            Raise();
+        }
+
+        /// <summary>The player confirmed they can see this. Now it is safe to write down.</summary>
+        public static void CommitDisplay()
+        {
+            if (!display.IsValid) return;
+
+            committedDisplay = display;
+
+            PlayerPrefs.SetInt(KeyWidth, committedDisplay.Width);
+            PlayerPrefs.SetInt(KeyHeight, committedDisplay.Height);
+            PlayerPrefs.SetInt(KeyRefreshHz, committedDisplay.RefreshHz);
+            PlayerPrefs.SetInt(KeyScreenMode, (int)committedDisplay.Mode);
+            PlayerPrefs.Save();
+
+            Raise();
+        }
+
+        /// <summary>Nobody confirmed. Put back the mode that was demonstrably visible.</summary>
+        public static void RevertDisplay()
+        {
+            if (!committedDisplay.IsValid || display.Equals(committedDisplay)) return;
+
+            display = committedDisplay;
+            PushDisplay(committedDisplay);
+            Raise();
+        }
+
+        /// <summary>
+        /// Every size the platform reports, deduped and ascending, carried at the window mode
+        /// currently selected. Deduped because <see cref="Screen.resolutions"/> lists one entry per
+        /// resolution <i>per refresh rate</i> and reports rates as ratios, so an unfiltered list is
+        /// the same handful of sizes over and over with rates that differ in the third decimal.
+        /// </summary>
+        public static IReadOnlyList<DisplayMode> AvailableModes
+        {
+            get
+            {
+                if (availableModes != null && availableModesBuiltFor == display.Mode)
+                    return availableModes;
+
+                availableModes = BuildAvailableModes(display.Mode);
+                availableModesBuiltFor = display.Mode;
+                return availableModes;
+            }
+        }
+
+        public static bool VSync
+        {
+            get => vSync;
+            set
+            {
+                if (vSync == value) return;
+                vSync = value;
+                QualitySettings.vSyncCount = value ? 1 : 0;
+                PlayerPrefs.SetInt(KeyVSync, value ? 1 : 0);
+                Raise();
+            }
+        }
+
+        public static int QualityLevel
+        {
+            get => qualityLevel;
+            set
+            {
+                int clamped = ClampQuality(value);
+                if (qualityLevel == clamped) return;
+                qualityLevel = clamped;
+
+                // applyExpensiveChanges: the point of the setting is the expensive part.
+                QualitySettings.SetQualityLevel(clamped, true);
+
+                // SetQualityLevel rewrites vSyncCount from the quality asset, so put ours back.
+                QualitySettings.vSyncCount = vSync ? 1 : 0;
+
+                PlayerPrefs.SetInt(KeyQuality, clamped);
+                Raise();
+            }
+        }
+
+        /// <summary>Human-readable quality level names, index-aligned with <see cref="QualityLevel"/>.</summary>
+        public static IReadOnlyList<string> QualityLevels =>
+            qualityLevels ??= QualitySettings.names ?? Array.Empty<string>();
+
+        /// <summary>
+        /// Vertical FOV in degrees. Read by <c>PlayerHeadMotion</c> as the base the sprint kick
+        /// modulates, so nothing here writes at a camera directly — there may be several, and only
+        /// the owner's is live.
+        /// </summary>
+        public static float FieldOfView
+        {
+            get => fieldOfView;
+            set
+            {
+                float clamped = Mathf.Clamp(value, MinFieldOfView, MaxFieldOfView);
+                if (Mathf.Approximately(fieldOfView, clamped)) return;
+                fieldOfView = clamped;
+                hasSavedFieldOfView = true;
+                PlayerPrefs.SetFloat(KeyFieldOfView, clamped);
+                Raise();
+            }
+        }
+
+        // -- Audio -------------------------------------------------------------------------------
+
+        /// <summary>The one volume that reaches Unity today, as <see cref="AudioListener.volume"/>.</summary>
+        public static float MasterVolume
+        {
+            get => masterVolume;
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(masterVolume, clamped)) return;
+                masterVolume = clamped;
+                AudioListener.volume = clamped;
+                PlayerPrefs.SetFloat(KeyMaster, clamped);
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// Stored and raised, but routed nowhere yet: there is no <c>AudioMixer</c> in this project
+        /// and #46 says so — the lab is silent. The slider is here so the value survives the sessions
+        /// before the sources land, and so that the machine loops arriving under #46 have a mixer
+        /// group to bind to rather than a settings migration to write. Not broken; early.
+        /// </summary>
+        public static float EffectsVolume
+        {
+            get => effectsVolume;
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(effectsVolume, clamped)) return;
+                effectsVolume = clamped;
+                PlayerPrefs.SetFloat(KeyEffects, clamped);
+                Raise();
+            }
+        }
+
+        /// <inheritdoc cref="EffectsVolume"/>
+        public static float AmbienceVolume
+        {
+            get => ambienceVolume;
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(ambienceVolume, clamped)) return;
+                ambienceVolume = clamped;
+                PlayerPrefs.SetFloat(KeyAmbience, clamped);
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// Voice chat playback gain. Stored here and read by the netcode layer, never pushed from
+        /// here: <c>Residue.Gameplay</c> cannot reference <c>Residue.Net</c>, and that direction is
+        /// the boundary that keeps ground truth off a serializer. A settings class is not worth
+        /// puncturing it for, so <c>Residue.Net</c> reads this instead.
+        /// </summary>
+        public static float VoiceVolume
+        {
+            get => voiceVolume;
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(voiceVolume, clamped)) return;
+                voiceVolume = clamped;
+                PlayerPrefs.SetFloat(KeyVoice, clamped);
+                Raise();
+            }
+        }
+
+        // -- Controls ----------------------------------------------------------------------------
+
+        /// <summary>
+        /// Degrees of yaw per unit of pointer delta. Read every frame by <c>PlayerController</c>
+        /// rather than cached, so dragging the slider turns the room under the player's own hand —
+        /// which is the only way anyone can tell whether the number is right.
+        /// </summary>
+        public static float LookSensitivity
+        {
+            get => lookSensitivity;
+            set
+            {
+                float clamped = Mathf.Clamp(value, MinLookSensitivity, MaxLookSensitivity);
+                if (Mathf.Approximately(lookSensitivity, clamped)) return;
+                lookSensitivity = clamped;
+                hasSavedLookSensitivity = true;
+                PlayerPrefs.SetFloat(KeySensitivity, clamped);
+                Raise();
+            }
+        }
+
+        public static bool InvertLook
+        {
+            get => invertLook;
+            set
+            {
+                if (invertLook == value) return;
+                invertLook = value;
+                PlayerPrefs.SetInt(KeyInvertLook, value ? 1 : 0);
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// Head bob off is an accessibility switch, not a preference: the bob is the usual trigger
+        /// for motion sickness in a game whose whole loop is reading small numbers off a display
+        /// while walking between benches.
+        /// </summary>
+        public static bool HeadBob
+        {
+            get => headBob;
+            set
+            {
+                if (headBob == value) return;
+                headBob = value;
+                PlayerPrefs.SetInt(KeyHeadBob, value ? 1 : 0);
+                Raise();
+            }
+        }
+
+        // -- Internals ---------------------------------------------------------------------------
+
+        private static void Raise() => Changed?.Invoke();
+
+        private static int ClampQuality(int level)
+        {
+            int count = QualityLevels.Count;
+            return count <= 0 ? 0 : Mathf.Clamp(level, 0, count - 1);
+        }
+
+        private static DisplayMode CurrentScreenMode() => new(
+            Screen.width,
+            Screen.height,
+            RoundHz(Screen.currentResolution.refreshRateRatio),
+            Screen.fullScreenMode);
+
+        private static int RoundHz(RefreshRate rate) =>
+            rate.denominator == 0 ? 0 : Mathf.RoundToInt((float)rate.value);
+
+        /// <summary>
+        /// Only touches <see cref="Screen"/> when something actually differs. Calling
+        /// <c>SetResolution</c> with the values already in force still costs a mode switch on some
+        /// drivers — a black flash every time a slider on an unrelated tab moves.
+        /// </summary>
+        private static void PushDisplay(DisplayMode mode)
+        {
+            if (!mode.IsValid) return;
+
+            bool sameSize = Screen.width == mode.Width && Screen.height == mode.Height;
+            bool sameMode = Screen.fullScreenMode == mode.Mode;
+            bool sameRate = mode.RefreshHz <= 0 ||
+                            RoundHz(Screen.currentResolution.refreshRateRatio) == mode.RefreshHz;
+
+            if (sameSize && sameMode && sameRate) return;
+
+            if (mode.RefreshHz > 0)
+            {
+                Screen.SetResolution(mode.Width, mode.Height, mode.Mode,
+                    new RefreshRate { numerator = (uint)mode.RefreshHz, denominator = 1u });
+            }
+            else
+            {
+                Screen.SetResolution(mode.Width, mode.Height, mode.Mode);
+            }
+        }
+
+        private static List<DisplayMode> BuildAvailableModes(FullScreenMode windowMode)
+        {
+            var seen = new HashSet<long>();
+            var result = new List<DisplayMode>();
+
+            var resolutions = Screen.resolutions;
+            if (resolutions != null)
+            {
+                foreach (var r in resolutions)
+                {
+                    var mode = new DisplayMode(r.width, r.height, RoundHz(r.refreshRateRatio), windowMode);
+                    if (!mode.IsValid) continue;
+                    if (seen.Add(Key(mode))) result.Add(mode);
+                }
+            }
+
+            // A platform that reports nothing (and the Editor, on some backends) still has to offer
+            // the player the mode they are already in, or the dropdown is empty and unusable.
+            var current = CurrentScreenMode().WithMode(windowMode);
+            if (current.IsValid && seen.Add(Key(current))) result.Add(current);
+
+            result.Sort(static (a, b) =>
+            {
+                int byWidth = a.Width.CompareTo(b.Width);
+                if (byWidth != 0) return byWidth;
+                int byHeight = a.Height.CompareTo(b.Height);
+                return byHeight != 0 ? byHeight : a.RefreshHz.CompareTo(b.RefreshHz);
+            });
+
+            return result;
+
+            static long Key(DisplayMode m) =>
+                ((long)m.Width << 42) | ((long)m.Height << 21) | (uint)m.RefreshHz;
+        }
+    }
+}

@@ -1,3 +1,4 @@
+using Residue.Gameplay.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -65,7 +66,11 @@ namespace Residue.Gameplay.World
         [SerializeField] private float jumpBuffer = 0.15f;
 
         [Header("Look")]
+        [Tooltip("Authored default only. The live value is GameSettings.LookSensitivity, which this " +
+                 "seeds on a profile that has never set one — an Inspector field is unreachable to " +
+                 "the person who actually needs to change it.")]
         [SerializeField] private float lookSensitivity = 0.075f;
+
         [SerializeField] private float maxPitch = 85f;
 
         private CharacterController controller;
@@ -126,6 +131,11 @@ namespace Residue.Gameplay.World
 
             if (head != null) head.localPosition = new Vector3(0f, standEyeHeight, 0f);
 
+            // Already done at BeforeSceneLoad; called again because this component must not depend
+            // on that having happened, and Load is idempotent.
+            GameSettings.Load();
+            GameSettings.SeedDefaultLookSensitivity(lookSensitivity);
+
             BindActions();
         }
 
@@ -143,6 +153,11 @@ namespace Residue.Gameplay.World
                 Debug.LogError("[PlayerController] InputActionAsset has no 'Player' action map.", this);
                 return;
             }
+
+            // Before any action is read, so a saved rebind is in force on the first frame rather
+            // than after whatever else happens to touch the asset. Overrides are replaced, not
+            // accumulated, so a second player spawning in this process is harmless.
+            KeyBindings.Load(inputAsset);
 
             moveAction = map.FindAction("Move", throwIfNotFound: false);
             lookAction = map.FindAction("Look", throwIfNotFound: false);
@@ -207,11 +222,17 @@ namespace Residue.Gameplay.World
 
             // No smoothing: a smoothed FPS look feels like input lag, not weight. Weight belongs in
             // the body, never in the crosshair.
-            Vector2 delta = lookAction.ReadValue<Vector2>() * lookSensitivity;
+            //
+            // Read from GameSettings every frame rather than cached, so dragging the sensitivity
+            // slider turns the room under the player's own hand. Judging a look speed from a number
+            // is not possible; judging it from the room moving is trivial.
+            Vector2 delta = lookAction.ReadValue<Vector2>() * GameSettings.LookSensitivity;
 
             transform.Rotate(Vector3.up, delta.x, Space.World);
 
-            pitch = Mathf.Clamp(pitch - delta.y, -maxPitch, maxPitch);
+            // Unity's pitch is positive downwards, so the uninverted case subtracts.
+            float pitchDelta = GameSettings.InvertLook ? delta.y : -delta.y;
+            pitch = Mathf.Clamp(pitch + pitchDelta, -maxPitch, maxPitch);
             if (head != null) head.localRotation = Quaternion.Euler(pitch, 0f, 0f);
         }
 
