@@ -98,9 +98,24 @@ test has already passed**. `Unity_RunCommand` compiles your snippet into a tempo
 assembly, so the callback instance lives in an assembly the post-run domain reload is in the middle
 of tearing down. Every test reports, `RunFinished` never arrives, and the Editor is left
 unresponsive at a flat memory figure (a deadlock, not a spin) and has to be killed. It reads exactly
-like a test that loops forever, which is the wrong thing to go looking for. Run the suite from the
-Test Runner window or in CI; use `Unity_RunCommand` to exercise code directly instead — constructing
-a type and asserting on the result needs no domain reload and catches the same class of error.
+like a test that loops forever, which is the wrong thing to go looking for.
+
+**Run them through `TestRunReport` instead.** `Residue/Build/Run EditMode Tests` — or
+`Residue.Editor.Build.TestRunReport.Run()` from `Unity_RunCommand`, which is one line and safe,
+because the reporter lives in a real assembly that survives the reload. It appends a line per test to
+`Temp/oiledup-editmode.txt` as the run goes, so poll that file rather than waiting on a return value:
+
+```powershell
+Get-Content Temp\oiledup-editmode.txt | Where-Object { $_ -match '^(FAIL|DONE)' }
+```
+
+Per-test lines are written as they happen, so even a run that dies at the very end still tells you
+what passed and which test was last. `RunFinished` may still not arrive — the `DONE` summary line is
+a bonus, not the result. Expect the Editor to be unresponsive for a while after the run and to
+possibly need killing; the results are already on disk by then.
+
+Do this before merging anything that touches tests. A failing assertion sat on `main` unnoticed
+precisely because the suite was hard to run.
 
 ### 4. In-game debug keys
 
