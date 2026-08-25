@@ -57,7 +57,7 @@ an unconditional one.
 
 ### 2. Unity MCP — the real loop
 
-The `unity` MCP server talks to the running Editor over a named pipe. It exposes
+The `unity-mcp` server talks to the running Editor over a named pipe. It exposes
 `Unity_RunCommand` (compiles *and executes* arbitrary C# in the Editor, returning compile status and
 logs) and `Unity_GetConsoleLogs`. Between them you can trigger an `AssetDatabase.Refresh()`, run the
 test suite, create assets, and read the resulting errors — without a GUI.
@@ -68,11 +68,39 @@ test suite, create assets, and read the resulting errors — without a GUI.
 - Unity holds a project lock, so `Unity.exe -batchmode` **cannot** run while the Editor is open.
   Do not reach for batchmode as a workaround.
 
+The server is not part of the repo — it ships with the `com.unity.ai.assistant` package, which
+installs a relay binary to `~/.unity/relay/` and needs registering with Claude Code once per machine:
+
+```powershell
+claude mcp add unity-mcp --scope local -- "$env:USERPROFILE\.unity\relay\relay_win.exe" `
+  --mcp --project-path "C:\path\to\OiledUp"
+```
+
+`--project-path` is not optional in practice. The relay otherwise binds to the first Editor it
+discovers, and `~/.unity/mcp/connections/` accumulates stale entries from other checkouts — so
+without it you can end up driving a different project. On macOS/Linux the relay is
+`relay_mac_{arm64,x64}.app/Contents/MacOS/…` or `relay_linux`; the Editor's own
+**Edit > Project Settings > AI > Unity MCP Server > Integrations** can write the config instead.
+
+Registering only writes config — the tools appear in the **next** Claude Code session, not the
+current one. A first-time direct connection also has to be approved once from that same settings
+page, under **Pending Connections**.
+
 ### 3. Tests
 
 `Assets/Tests/EditMode/ChemistryTests.cs` implements the §5.6 suite. Each test guards a specific
 promise the game makes to the player; read the comment above one before changing it. Run them via
 the Test Runner window, via `Unity_RunCommand`, or in CI.
+
+**Do not drive `TestRunnerApi` from `Unity_RunCommand` with a callback object.** The obvious
+approach — implement `ICallbacks`, `RegisterCallbacks`, `Execute` — hangs the Editor **after every
+test has already passed**. `Unity_RunCommand` compiles your snippet into a temporary dynamic
+assembly, so the callback instance lives in an assembly the post-run domain reload is in the middle
+of tearing down. Every test reports, `RunFinished` never arrives, and the Editor is left
+unresponsive at a flat memory figure (a deadlock, not a spin) and has to be killed. It reads exactly
+like a test that loops forever, which is the wrong thing to go looking for. Run the suite from the
+Test Runner window or in CI; use `Unity_RunCommand` to exercise code directly instead — constructing
+a type and asserting on the result needs no domain reload and catches the same class of error.
 
 ### 4. In-game debug keys
 
