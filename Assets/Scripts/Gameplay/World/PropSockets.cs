@@ -58,7 +58,14 @@ namespace Residue.Gameplay.World
                     // by pressing the machine, not by grabbing through its door.
                     reachable = location.Kind != SampleLocationKind.InMachine;
 
-                    var slots = LabRuntime.SlotsFor(location.ContainerId);
+                    // A drop is a container nobody placed: it exists because a player aimed at a patch
+                    // of floor, and its coordinates ride in its id precisely so that every process can
+                    // build it for itself rather than wait to be told about it. Chained after the
+                    // registry rather than folded into it, because the second call is the one that
+                    // creates something and that had better be visible at the call site.
+                    var slots = LabRuntime.SlotsFor(location.ContainerId) ??
+                                DropSpot.Resolve(location.ContainerId);
+
                     if (slots == null) return null;
 
                     int index = location.SlotIndex;
