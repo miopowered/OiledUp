@@ -193,32 +193,22 @@ namespace Residue.Gameplay.World
         }
 
         /// <summary>
-        /// Draw a finished reading, from the vial the instrument is holding. The host's path: the
-        /// bottle is physically in the machine, so its paper label is what the screen captions.
-        /// </summary>
-        public void Show(IMachineView machine, TestResult result, SampleState sample)
-        {
-            if (result == null) { ShowIdle(machine); return; }
-
-            Draw(machine, result, Caption(result, sample?.EquipmentTag), Fold(result, sample?.Id ?? SampleId.None));
-        }
-
-        /// <summary>
-        /// Draw a finished reading a client read off the wire, captioned with the sample's id.
+        /// Draw a finished reading. <b>One entry point, deliberately (#56).</b>
         /// <para>
-        /// <b>Not the tank tag.</b> A client reading a finished run off the wire has the sample's id
-        /// and not its paperwork, so captioning with a tag would either print nothing or print
-        /// something the host's own screen does not — the co-op divergence the whole view layer
-        /// exists to prevent. The id is what both sides can print, and the terminal prints it beside
-        /// the record so the two can be matched.
+        /// This used to be two overloads — one taking the host's <see cref="SampleState"/> and
+        /// captioning with its label, one taking a <see cref="SampleId"/> off the wire and captioning
+        /// with the id — and they disagreed, so two players at the same instrument read different
+        /// captions for the same run. There is now nothing to disagree: the caller passes the id,
+        /// <see cref="RunCaption"/> resolves it the same way on both sides, and a second overload
+        /// cannot quietly grow a second answer. See <see cref="RunCaption"/> for why the label is
+        /// allowed on a screen at all now that booking-in is gone.
         /// </para>
         /// </summary>
         public void Show(IMachineView machine, TestResult result, SampleId sample)
         {
             if (result == null) { ShowIdle(machine); return; }
 
-            Draw(machine, result, Caption(result, sample.IsValid ? sample.ToString() : null),
-                 Fold(result, sample));
+            Draw(machine, result, RunCaption.For(result, sample), Fold(result, sample));
         }
 
         private void Draw(IMachineView machine, TestResult result, string caption, int fold)
@@ -312,17 +302,6 @@ namespace Residue.Gameplay.World
         {
             history.Insert(0, $"D{result.DayRun} {Shorten(caption, 14)}");
             while (history.Count > 6) history.RemoveAt(history.Count - 1);
-        }
-
-        /// <summary>
-        /// What the run was of. A standard has to name itself: an instrument screen showing a full
-        /// panel of plausible numbers with no sample named beside it reads as somebody else's sample.
-        /// </summary>
-        private static string Caption(TestResult result, string sample)
-        {
-            if (result.IsBlank) return "SOLVENT BLANK";
-            if (result.IsReference) return "CERT STANDARD";
-            return string.IsNullOrEmpty(sample) ? "-" : sample;
         }
 
         // -- Raster ----------------------------------------------------------------------------------

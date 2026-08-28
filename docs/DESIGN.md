@@ -84,6 +84,39 @@ A single 16×16 PNG, point-filtered. Rows are hue families, columns value steps.
   state.** Never decorate with these. If red only ever means critical, the player reads the room
   instantly — and instrument screens therefore use the coolant family, never row 4.
 
+#### Redundant encoding — hue is never the only carrier
+
+Reserving row 4 for verdict state buys an instant read, and it puts the most important information
+in the game onto a single channel: hue, on the exact axis red-green colourblindness removes. Roughly
+one man in twelve cannot reliably tell CRITICAL from NORMAL from colour alone. §1.1.1 promises the
+diagnostic tree is learnable and hard rule 3 promises the player is never punished for something they
+could not have checked — a player who cannot distinguish severity is punished by the interface for
+something the game believes it told them.
+
+The answer is **redundant encoding, not a colourblind mode.** One build, one visual language, no
+second palette to keep in step:
+
+1. **Two channels minimum, everywhere.** Any place severity is communicated carries it at least
+   twice. Colour on its own is never enough — not on a border, not on a status light, not on a tint.
+2. **A glyph per severity, drawn from the instrument font.** `X` critical, `!` caution, `=` normal,
+   `?` never measured. One character, so table columns stay aligned, and restricted to what
+   `PixelFont` can raster — a marker that only renders in the UI kit would be missing exactly where
+   the player is standing at the machine.
+3. **The word, wherever there is room for it.** `SignalPalette.Marked` is glyph and word together
+   and is what a border or a light should be paired with, since neither carries text of its own.
+4. **Separated in brightness, not only in hue.** The three signal colours sit at least 0.15 apart on
+   relative luminance (`0.2126R + 0.7152G + 0.0722B`), so a greyscale reading of the results table
+   still ranks them. Amber and green were 0.08 apart, which is nothing — desaturate the old table and
+   CAUTION and NORMAL are the same grey. This is checked by computation in `SignalEncodingTests`,
+   not by eye.
+5. **Shape and motion count as channels.** The crosshair changes shape rather than colour (§2.6); an
+   instrument's status light is dark, bright-and-still, or pulsing, and the screen beside it spells
+   the same state out in words.
+
+`SignalPalette` is where all of this lives: colour, glyph and label are handed out together so a new
+screen cannot pick up one without meeting the other two. New UI inherits this rule — it is not a
+pass that was made over the screens that existed in F1.
+
 ### 2.3 Automated import enforcement
 
 `StyleEnforcer` (an `AssetPostprocessor`) conforms anything under `Assets/Art/Imported/`: materials

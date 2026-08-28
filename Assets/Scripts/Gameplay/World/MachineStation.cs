@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Residue.Chemistry;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
@@ -369,7 +370,10 @@ namespace Residue.Gameplay.World
             var vial = lab?.PropFor(completed.LoadedSample);
             if (sample != null && vial != null) vial.SetFillFraction(sample.VolumeMl / VialProp.FullMl);
 
-            if (display != null) display.Show(Machine, result, sample);
+            // The id, not the SampleState in hand: MachineDisplay has one Show and derives the
+            // caption itself, so the host cannot caption a run differently from a client watching
+            // the same instrument (#56).
+            if (display != null) display.Show(Machine, result, completed.LoadedSample);
             EmitPrintout(completed, result, sample);
         }
 
@@ -411,6 +415,16 @@ namespace Residue.Gameplay.World
             //
             // The ticket goes with the paper. Retiring the prop without retiring the ticket would
             // leave the old numbers filable by a stale request long after the slip was gone.
+            //
+            // A slip this station never printed still counts. Continuing a saved run restores the
+            // paper that was in the tray when the player quit (LabRuntime.RestorePrintout), and this
+            // field knows nothing about it — so running the instrument again stacked two slips in one
+            // socket, the restored one visible underneath for the rest of the session. Adopting
+            // whatever is actually in the tray means "the tray holds one slip" stays true across a
+            // save, which is where it would otherwise quietly stop being true.
+            if (currentPrintout == null || currentPrintout.transform.parent != tray)
+                currentPrintout = AdoptSlipInTray(lab, tray);
+
             if (currentPrintout != null && currentPrintout.transform.parent == tray)
             {
                 // Through the runtime rather than Destroy, so the ticket, the prop table and the
@@ -427,20 +441,68 @@ namespace Residue.Gameplay.World
                 completed.InstanceId,
                 completed.Def != null ? completed.Def.DisplayName : "Instrument",
                 // The name the record is filed under, so the player can match paper to a row on the
-                // terminal. A blank and a certified standard belong to the instrument rather than to
-                // any sample, so they are captioned as themselves.
-                sample != null ? sample.RecordTag : result.IsReference ? "CERT STANDARD" : "BLANK",
+                // terminal — through the same seam the instrument's own screen uses, so the paper and
+                // the display cannot caption one run two ways. That divergence is exactly what #56
+                // was, and this line was a second instance of it: the screen said SOLVENT BLANK while
+                // the paper it printed said BLANK.
+                RunCaption.For(result, sample != null ? sample.RecordTag : null),
                 tray);
         }
 
         private PrintoutProp currentPrintout;
 
+        /// <summary>
+        /// The slip physically sitting in this instrument's tray, whoever put it there.
+        /// <para>
+        /// Asked by ticket through the runtime rather than by walking the socket's children, because
+        /// the ticket is what has to be retired alongside the prop — a slip discarded without its
+        /// ticket leaves numbers that a stale request can still file long after the paper is gone.
+        /// </para>
+        /// </summary>
+        private PrintoutProp AdoptSlipInTray(LabRuntime lab, Transform tray)
+        {
+            if (lab?.Lab?.Slips == null || tray == null) return null;
+
+            // Reused rather than allocated per run: this is on the path a finished run takes, and
+            // the list is only alive for the length of this method.
+            outstandingSlips.Clear();
+            lab.Lab.Slips.CollectInto(outstandingSlips);
+
+            for (int i = 0; i < outstandingSlips.Count; i++)
+            {
+                var prop = lab.SlipPropFor(outstandingSlips[i].Ticket);
+                if (prop != null && prop.transform.parent == tray) return prop;
+            }
+
+            return null;
+        }
+
+        private readonly List<ResultSlips.Slip> outstandingSlips = new();
+
         // -- Status light ---------------------------------------------------------------------------
+
+        /// <summary>Coolant family. Pulses while the instrument works — see <see cref="UpdateStatusLight"/>.</summary>
+        public static readonly Color RunningLight = new(0.16f, 0.55f, 0.62f);
+
+        /// <summary>Neutral warm, steady and bright: there is a vial in here with numbers against it.</summary>
+        public static readonly Color ResultLight = new(0.86f, 0.84f, 0.76f);
+
+        /// <summary>Barely lit. Nothing is happening and nothing is waiting.</summary>
+        public static readonly Color IdleLight = new(0.18f, 0.19f, 0.20f);
 
         /// <summary>
         /// Deliberately avoids red/amber/green. Palette row 4 means verdict state and nothing else
         /// (§2.2) — if a machine glows amber for "busy", the player stops reading amber as "caution"
-        /// on a result, which is the one thing that colour has to mean.
+        /// on a result, which is the one thing that colour has to mean. It follows that this light
+        /// never carries a verdict either: it says what the <i>instrument</i> is doing.
+        /// <para>
+        /// <b>Readable with hue removed (#41).</b> Three channels, none of them hue. The three
+        /// colours are separated in luminance — <c>SignalEncodingTests</c> computes that rather than
+        /// trusting it — the emission multiplier widens the gap further (0.05 idle against 0.7
+        /// waiting), and running is the only one that <i>moves</i>. A player who sees no colour at
+        /// all still gets dark / bright-and-still / pulsing, and the screen beside it spells the same
+        /// state out in words: READY, RUNNING with the clock, or the reading itself.
+        /// </para>
         /// </summary>
         private void UpdateStatusLight(IMachineView machine)
         {
@@ -452,19 +514,18 @@ namespace Residue.Gameplay.World
 
             if (machine.IsRunning)
             {
-                // Coolant family, pulsing while it works.
                 float t = 0.5f + 0.5f * Mathf.Sin(Time.time * 3f);
-                colour = new Color(0.16f, 0.55f, 0.62f);
+                colour = RunningLight;
                 emission = Mathf.Lerp(0.25f, 0.9f, t);
             }
             else if (machine.HasResultWaiting)
             {
-                colour = new Color(0.86f, 0.84f, 0.76f); // neutral warm: result waiting
+                colour = ResultLight;
                 emission = 0.7f;
             }
             else
             {
-                colour = new Color(0.18f, 0.19f, 0.20f);
+                colour = IdleLight;
                 emission = 0.05f;
             }
 

@@ -329,6 +329,9 @@ namespace Residue.Gameplay.World
 
             foreach (var sample in open)
             {
+                bool untested = sample.Results.Count == 0;
+                var worst = sample.WorstReading();
+
                 var row = new Button(() => { selected = sample.Id; pendingCause = null; Rebuild(); });
                 row.style.flexDirection = FlexDirection.Column;
                 row.style.alignItems = Align.FlexStart;
@@ -341,7 +344,7 @@ namespace Residue.Gameplay.World
                     sample.Id == selected ? SignalPalette.PanelSoft : new Color(0.09f, 0.10f, 0.11f));
                 row.style.borderLeftWidth = 3;
                 row.style.borderLeftColor = new StyleColor(
-                    sample.Results.Count == 0 ? SignalPalette.Off : SignalPalette.For(sample.WorstReading()));
+                    untested ? SignalPalette.Off : SignalPalette.For(worst));
                 LabHud.Round(row, 3);
 
                 var tag = new Label(sample.RecordTag);
@@ -349,9 +352,19 @@ namespace Residue.Gameplay.World
                 tag.style.color = new StyleColor(SignalPalette.Ink);
                 row.Add(tag);
 
-                // The id is printed because an instrument's own screen captions a run with it, and
-                // because tags repeat legitimately across a contract (§5.4 re-draws the same unit).
-                // This is what lets a player match numbers on a machine to a record on the desk.
+                // The stripe down the left edge used to be the only thing saying how bad this one
+                // is, which is a verdict carried in hue alone — unreadable to a colourblind player
+                // and to anyone glancing past the edge of the list (#41). Say it.
+                var state = new Label(untested ? SignalPalette.UnknownMark : SignalPalette.Marked(worst));
+                state.style.fontSize = 11;
+                state.style.unityFontStyleAndWeight = FontStyle.Bold;
+                state.style.color = new StyleColor(untested ? SignalPalette.Off : SignalPalette.For(worst));
+                row.Add(state);
+
+                // The id is printed because tags repeat legitimately across a contract (§5.4 re-draws
+                // the same unit), so the tag alone does not always say which bottle a row is asking
+                // about. Instrument screens caption by tag since #56, which is what lets a player
+                // match numbers on a machine to a record here; the id settles the ties.
                 var meta = new Label(
                     $"{sample.Id} · {ProfileName(sample)} · {sample.VolumeMl:F0} ml · " +
                     $"{sample.Results.Count} run{(sample.Results.Count == 1 ? "" : "s")}");
@@ -621,8 +634,8 @@ namespace Residue.Gameplay.World
                 card.style.marginBottom = 6;
 
                 var title = new Label(
-                    $"{sample.RecordTag} — filed {sample.FiledVerdict.Value.ToString().ToUpperInvariant()} " +
-                    $"day {sample.FiledOnDay}");
+                    $"{SignalPalette.Glyph(sample.FiledVerdict.Value)} {sample.RecordTag} — " +
+                    $"filed {SignalPalette.Label(sample.FiledVerdict.Value)} day {sample.FiledOnDay}");
                 title.style.fontSize = 12;
                 title.style.whiteSpace = WhiteSpace.Normal;
                 title.style.color = new StyleColor(SignalPalette.For(sample.FiledVerdict.Value));
@@ -801,10 +814,13 @@ namespace Residue.Gameplay.World
             row.Add(title);
 
             // Dim rather than green when everything is in band: signal colours are for things that
-            // need attention, and four green "all normal" tags would drown the one that is not.
+            // need attention, and four green "all normal" tags would drown the one that is not. The
+            // glyph goes on both branches anyway — it is the channel that survives desaturation, and
+            // the dim branch is exactly where there is no hue to fall back on (#41).
             row.Add(flagged == 0
-                ? Cell("all normal", 240, SignalPalette.Dim)
-                : Cell($"{flagged} outside limit{(flagged == 1 ? "" : "s")}", 240, SignalPalette.For(worst)));
+                ? Cell($"{SignalPalette.Glyph(ReadingSeverity.Normal)} all normal", 240, SignalPalette.Dim)
+                : Cell($"{SignalPalette.Glyph(worst)} {flagged} outside limit{(flagged == 1 ? "" : "s")} · " +
+                       $"worst {SignalPalette.Label(worst)}", 240, SignalPalette.For(worst)));
 
             return row;
         }
@@ -821,7 +837,10 @@ namespace Residue.Gameplay.World
             row.Add(Cell(threshold.Element.DisplayName, 190, SignalPalette.Ink));
             row.Add(Cell($"{value:0.###} {threshold.Element.Unit}", 130, SignalPalette.Ink));
             row.Add(Cell(LimitText(threshold), 150, SignalPalette.Dim));
-            row.Add(Cell(SignalPalette.Label(severity), 90, SignalPalette.For(severity)));
+
+            // Glyph, word and hue. Reading this column with the colour taken away has to work
+            // (#41), which is what the marker in front of the word is for.
+            row.Add(Cell(SignalPalette.Marked(severity), 110, SignalPalette.For(severity)));
             row.Add(Cell(source != null && source.Suspect ? "SUSPECT" : "", 80, SignalPalette.Caution));
 
             return row;
@@ -893,6 +912,11 @@ namespace Residue.Gameplay.World
         /// <c>RootCauseDef</c> is a <c>ScriptableObject</c> living in this process and every client
         /// already ships the same content — an id is the only part of it that means anything on the
         /// other side of the wire.
+        /// <para>
+        /// The face carries the glyph as well as the word and the tint. Three buttons in a row whose
+        /// only difference a colourblind player can see is which one is left and which is right is
+        /// how you file CRITICAL by muscle memory on the wrong sample (#41).
+        /// </para>
         /// </summary>
         private Button VerdictButton(SampleState sample, Verdict verdict, string text)
         {
@@ -907,7 +931,7 @@ namespace Residue.Gameplay.World
                     pendingCause = null;
                 });
             })
-            { text = text };
+            { text = $"{SignalPalette.Glyph(verdict)}  {text}" };
 
             StyleButton(button, SignalPalette.PanelSoft);
             button.style.color = new StyleColor(SignalPalette.For(verdict));
@@ -964,6 +988,18 @@ namespace Residue.Gameplay.World
                 card.style.borderLeftColor = new StyleColor(
                     report.IsGood ? SignalPalette.Normal : SignalPalette.Critical);
                 LabHud.Round(card, 3);
+
+                // Whether the call was right was the stripe and nothing else, and the headline is a
+                // sentence about the customer rather than a verdict on the player. Say which it was
+                // in a glyph and a word before saying what it cost (#41).
+                var outcome = new Label(report.IsGood
+                    ? $"{SignalPalette.Glyph(ReadingSeverity.Normal)} GOOD CALL"
+                    : $"{SignalPalette.Glyph(ReadingSeverity.Critical)} BAD CALL");
+                outcome.style.fontSize = 11;
+                outcome.style.unityFontStyleAndWeight = FontStyle.Bold;
+                outcome.style.color = new StyleColor(
+                    report.IsGood ? SignalPalette.Normal : SignalPalette.Critical);
+                card.Add(outcome);
 
                 var headline = new Label(report.Headline);
                 headline.style.fontSize = 13;
@@ -1078,7 +1114,7 @@ namespace Residue.Gameplay.World
             row.Add(Cell("ELEMENT", 190, SignalPalette.Dim));
             row.Add(Cell("MEASURED", 130, SignalPalette.Dim));
             row.Add(Cell("LIMIT", 150, SignalPalette.Dim));
-            row.Add(Cell("STATE", 90, SignalPalette.Dim));
+            row.Add(Cell("STATE", 110, SignalPalette.Dim));
             row.Add(Cell("", 80, SignalPalette.Dim));
             return row;
         }

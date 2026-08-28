@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.IO;
+using Residue.Gameplay.World;
 using UnityEditor;
 using UnityEngine;
 
@@ -55,12 +56,22 @@ namespace Residue.Editor.Art
         /// <summary>
         /// Row 4. Reserved for verdict and alarm state. Never decorate with these.
         /// Columns 0-3 red, 4-7 amber, 8-11 green, 12-15 unlit/off states.
+        /// <para>
+        /// <b>The three canonical entries are taken from <see cref="SignalPalette"/>, not restated.</b>
+        /// They were literals here once and drifted the moment the screen colours were retuned for
+        /// colourblind luminance separation (#41): the atlas kept the old amber and green while every
+        /// screen in the game used the new ones, so an emissive status light and a results table would
+        /// have disagreed about what CAUTION looks like. Deriving them means a future retune reaches
+        /// the geometry by re-running this menu item, and cannot be half-applied.
+        /// </para>
+        /// The neighbours stay literal: they are darker and lighter variants for shaded and lit faces,
+        /// not verdict colours, and they only have to stay ordered by brightness around the anchor.
         /// </summary>
         private static readonly Color[] SignalRow =
         {
-            new(0.72f, 0.09f, 0.09f), new(0.86f, 0.13f, 0.13f), new(1.00f, 0.22f, 0.18f), new(1.00f, 0.42f, 0.36f),
-            new(0.68f, 0.42f, 0.05f), new(0.85f, 0.55f, 0.07f), new(1.00f, 0.70f, 0.12f), new(1.00f, 0.82f, 0.40f),
-            new(0.08f, 0.44f, 0.20f), new(0.12f, 0.60f, 0.28f), new(0.20f, 0.80f, 0.38f), new(0.48f, 0.92f, 0.60f),
+            new(0.72f, 0.09f, 0.09f), new(0.86f, 0.13f, 0.13f), SignalPalette.Critical, new(1.00f, 0.42f, 0.36f),
+            new(0.68f, 0.42f, 0.05f), new(0.85f, 0.55f, 0.07f), SignalPalette.Caution, new(1.00f, 0.90f, 0.62f),
+            new(0.06f, 0.34f, 0.16f), new(0.11f, 0.55f, 0.26f), SignalPalette.Normal, new(0.40f, 0.84f, 0.54f),
             new(0.14f, 0.15f, 0.16f), new(0.20f, 0.21f, 0.22f), new(0.26f, 0.28f, 0.29f), new(0.34f, 0.36f, 0.38f)
         };
 
