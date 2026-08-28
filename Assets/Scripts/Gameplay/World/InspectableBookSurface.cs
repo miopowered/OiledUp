@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Collections.Generic;
-using System.Text;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -15,9 +14,15 @@ namespace Residue.Gameplay.World
         private const int Scale = 2;
         private const int MarginX = 14;
         private const int MarginY = 14;
-        private const int LineHeight = (PixelFont.GlyphHeight + 2) * Scale;
-        private const int Columns = (HalfWidth - MarginX * 2) / (PixelFont.Advance * Scale);
-        private const int LinesPerPage = (TextureHeight - MarginY * 2 - LineHeight) / LineHeight;
+
+        // Page metrics, from the same arithmetic the instrument screens use (PixelText, #50). No
+        // longer const: a compile-time copy of a shared formula is how two screens quietly stop
+        // agreeing about what a line is. Order matters here — LinesPerPage reads LineHeight, and
+        // static initialisers run top to bottom.
+        private static readonly int LineHeight = PixelText.LineHeight(Scale);
+        private static readonly int Columns = PixelText.Columns(HalfWidth - MarginX * 2, Scale);
+        private static readonly int LinesPerPage = (TextureHeight - MarginY * 2 - LineHeight) / LineHeight;
+
         private const float BookHalfWidth = 0.18f;
         private const float BookHalfDepth = 0.12f;
         private const float PageHalfThickness = 0.014f;
@@ -59,7 +64,7 @@ namespace Residue.Gameplay.World
 
         private readonly List<List<string>> pages = new();
         private Texture2D texture;
-        private Color32[] pixels;
+        private PixelCanvas canvas;
         private Mesh mesh;
         private Material material;
         private MeshRenderer pageRenderer;
@@ -135,7 +140,7 @@ namespace Residue.Gameplay.World
 
         /// <summary>
         /// Where a corner control sits on the page, in texture pixels with y measured from the top —
-        /// the same convention <see cref="FillRect"/> uses.
+        /// the same convention <see cref="PixelCanvas.FillRect"/> uses.
         /// </summary>
         private static RectInt CornerButtonRect(bool left) => new(
             left ? ButtonInset : TextureWidth - ButtonInset - ButtonWidth,
@@ -167,7 +172,7 @@ namespace Residue.Gameplay.World
         /// Texture pixel to a position on the page, returned as (x, z) in the page's own space.
         /// <para>
         /// Mirrors the top face's UVs exactly: u runs left to right across the full spread, and v runs
-        /// bottom to top, which is the opposite of the y <see cref="FillRect"/> takes — hence the
+        /// bottom to top, which is the opposite of the y <see cref="PixelCanvas.FillRect"/> takes — hence the
         /// inversion here rather than at every call site.
         /// </para>
         /// </summary>
@@ -286,39 +291,31 @@ namespace Residue.Gameplay.World
             flipObject.SetActive(false);
         }
 
+        /// <summary>
+        /// Lay a section's prose out as pages.
+        /// <para>
+        /// The book reflows where the instrument screens cut (see <see cref="PixelText"/>): a page is
+        /// two dozen lines of continuous text and losing the tail of a sentence loses the sentence,
+        /// whereas an instrument's line is a labelled field that must stay where the eye left it.
+        /// </para>
+        /// </summary>
         private void AddSection(string heading, string body)
         {
             var lines = new List<string>();
-            if (!string.IsNullOrEmpty(heading)) lines.Add(heading.ToUpperInvariant());
+
+            // Truncated, unlike the body, which reflows. A heading is one line by definition — wrapping
+            // it would push the first paragraph down and leave a page whose second line is the tail of
+            // a title. Before this it was neither wrapped nor cut, so a section name longer than the
+            // column count simply ran off the paper and out past the margin.
+            if (!string.IsNullOrEmpty(heading))
+                lines.Add(PixelText.Truncate(heading.ToUpperInvariant(), Columns));
             if (lines.Count > 0) lines.Add(string.Empty);
-            Wrap(body, lines);
+            PixelText.Wrap(body, Columns, lines);
 
             for (int start = 0; start < lines.Count; start += LinesPerPage)
             {
                 int count = Mathf.Min(LinesPerPage, lines.Count - start);
                 pages.Add(lines.GetRange(start, count));
-            }
-        }
-
-        private static void Wrap(string text, List<string> output)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
-            {
-                if (string.IsNullOrWhiteSpace(paragraph)) { output.Add(string.Empty); continue; }
-                var line = new StringBuilder();
-                foreach (string word in paragraph.Trim().Split(' '))
-                {
-                    if (word.Length == 0) continue;
-                    if (line.Length > 0 && line.Length + 1 + word.Length > Columns)
-                    {
-                        output.Add(line.ToString());
-                        line.Clear();
-                    }
-                    if (line.Length > 0) line.Append(' ');
-                    line.Append(word.Length <= Columns ? word : word.Substring(0, Columns));
-                }
-                if (line.Length > 0) output.Add(line.ToString());
             }
         }
 
@@ -340,7 +337,7 @@ namespace Residue.Gameplay.World
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp
             };
-            pixels = new Color32[TextureWidth * TextureHeight];
+            canvas = new PixelCanvas(TextureWidth, TextureHeight);
 
             var shader = Shader.Find("Universal Render Pipeline/Unlit") ?? Shader.Find("Unlit/Texture");
             material = new Material(shader) { name = $"{name}_PageMaterial", mainTexture = texture };
@@ -401,9 +398,9 @@ namespace Residue.Gameplay.World
         private void DrawSpread(int leftIndex, int rightIndex, bool showControls)
         {
             if (texture == null) return;
-            for (int i = 0; i < pixels.Length; i++) pixels[i] = Paper;
+            canvas.Clear(Paper);
 
-            FillRect(HalfWidth - 2, 0, 4, TextureHeight, Seam);
+            canvas.FillRect(HalfWidth - 2, 0, 4, TextureHeight, Seam);
             DrawPage(leftIndex, 0);
             DrawPage(rightIndex, HalfWidth);
 
@@ -413,8 +410,7 @@ namespace Residue.Gameplay.World
                 if (leftPage + 2 < pages.Count) DrawCornerButton(left: false);
             }
 
-            texture.SetPixels32(pixels);
-            texture.Apply(false);
+            canvas.ApplyTo(texture);
         }
 
         private void DrawPage(int pageIndex, int xOffset)
@@ -422,10 +418,11 @@ namespace Residue.Gameplay.World
             if (pageIndex < 0 || pageIndex >= pages.Count) return;
             var lines = pages[pageIndex];
             for (int i = 0; i < lines.Count && i < LinesPerPage; i++)
-                DrawText(xOffset + MarginX, MarginY + i * LineHeight, lines[i], i == 0 ? Ink : SoftInk, Scale);
+                canvas.DrawText(xOffset + MarginX, MarginY + i * LineHeight, lines[i],
+                    i == 0 ? Ink : SoftInk, Scale);
 
             string footer = $"{pageIndex + 1}/{pages.Count}";
-            DrawText(xOffset + (HalfWidth - PixelFont.MeasureWidth(footer, Scale)) / 2,
+            canvas.DrawText(xOffset + PixelText.CentreOffset(footer, Scale, HalfWidth),
                 TextureHeight - MarginY - PixelFont.GlyphHeight * Scale, footer, SoftInk, Scale);
         }
 
@@ -444,45 +441,15 @@ namespace Residue.Gameplay.World
         {
             var rect = CornerButtonRect(left);
 
-            FillRect(rect.x, rect.yMax - 2, rect.width, 2, Ink);
-            FillRect(left ? rect.x : rect.xMax - 2, rect.y, 2, rect.height, Ink);
+            canvas.FillRect(rect.x, rect.yMax - 2, rect.width, 2, Ink);
+            canvas.FillRect(left ? rect.x : rect.xMax - 2, rect.y, 2, rect.height, Ink);
 
             string arrow = left ? "<" : ">";
-            int arrowWidth = PixelFont.MeasureWidth(arrow, ArrowScale);
             int arrowHeight = PixelFont.GlyphHeight * ArrowScale;
 
-            DrawText(rect.x + (rect.width - arrowWidth) / 2,
-                     rect.y + (rect.height - arrowHeight) / 2 - 1,
-                     arrow, Ink, ArrowScale);
-        }
-
-        private void DrawText(int x, int y, string text, Color32 colour, int glyphScale)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            foreach (char ch in text)
-            {
-                string glyph = PixelFont.Glyph(ch);
-                for (int gy = 0; gy < PixelFont.GlyphHeight; gy++)
-                    for (int gx = 0; gx < PixelFont.GlyphWidth; gx++)
-                        if (PixelFont.IsOn(glyph, gx, gy))
-                            FillRect(x + gx * glyphScale, y + gy * glyphScale,
-                                glyphScale, glyphScale, colour);
-                x += PixelFont.Advance * glyphScale;
-            }
-        }
-
-        private void FillRect(int x, int y, int width, int height, Color32 colour)
-        {
-            for (int dy = 0; dy < height; dy++)
-            {
-                int py = TextureHeight - 1 - (y + dy);
-                if (py < 0 || py >= TextureHeight) continue;
-                for (int dx = 0; dx < width; dx++)
-                {
-                    int px = x + dx;
-                    if (px >= 0 && px < TextureWidth) pixels[py * TextureWidth + px] = colour;
-                }
-            }
+            canvas.DrawText(rect.x + PixelText.CentreOffset(arrow, ArrowScale, rect.width),
+                            rect.y + (rect.height - arrowHeight) / 2 - 1,
+                            arrow, Ink, ArrowScale);
         }
 
         private void OnDestroy()

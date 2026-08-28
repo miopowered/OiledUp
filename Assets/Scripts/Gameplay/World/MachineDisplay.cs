@@ -45,7 +45,7 @@ namespace Residue.Gameplay.World
         private static readonly int EmissionColor = Shader.PropertyToID("_EmissionColor");
 
         private Texture2D texture;
-        private Color32[] buffer;
+        private PixelCanvas canvas;
         private Material instance;
 
         /// <summary>Most recent runs on this instrument, newest first. Purely local to the screen.</summary>
@@ -74,7 +74,7 @@ namespace Residue.Gameplay.World
                 wrapMode = TextureWrapMode.Clamp,
                 name = $"{name}_Screen"
             };
-            buffer = new Color32[pixelWidth * pixelHeight];
+            canvas = new PixelCanvas(pixelWidth, pixelHeight);
 
             if (screen != null)
             {
@@ -106,7 +106,7 @@ namespace Residue.Gameplay.World
         public void ShowIdle(IMachineView machine)
         {
             Clear();
-            DrawText(2, 2, Shorten(Title(machine), Columns), ink);
+            DrawText(2, 2, PixelText.Truncate(Title(machine), Columns), ink);
             DrawText(2, 2 + LineHeight, "READY", dim);
             Apply();
             drawn = 0;
@@ -170,7 +170,7 @@ namespace Residue.Gameplay.World
             if (machine == null) return;
 
             Clear();
-            DrawText(2, 2, Shorten(Title(machine), Columns), dim);
+            DrawText(2, 2, PixelText.Truncate(Title(machine), Columns), dim);
             DrawText(2, 2 + LineHeight, $"RUNNING {machine.SecondsRemaining:F0}S", ink);
             DrawProgressBar(2, 2 + LineHeight * 2, Columns * PixelFont.Advance * scale - 4, machine.Progress);
             Apply();
@@ -185,9 +185,9 @@ namespace Residue.Gameplay.World
         public void ShowNotice(IMachineView machine, string headline, string detail)
         {
             Clear();
-            DrawText(2, 2, Shorten(Title(machine), Columns), dim);
-            DrawText(2, 2 + LineHeight, Shorten(headline ?? "", Columns), ink);
-            DrawText(2, 2 + LineHeight * 2, Shorten(detail ?? "", Columns), dim);
+            DrawText(2, 2, PixelText.Truncate(Title(machine), Columns), dim);
+            DrawText(2, 2 + LineHeight, PixelText.Truncate(headline ?? "", Columns), ink);
+            DrawText(2, 2 + LineHeight * 2, PixelText.Truncate(detail ?? "", Columns), dim);
             Apply();
             drawn = 0;
         }
@@ -244,7 +244,7 @@ namespace Residue.Gameplay.World
         private void DrawNumeric(TestResult result, string caption)
         {
             int y = 2;
-            DrawText(2, y, Shorten(caption, Columns), dim);
+            DrawText(2, y, PixelText.Truncate(caption, Columns), dim);
             y += LineHeight;
 
             // A small readout shows the values large rather than many. Two lines at double size.
@@ -267,10 +267,10 @@ namespace Residue.Gameplay.World
         private void DrawPanel(IMachineView machine, TestResult result, string caption)
         {
             int y = 2;
-            DrawText(2, y, Shorten(Title(machine), Columns), ink);
+            DrawText(2, y, PixelText.Truncate(Title(machine), Columns), ink);
             y += LineHeight;
 
-            DrawText(2, y, Shorten(caption, Columns), dim);
+            DrawText(2, y, PixelText.Truncate(caption, Columns), dim);
             y += LineHeight;
 
             DrawRule(2, y + 1, Columns * PixelFont.Advance * scale - 4);
@@ -295,84 +295,47 @@ namespace Residue.Gameplay.World
             DrawText(2, historyY, "HISTORY", dim);
 
             for (int i = 0; i < history.Count && i < 2; i++)
-                DrawText(2, historyY + LineHeight * (i + 1), Shorten(history[i], Columns), dim);
+                DrawText(2, historyY + LineHeight * (i + 1), PixelText.Truncate(history[i], Columns), dim);
         }
 
         private void RecordHistory(TestResult result, string caption)
         {
-            history.Insert(0, $"D{result.DayRun} {Shorten(caption, 14)}");
+            history.Insert(0, $"D{result.DayRun} {PixelText.Truncate(caption, 14)}");
             while (history.Count > 6) history.RemoveAt(history.Count - 1);
         }
 
         // -- Raster ----------------------------------------------------------------------------------
 
-        private int LineHeight => (PixelFont.GlyphHeight + 2) * scale;
-        private int Columns => Mathf.Max(1, (pixelWidth - 4) / (PixelFont.Advance * scale));
+        private int LineHeight => PixelText.LineHeight(scale);
 
-        private void Clear()
-        {
-            var bg = (Color32)background;
-            for (int i = 0; i < buffer.Length; i++) buffer[i] = bg;
-        }
+        /// <summary>
+        /// Characters across the glass, less a two-pixel margin at each edge — the same inset every
+        /// <c>DrawText</c> call below starts from.
+        /// <para>
+        /// Everything on this screen is cut to it rather than wrapped to it. Each line here is a
+        /// labelled field at a fixed y — title, caption, value, history — so a caption that reflowed
+        /// would push the number under it off the glass, which is the one thing the player walked
+        /// over to read. <see cref="PixelText"/> holds both behaviours and the reasoning for the
+        /// split; the book's pages take the other branch.
+        /// </para>
+        /// </summary>
+        private int Columns => PixelText.Columns(pixelWidth - 4, scale);
 
-        private void Apply()
-        {
-            texture.SetPixels32(buffer);
-            texture.Apply(false);
-        }
+        private void Clear() => canvas.Clear(background);
+
+        private void Apply() => canvas.ApplyTo(texture);
 
         private void DrawText(int x, int y, string text, Color colour) => DrawText(x, y, text, colour, scale);
 
-        private void DrawText(int x, int y, string text, Color colour, int glyphScale)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            var c = (Color32)colour;
+        private void DrawText(int x, int y, string text, Color colour, int glyphScale) =>
+            canvas.DrawText(x, y, text, colour, glyphScale);
 
-            foreach (char ch in text)
-            {
-                string glyph = PixelFont.Glyph(ch);
-                for (int gy = 0; gy < PixelFont.GlyphHeight; gy++)
-                {
-                    for (int gx = 0; gx < PixelFont.GlyphWidth; gx++)
-                    {
-                        if (!PixelFont.IsOn(glyph, gx, gy)) continue;
-                        FillRect(x + gx * glyphScale, y + gy * glyphScale, glyphScale, glyphScale, c);
-                    }
-                }
-                x += PixelFont.Advance * glyphScale;
-            }
-        }
-
-        private void DrawRule(int x, int y, int width) => FillRect(x, y, width, 1, dim);
+        private void DrawRule(int x, int y, int width) => canvas.FillRect(x, y, width, 1, dim);
 
         private void DrawProgressBar(int x, int y, int width, float fraction)
         {
-            FillRect(x, y, width, scale, dim);
-            FillRect(x, y, Mathf.RoundToInt(width * Mathf.Clamp01(fraction)), scale, ink);
-        }
-
-        /// <summary>Rows are written top-down; textures are bottom-up, so y is flipped here once.</summary>
-        private void FillRect(int x, int y, int w, int h, Color32 colour)
-        {
-            for (int dy = 0; dy < h; dy++)
-            {
-                int py = pixelHeight - 1 - (y + dy);
-                if (py < 0 || py >= pixelHeight) continue;
-
-                int row = py * pixelWidth;
-                for (int dx = 0; dx < w; dx++)
-                {
-                    int px = x + dx;
-                    if (px < 0 || px >= pixelWidth) continue;
-                    buffer[row + px] = colour;
-                }
-            }
-        }
-
-        private static string Shorten(string text, int columns)
-        {
-            if (string.IsNullOrEmpty(text)) return "";
-            return text.Length <= columns ? text : text.Substring(0, Mathf.Max(1, columns));
+            canvas.FillRect(x, y, width, scale, dim);
+            canvas.FillRect(x, y, Mathf.RoundToInt(width * Mathf.Clamp01(fraction)), scale, ink);
         }
     }
 }
