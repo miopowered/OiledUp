@@ -53,6 +53,7 @@ namespace Residue.Net.UI
         private CoOpPanel coOpPage;
         private LobbyPanel lobbyPage;
         private PausePanel pausePage;
+        private DisconnectPanel disconnectPage;
         private SettingsPanel settingsPage;
         private SessionCard card;
 
@@ -132,11 +133,13 @@ namespace Residue.Net.UI
             coOpPage = new CoOpPanel(connection, () => Go(MenuPage.Title));
             lobbyPage = new LobbyPanel(connection, Leave);
             pausePage = new PausePanel(Resume, OpenSettings, Leave);
+            disconnectPage = new DisconnectPanel(connection, Acknowledge, Reconnect);
 
             backdrop.Add(titlePage.Root);
             backdrop.Add(coOpPage.Root);
             backdrop.Add(lobbyPage.Root);
             backdrop.Add(pausePage.Root);
+            backdrop.Add(disconnectPage.Root);
 
             // Kept across a rebuild rather than remade: it holds rebind state and a revert timer.
             if (settingsPage != null) backdrop.Add(settingsPage.Root);
@@ -162,6 +165,11 @@ namespace Residue.Net.UI
         {
             if (connection == null) return MenuPage.Title;
 
+            // First, and ahead of InGame. A session that ended under the player is the one case where
+            // a page has to come up over a lab that is still standing there — see MenuPage.Disconnected
+            // and the freeze in Refresh.
+            if (connection.Ended.HasValue) return MenuPage.Disconnected;
+
             if (InGame)
             {
                 if (!suspension.Active) return MenuPage.None;
@@ -184,6 +192,19 @@ namespace Residue.Net.UI
         private void Refresh()
         {
             if (root == null) return;
+
+            // Take the player's hands the moment the wire dies, not when the scene finally changes
+            // (#52). LabConnection records the end before it starts unwinding, and the unwind waits
+            // on a voice leave and a lobby delete over the connection that has just failed — so
+            // without this there are seconds, sometimes tens of them, in which a client walks around
+            // its last replicated snapshot pressing things that will never be answered. That reads as
+            // the game being slow rather than the session being over.
+            //
+            // Through the same ShiftPause the menu uses, and not stopping the clock: freezing a
+            // client's timescale would stop it drawing a lab it is still looking at, and the pairing
+            // that gives everything back lives in one place for the reason that type documents.
+            if (connection != null && connection.Ended.HasValue && InGame && !suspension.Active)
+                suspension.Begin(false);
 
             // The lab can go away underneath a pause — the host drops, or LeaveAsync lands. Nothing
             // else would put Time.timeScale back.
@@ -235,6 +256,7 @@ namespace Residue.Net.UI
                 case MenuPage.CoOp: coOpPage.Refresh(); break;
                 case MenuPage.Lobby: lobbyPage.Refresh(); break;
                 case MenuPage.Pause: pausePage.Refresh(suspension.ClockStopped); break;
+                case MenuPage.Disconnected: disconnectPage.Refresh(); break;
             }
 
             // Or an invisible full-screen element eats every click the player aimed at the room.
@@ -258,6 +280,7 @@ namespace Residue.Net.UI
             coOpPage.Root.style.display = Shows(page == MenuPage.CoOp);
             lobbyPage.Root.style.display = Shows(page == MenuPage.Lobby);
             pausePage.Root.style.display = Shows(page == MenuPage.Pause);
+            disconnectPage.Root.style.display = Shows(page == MenuPage.Disconnected);
             if (settingsPage != null)
                 settingsPage.Root.style.display = Shows(page == MenuPage.Settings);
         }
@@ -271,6 +294,7 @@ namespace Residue.Net.UI
             MenuPage.CoOp => coOpPage.Root,
             MenuPage.Lobby => lobbyPage.Root,
             MenuPage.Pause => pausePage.Root,
+            MenuPage.Disconnected => disconnectPage.Root,
             MenuPage.Settings => settingsPage?.Root,
             _ => null
         };
@@ -298,6 +322,15 @@ namespace Residue.Net.UI
 
             var keyboard = Keyboard.current;
             if (keyboard == null) return;
+
+            // Escape on the disconnect notice means "yes, I have read it" and nothing else. Handled
+            // ahead of the suspension block below, where it would otherwise be swallowed: the freeze
+            // is active there, but Escape cannot mean resume when there is no session to resume into.
+            if (shown == MenuPage.Disconnected)
+            {
+                if (keyboard.escapeKey.wasPressedThisFrame) Acknowledge();
+                return;
+            }
 
             if (suspension.Active)
             {
@@ -387,6 +420,46 @@ namespace Residue.Net.UI
 
             requested = MenuPage.Title;
             if (connection != null) _ = connection.LeaveAsync();
+            Refresh();
+        }
+
+        /// <summary>
+        /// The player has read the disconnect notice. Not routed through <see cref="Leave"/>: there
+        /// is no session left to leave — <c>LabConnection</c> unwound it as it happened — and calling
+        /// <c>LeaveAsync</c> a second time would run a whole teardown against a dead connection just
+        /// to dismiss a page.
+        /// <para>
+        /// The suspension is ended here rather than left to the <c>InGame</c> clause in
+        /// <see cref="Refresh"/>, because the return to Boot may still be in flight and a player who
+        /// pressed the button should not keep watching a frozen lab until it lands.
+        /// </para>
+        /// </summary>
+        private void Acknowledge()
+        {
+            if (suspension.Active) EndPause();
+
+            requested = MenuPage.Title;
+            connection?.AcknowledgeEnd();
+            Refresh();
+        }
+
+        /// <summary>
+        /// Take the held seat back. Offered only where <c>LabConnection</c> says it is honest — see
+        /// <see cref="DisconnectPanel"/> — and this method does not second-guess that;
+        /// <c>RejoinAsync</c> refuses anything else on its own.
+        /// <para>
+        /// <see cref="requested"/> is moved to <see cref="MenuPage.CoOp"/> before the attempt, and
+        /// that is the load-bearing line. The rejoin clears the notice, so if it then fails there is
+        /// nothing routing the player anywhere in particular, and the sentence saying why would land
+        /// on a page that does not draw it — the title screen, which shows no errors by design.
+        /// </para>
+        /// </summary>
+        private void Reconnect()
+        {
+            if (suspension.Active) EndPause();
+
+            requested = MenuPage.CoOp;
+            if (connection != null) _ = connection.RejoinAsync();
             Refresh();
         }
 

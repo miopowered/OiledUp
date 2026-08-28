@@ -173,6 +173,136 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
+        // Losing a session (#52). Four cases, four sentences, one rejoin. The classification is the
+        // half that can be checked here: the callback it hangs off needs a host, a relay and a
+        // second process, but the rule it applies is pure and is exactly the part that would rot.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The round trip that makes "the host quit" distinguishable at all: what
+        /// <c>LabConnection</c> sends every client before it takes the host down has to be what the
+        /// client recognises on the way in. If these two ever come apart, a host quitting reads as a
+        /// dropped connection and the player is offered a rejoin into a lobby that has been deleted.
+        /// </summary>
+        [Test]
+        public void SessionEnd_WhatTheHostSaysOnItsWayOutIsWhatTheClientHears()
+        {
+            var end = SessionEnd.Classify(wasConnected: true, SessionEnd.HostClosedNote);
+
+            Assert.AreEqual(SessionEndKind.HostClosed, end.Kind);
+            Assert.IsFalse(end.OffersRejoin,
+                "A host that has quit was offered a reconnect. There is nothing on the other end.");
+        }
+
+        /// <summary>
+        /// A host can also go out through <c>NetworkManager.Shutdown</c> alone — a transport failure
+        /// on its side, or any future exit that forgets to say goodbye — and NGO then writes its own
+        /// "shutting down" reason. The player must read the same sentence either way, because which
+        /// of the two paths the host took is not a fact about their game.
+        /// </summary>
+        [Test]
+        public void SessionEnd_RecognisesNetcodesOwnShutdownWording()
+        {
+            var end = SessionEnd.Classify(
+                wasConnected: true, "Disconnected due to host shutting down.");
+
+            Assert.AreEqual(SessionEndKind.HostClosed, end.Kind);
+        }
+
+        /// <summary>
+        /// The shutdown test runs before the "did we ever connect" test, and the order is the point.
+        /// A host that quits while somebody is still shaking hands has closed the lab; calling that a
+        /// refusal sends that player off to re-check a join code that was never wrong.
+        /// </summary>
+        [Test]
+        public void SessionEnd_AHostThatQuitsMidHandshakeIsNotARefusal()
+        {
+            var end = SessionEnd.Classify(wasConnected: false, SessionEnd.HostClosedNote);
+
+            Assert.AreEqual(SessionEndKind.HostClosed, end.Kind);
+        }
+
+        /// <summary>
+        /// Never connected means turned away, and the host's own refusal text is what gets shown —
+        /// <c>SessionRegistry</c> writes those for a player to read ("that game is full"), and
+        /// flattening them into "disconnected" throws away the only thing that says what to do next.
+        /// </summary>
+        [Test]
+        public void SessionEnd_AConnectionThatNeverLandedIsARefusal()
+        {
+            var end = SessionEnd.Classify(wasConnected: false, "The lab is full.");
+
+            Assert.AreEqual(SessionEndKind.Refused, end.Kind);
+            Assert.IsTrue(end.Detail.Contains("The lab is full."),
+                "The host's own refusal was dropped on the floor.");
+            Assert.IsFalse(end.OffersRejoin);
+        }
+
+        /// <summary>
+        /// Connected, then a reason: somebody made a decision about this client specifically. Not a
+        /// rejoin — the same identity would be refused again, and a button that re-earns a refusal
+        /// reads as the game being broken rather than as the host having meant it.
+        /// </summary>
+        [Test]
+        public void SessionEnd_BeingRemovedByTheHostIsNotADrop()
+        {
+            var end = SessionEnd.Classify(wasConnected: true, "Client-2 disconnected by server.");
+
+            Assert.AreEqual(SessionEndKind.Kicked, end.Kind);
+            Assert.IsFalse(end.OffersRejoin);
+        }
+
+        /// <summary>
+        /// The one case worth a reconnect, and the reason the other three are separated out at all:
+        /// connected, then silence. <c>SessionRegistry</c> holds an absent player's seat, so this
+        /// client really can walk back into its own pose and its own hands.
+        /// </summary>
+        [Test]
+        public void SessionEnd_OnlyASilentDropIsOfferedAReconnect()
+        {
+            Assert.IsTrue(SessionEnd.Classify(true, null).OffersRejoin);
+            Assert.IsTrue(SessionEnd.Classify(true, "   ").OffersRejoin,
+                "A reason of nothing but whitespace is nobody having said anything.");
+            Assert.AreEqual(SessionEndKind.Dropped, SessionEnd.Classify(true, string.Empty).Kind);
+
+            // And nothing else is. Stated as a whole-enum sweep so a fifth kind added later has to
+            // make its mind up here rather than inherit an answer.
+            foreach (SessionEndKind kind in Enum.GetValues(typeof(SessionEndKind)))
+            {
+                var end = Sample(kind);
+                Assert.AreEqual(kind == SessionEndKind.Dropped, end.OffersRejoin,
+                    $"{kind} disagrees with the one-rejoin rule.");
+            }
+        }
+
+        /// <summary>
+        /// Every kind says something, in both registers. A heading with no sentence under it is a
+        /// player being told the game is over and not why; a sentence with no heading is a wall of
+        /// prose over a lab that has just stopped moving.
+        /// </summary>
+        [Test]
+        public void SessionEnd_EveryKindHasSomethingToSay()
+        {
+            foreach (SessionEndKind kind in Enum.GetValues(typeof(SessionEndKind)))
+            {
+                var end = Sample(kind);
+
+                Assert.AreEqual(kind, end.Kind, $"Sample for {kind} classified as {end.Kind}.");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(end.Headline), $"{kind} has no headline.");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(end.Detail), $"{kind} has no sentence.");
+            }
+        }
+
+        /// <summary>One end of each kind, built through the only door there is.</summary>
+        private static SessionEnd Sample(SessionEndKind kind) => kind switch
+        {
+            SessionEndKind.HostClosed => SessionEnd.Classify(true, SessionEnd.HostClosedNote),
+            SessionEndKind.Refused => SessionEnd.Classify(false, "The lab is full."),
+            SessionEndKind.Kicked => SessionEnd.Classify(true, "Removed by the host."),
+            _ => SessionEnd.Classify(true, null)
+        };
+
+        // -----------------------------------------------------------------------------------------
         // The lobby. Everything below runs with no NetworkManager at all, which is what a
         // LobbyRoom degrades to: a roster of one and a working countdown. The messaging half needs
         // two processes and a Relay allocation and is verified by hand; the clock is the half that
