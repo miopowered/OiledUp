@@ -30,6 +30,18 @@ namespace Residue.Net.UI
         Settings,
 
         /// <summary>Over a shift in progress. Only reachable once the lab is loaded.</summary>
-        Pause
+        Pause,
+
+        /// <summary>
+        /// A session ended without the player asking (#52): what happened, and — for the one case
+        /// where it is honest — a way back into it.
+        /// <para>
+        /// Outranks every other page including <see cref="None"/>, which is what makes it the one
+        /// that can appear over a lab that is still on screen. That is not a nicety: the client keeps
+        /// its last replicated snapshot and its own interactor after the wire dies, so until a page
+        /// is up the player is walking around pressing things nothing will answer.
+        /// </para>
+        /// </summary>
+        Disconnected
     }
 }

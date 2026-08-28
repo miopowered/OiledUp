@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
@@ -54,6 +55,14 @@ namespace Residue.Net.Connect
     /// client NGO pulled across, for a client that joined a shift already running, and for single
     /// player, which gets it without a line of netcode.
     /// </para>
+    /// <para>
+    /// <b>Ending is four things, not one</b> (#52). Choosing to leave is <see cref="LeaveAsync"/>
+    /// and explains itself. Everything else lands in <see cref="Ended"/> as a
+    /// <see cref="SessionEnd"/>, which names which of the four happened and decides whether
+    /// <see cref="RejoinAsync"/> is an honest offer. It is written before the unwind rather than
+    /// after it, because the unwind waits on the network that has just failed and until it lands the
+    /// player is still walking around a lab that has stopped answering.
+    /// </para>
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class LabConnection : MonoBehaviour
@@ -86,6 +95,19 @@ namespace Residue.Net.Connect
         private bool ownsLobby;
         private bool quitting;
 
+        /// <summary>
+        /// The code this client actually joined with, kept for <see cref="RejoinAsync"/>. Cleared by
+        /// teardown along with everything else, so a rejoin can never be offered against the last
+        /// session but one.
+        /// </summary>
+        private string joinedWithCode;
+
+        /// <summary>
+        /// This connection reached <c>OnClientConnectedCallback</c>. The one fact that separates a
+        /// refusal from a drop — see <see cref="SessionEnd.Classify"/>.
+        /// </summary>
+        private bool everConnected;
+
         public ConnectState State { get; private set; } = ConnectState.Idle;
 
         /// <summary>The six characters the host reads aloud, or null when not hosting.</summary>
@@ -96,6 +118,20 @@ namespace Residue.Net.Connect
 
         /// <summary>Player-facing failure, or null. Written to be displayed verbatim.</summary>
         public string Error { get; private set; }
+
+        /// <summary>
+        /// Set when a session that was already running ended without the player asking (#52), and
+        /// null at every other moment — including after a plain <see cref="LeaveAsync"/>, which is
+        /// the player's own decision and needs no explaining back to them.
+        /// <para>
+        /// Written <i>before</i> the unwind rather than after it, which is the whole reason it is a
+        /// separate property from <see cref="Error"/>. <see cref="TearDownAsync"/> awaits a voice
+        /// leave and a lobby delete — seconds, on the network that has just failed — and until this
+        /// lands the player is still standing in the lab with a working set of hands. It is what
+        /// <c>MenuScreen</c> watches to take those hands away.
+        /// </para>
+        /// </summary>
+        public SessionEnd? Ended { get; private set; }
 
         /// <summary>Resolved once <see cref="ConnectState.Preparing"/> has passed.</summary>
         public IPlayerIdentity Identity { get; private set; }
@@ -206,14 +242,59 @@ namespace Residue.Net.Connect
             if (manager != null)
             {
                 Unhook(manager);
-                if (manager.IsListening || manager.IsClient || manager.IsServer) manager.Shutdown();
+                if (manager.IsServer && manager.IsListening) SayGoodbye(manager);
+                RequestShutdown(manager);
             }
 
             if (closing != null) _ = CloseLobbyAsync(closing, owned);
         }
 
         /// <summary>
-        /// Hold the quit until the lobby is actually closed, capped at
+        /// Ask NGO to shut down, but only if it is not already doing so (#74).
+        /// <para>
+        /// <c>NetworkManager</c> tears itself down from <c>OnApplicationQuit</c> and again from
+        /// <c>OnDestroy</c>, and a request from here on top of that is a third run through
+        /// <c>ShutdownInternal</c>. That method disposes its <c>NetworkSceneManager</c> and nulls the
+        /// field on the very next line, so the guard against disposing one twice only holds while the
+        /// method runs to completion — any run that is interrupted leaves the field pointing at a
+        /// scene manager whose <c>SceneEventDataStore</c> is already null, and the next teardown
+        /// walks it. Fewer shutdowns is the only lever we have on that from outside the package.
+        /// </para>
+        /// </summary>
+        private static void RequestShutdown(NetworkManager manager)
+        {
+            if (manager.ShutdownInProgress) return;
+            if (!manager.IsListening && !manager.IsClient && !manager.IsServer) return;
+
+            manager.Shutdown();
+        }
+
+        /// <summary>
+        /// Tell everyone why, while there is still a wire to tell them on.
+        /// <para>
+        /// Server only, and before <see cref="RequestShutdown"/> rather than instead of it: without
+        /// this a client sees an unexplained disconnect and cannot tell a host that quit from its own
+        /// connection failing — which would leave it offering a rejoin against a lobby that is being
+        /// deleted in the same breath. NGO sends the reason as a message and drops the connection on
+        /// its next update, which the shutdown flag leaves room for.
+        /// </para>
+        /// </summary>
+        private static void SayGoodbye(NetworkManager manager)
+        {
+            var connected = manager.ConnectedClientsIds;
+
+            // Backwards, because disconnecting mutates the list this is reading.
+            for (int i = connected.Count - 1; i >= 0; i--)
+            {
+                ulong clientId = connected[i];
+                if (clientId == manager.LocalClientId) continue;
+
+                manager.DisconnectClient(clientId, SessionEnd.HostClosedNote);
+            }
+        }
+
+        /// <summary>
+        /// Hold a real quit until the lobby is actually closed, capped at
         /// <see cref="QuitGraceSeconds"/>.
         /// <para>
         /// A lobby that is never deleted keeps answering its join code for its full timeout, so the
@@ -221,11 +302,33 @@ namespace Residue.Net.Connect
         /// "Connecting…" until NGO gives up. Three seconds of a slightly slow quit is the cheaper
         /// failure by a wide margin.
         /// </para>
+        /// <para>
+        /// In the Editor it holds nothing, and that is a fix rather than a shortcut — see the
+        /// comment on the branch. Every exit path in the game still comes through here, which is the
+        /// invariant #52 asks for; what changed is only what happens once it arrives.
+        /// </para>
         /// </summary>
         private bool OnWantsToQuit()
         {
             if (quitting) return true;
 
+#if UNITY_EDITOR
+            // Never held in the Editor, where this same callback fires on play-mode exit and holding
+            // it does the opposite of what it does in a build (#74).
+            //
+            // Application.Quit is a no-op in play mode, so the grace period can never finish what it
+            // interrupted: the player presses Stop, the exit is cancelled, and nothing happens until
+            // they press it again. And NGO has already run its whole teardown from
+            // EditorApplication.playModeStateChanged by the time this is asked — so a cancelled exit
+            // resumes play on a NetworkManager that has been shut down, and the second Stop shuts the
+            // same one down all over again. That is the doubled shutdown path #74 is about.
+            //
+            // OnDestroy releases the lobby on this path instead, fire and forget, which is exactly
+            // what it already documents itself as doing. The flag is still set, because from here on
+            // this process is on its way out and ReturnToBoot must not queue a scene load into it.
+            quitting = true;
+            return true;
+#else
             bool nothingToRelease = lobby == null &&
                                     (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening);
             if (nothingToRelease) return true;
@@ -233,12 +336,31 @@ namespace Residue.Net.Connect
             quitting = true;
             _ = QuitAsync();
             return false;
+#endif
         }
 
         private async Task QuitAsync()
         {
             var work = TearDownAsync();
-            await Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds(QuitGraceSeconds)));
+
+            // The loser of the race is cancelled rather than abandoned — the third instance of the
+            // shape fixed in #76. An uncancelled Task.Delay stays armed for its full duration
+            // whichever way the race goes, so a teardown that finishes in 200 ms would still leave a
+            // three-second timer holding a continuation over a process that is trying to exit.
+            //
+            // Deliberately no ConfigureAwait(false), for the reason ServiceBootstrap gives: the
+            // continuation below calls Application.Quit, which is Unity API and main-thread only.
+            using var grace = new CancellationTokenSource();
+            var deadline = Task.Delay(TimeSpan.FromSeconds(QuitGraceSeconds), grace.Token);
+
+            var first = await Task.WhenAny(work, deadline);
+            grace.Cancel();
+
+            // A teardown we gave up waiting for still has to have its exception read, or it
+            // resurfaces as an unobserved-exception log line during whatever happens next.
+            if (first != work)
+                _ = work.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+
             Application.Quit();
         }
 
@@ -307,6 +429,7 @@ namespace Residue.Net.Connect
         private void StartLabScene()
         {
             Error = null;
+            Ended = null;
             LabRuntime.SimulatesLocally = true;
             Set(ConnectState.SinglePlayer);
             SceneManager.LoadScene(labSceneName);
@@ -536,6 +659,11 @@ namespace Residue.Net.Connect
             lobby = found;
             ownsLobby = false;
 
+            // Kept for RejoinAsync. The normalised code rather than what was typed, so a rejoin sends
+            // the same six characters the join that worked did.
+            joinedWithCode = code;
+            everConnected = false;
+
             // Hard rule 2, and it has to be here. The host pushes the lab scene as soon as we are
             // approved, and LabRuntime.Awake reads this static while that scene loads.
             LabRuntime.SimulatesLocally = false;
@@ -573,6 +701,11 @@ namespace Residue.Net.Connect
         {
             await TearDownAsync();
             Error = null;
+
+            // Leaving is the player's own decision, so there is nothing to explain back to them —
+            // and a disconnect notice left standing here would route the menu straight back onto it.
+            Ended = null;
+
             Set(ConnectState.Idle);
             ReturnToBoot();
         }
@@ -580,9 +713,16 @@ namespace Residue.Net.Connect
         /// <summary>
         /// Back to the menu, unless that is already where we are. Unity's scene manager rather than
         /// NGO's — by the time this runs there is no session left to load a scene for.
+        /// <para>
+        /// Refused while the process is on its way out (#74). A scene load queued during a quit or a
+        /// play-mode exit unloads a scene underneath a <c>NetworkManager</c> that is halfway through
+        /// its own teardown, and the thing that throws when that goes wrong is the scene manager.
+        /// There is also nobody left to read the menu it would be loading.
+        /// </para>
         /// </summary>
         private void ReturnToBoot()
         {
+            if (quitting || !Application.isPlaying) return;
             if (string.IsNullOrWhiteSpace(bootSceneName)) return;
             if (SceneManager.GetActiveScene().name == bootSceneName) return;
 
@@ -603,9 +743,16 @@ namespace Residue.Net.Connect
             if (manager != null)
             {
                 Unhook(manager);
-                if (manager.IsListening || manager.IsClient || manager.IsServer) manager.Shutdown();
+                if (manager.IsServer && manager.IsListening) SayGoodbye(manager);
+                RequestShutdown(manager);
                 manager.NetworkConfig.ConnectionData = Array.Empty<byte>();
             }
+
+            // joinedWithCode deliberately survives this. Teardown runs *before* the player has read
+            // the notice, so clearing it here would take the code away from the RECONNECT button on
+            // the very path that offers one. Ended is the gate, not the code: every way of starting
+            // something new clears that, so a stale code can never be rejoined with.
+            everConnected = false;
 
             var closing = lobby;
             bool owned = ownsLobby;
@@ -688,6 +835,11 @@ namespace Residue.Net.Connect
             // a running game (see InLobby).
             lobbyRoom.OpenAsClient(Identity.DisplayName);
 
+            // Recorded here and nowhere else. This is the moment that separates "the host turned me
+            // away" from "the host had me and lost me", and those are two different sentences and
+            // two different answers to whether a rejoin is worth offering (see SessionEnd).
+            everConnected = true;
+
             Set(ConnectState.Joined);
         }
 
@@ -697,24 +849,87 @@ namespace Residue.Net.Connect
             if (manager == null || manager.IsServer) return;      // a remote client leaving us
             if (clientId != manager.LocalClientId) return;
 
-            string reason = manager.DisconnectReason;
-            _ = DroppedAsync(string.IsNullOrEmpty(reason)
-                ? "Disconnected from the host."
-                : $"Disconnected: {reason}");
+            _ = DroppedAsync(SessionEnd.Classify(everConnected, manager.DisconnectReason));
         }
 
         /// <summary>
-        /// Losing the host, as opposed to choosing to leave. Same unwind, and the same return to the
-        /// menu for the same reason: <see cref="Fail"/> writes a sentence for the player to read, and
-        /// the only screen that shows it lives in the Boot scene. Being dropped mid-shift and left
+        /// Losing the session, as opposed to choosing to leave. Same unwind, and the same return to
+        /// the menu for the same reason: the sentence written here is for the player to read, and the
+        /// only screen that shows it lives in the Boot scene. Being dropped mid-shift and left
         /// standing in a dead lab with no explanation is the worse half of the bug
         /// <see cref="ReturnToBoot"/> exists to fix, because nobody chose it.
+        /// <para>
+        /// <b>The announcement comes first and the unwind second.</b> Reversing the two is what
+        /// leaves a client walking around a lab that has stopped answering: <see cref="TearDownAsync"/>
+        /// waits on a voice leave and a lobby call over the connection that has just failed, which is
+        /// precisely when those take longest, and nothing on screen changes until it returns.
+        /// </para>
         /// </summary>
-        private async Task DroppedAsync(string reason)
+        private async Task DroppedAsync(SessionEnd end)
         {
+            EndSession(end);
             await TearDownAsync();
-            Fail(reason);
             ReturnToBoot();
+        }
+
+        /// <summary>
+        /// Record the end of a session and say so, at once. A failure state like <see cref="Fail"/>,
+        /// with the addition that <see cref="Ended"/> tells a screen which of the four things
+        /// happened rather than leaving it to read the sentence.
+        /// </summary>
+        private void EndSession(SessionEnd end)
+        {
+            Ended = end;
+            Error = end.Detail;
+            State = ConnectState.Failed;
+            Status = end.Headline;
+
+            Debug.LogWarning($"[LabConnection] Session ended ({end.Kind}): {end.Detail}", this);
+            Changed?.Invoke();
+        }
+
+        /// <summary>
+        /// The player has read the notice and wants the menu back. Clears <see cref="Ended"/>, which
+        /// is what routes the screen off the disconnect page.
+        /// <para>
+        /// It also asks for Boot again, because the player can reach the button before
+        /// <see cref="TearDownAsync"/> has finished — a lobby delete over a network that has just
+        /// failed is not quick — and a menu the player has dismissed on top of a dead lab is the
+        /// state this whole path exists to avoid. <see cref="ReturnToBoot"/> is a no-op when we are
+        /// already there.
+        /// </para>
+        /// </summary>
+        public void AcknowledgeEnd()
+        {
+            if (!Ended.HasValue) return;
+
+            Ended = null;
+            Error = null;
+            Set(ConnectState.Idle);
+            ReturnToBoot();
+        }
+
+        /// <summary>
+        /// Take the seat back. Only meaningful after a <see cref="SessionEndKind.Dropped"/>, and
+        /// refused otherwise — see <see cref="SessionEnd"/> for why the other three cases are not
+        /// offered this at all.
+        /// <para>
+        /// The same <see cref="JoinAsync"/> as the first time, with the code the player already
+        /// typed. That matters: the host keys its roster on <see cref="IPlayerIdentity.StableId"/>,
+        /// which <c>ServiceBootstrap</c> resolves to the same value across the whole process, so a
+        /// second join on the same identity is recognised by <c>SessionRegistry</c> as a rejoin and
+        /// restores the pose rather than seating a stranger.
+        /// </para>
+        /// </summary>
+        public async Task RejoinAsync()
+        {
+            if (Ended is not { OffersRejoin: true }) return;
+
+            string code = joinedWithCode;
+            if (string.IsNullOrEmpty(code)) return;
+
+            Ended = null;
+            await JoinAsync(code);
         }
 
         // -- Plumbing ----------------------------------------------------------------------------------
@@ -722,6 +937,7 @@ namespace Residue.Net.Connect
         private async Task<bool> PrepareAsync()
         {
             Error = null;
+            Ended = null;
 
             var manager = NetworkManager.Singleton;
             if (manager == null)

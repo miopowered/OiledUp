@@ -25,6 +25,10 @@ namespace Residue.Gameplay.World
         [Tooltip("First-person hands. Hidden in third person, where they would float in mid-air.")]
         [SerializeField] private GameObject hands;
 
+        [Tooltip("Overlay camera the held item normally renders on. It has to hand the item back to " +
+                 "the eye camera here, or it draws depth-cleared over the body carrying it.")]
+        [SerializeField] private HeldItemCamera heldItems;
+
         [SerializeField] private float distance = 2.8f;
         [SerializeField] private float pivotHeight = 1.45f;
 
@@ -36,6 +40,7 @@ namespace Residue.Gameplay.World
         {
             if (player == null) player = GetComponent<PlayerController>();
             if (eyeCamera == null && player != null) eyeCamera = player.EyeCamera;
+            if (heldItems == null) heldItems = GetComponentInChildren<HeldItemCamera>(includeInactive: true);
 
             if (eyeCamera == null) return;
 
@@ -56,6 +61,11 @@ namespace Residue.Gameplay.World
         {
             active = value;
             if (hands != null) hands.SetActive(!active);
+
+            // Also a read-modify-write of eyeCamera.cullingMask, but of a different bit, so it
+            // composes with the body toggle below rather than racing it.
+            if (heldItems != null) heldItems.SetFirstPerson(!active);
+
             if (eyeCamera == null) return;
 
             if (active)
