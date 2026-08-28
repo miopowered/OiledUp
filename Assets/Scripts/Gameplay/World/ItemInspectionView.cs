@@ -3,7 +3,20 @@ using UnityEngine.InputSystem;
 
 namespace Residue.Gameplay.World
 {
-    /// <summary>Centers the selected physical item for inspection and restores it exactly on close.</summary>
+    /// <summary>
+    /// Centers the selected physical item for inspection and restores it exactly on close.
+    /// <para>
+    /// An inspected item deliberately leaves the held-item overlay and renders with the room again.
+    /// Parenting it to the eye camera takes it out of the hand socket, which is the whole of the rule
+    /// <see cref="HeldItemCamera"/> enforces, so this needs no code — but it is a decision, not an
+    /// accident. Inspection is the one time the object is being compared <i>against</i> the lab rather
+    /// than carried through it: it wants to be occluded by a bench it is held behind, and the framing
+    /// below is computed from the eye camera's field of view and viewport, which would be quietly
+    /// wrong against a camera with a different projection. The clipping the overlay exists to prevent
+    /// cannot happen here either — the player controller is switched off, so they cannot walk the view
+    /// into a wall while looking at it.
+    /// </para>
+    /// </summary>
     [DisallowMultipleComponent]
     public sealed class ItemInspectionView : MonoBehaviour
     {

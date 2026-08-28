@@ -89,6 +89,7 @@ namespace Residue.Editor.Build
             }
 
             EnsureLayer(ThirdPersonView.PlayerBodyLayer, "PlayerBody");
+            EnsureLayer(HeldItemCamera.HeldItemLayer, "HeldItem");
 
             // Single, not additive. Additive cannot run while an untitled scene is active, and it
             // cannot save over the Lab scene if the Lab scene is the thing already open — which is
@@ -702,6 +703,9 @@ namespace Residue.Editor.Build
             camera.nearClipPlane = 0.05f;
             camera.farClipPlane = 60f;
             camera.fieldOfView = 70f;
+
+            // The room, and nothing in the player's own hands — those belong to the overlay below.
+            camera.cullingMask &= ~(1 << HeldItemCamera.HeldItemLayer);
             cameraGo.AddComponent<AudioListener>();
             cameraGo.tag = "MainCamera";
 
@@ -713,6 +717,8 @@ namespace Residue.Editor.Build
             var carry = new GameObject("CarrySocket");
             carry.transform.SetParent(rigGo.transform, false);
             carry.transform.localPosition = new Vector3(0.22f, -0.18f, 0.42f);
+
+            var heldItems = BuildHeldItemCamera(cameraGo, camera, cameraData, carry.transform);
 
             var player = go.AddComponent<PlayerController>();
             var playerSo = new SerializedObject(player);
@@ -741,11 +747,13 @@ namespace Residue.Editor.Build
             // except by accident.
             SetLayerRecursively(go, PlayerInteractor.IgnoreRaycastLayer);
 
-            // Both of these are built after the layer sweep above, so each sets its own layer:
-            // hands join the player on Ignore Raycast, the body goes on its own layer so the owner's
-            // camera can cull it while everyone else's still sees it.
+            // Both of these are built after the layer sweep above, so each sets its own layer: the
+            // hands go on the held-item layer so only the overlay camera draws them, and the body
+            // goes on its own layer so the owner's camera can cull it while everyone else's still
+            // sees it. Neither needs Ignore Raycast — the hands carry no colliders at all, and a
+            // carried item has its colliders switched off by Carryable.AttachTo.
             var hands = BuildHands(rigGo, palette, player, interactor);
-            SetLayerRecursively(hands, PlayerInteractor.IgnoreRaycastLayer);
+            SetLayerRecursively(hands, HeldItemCamera.HeldItemLayer);
             BuildCharacterBody(go, palette, player, interactor);
 
             var thirdPerson = go.AddComponent<ThirdPersonView>();
@@ -753,6 +761,7 @@ namespace Residue.Editor.Build
             thirdSo.FindProperty("player").objectReferenceValue = player;
             thirdSo.FindProperty("eyeCamera").objectReferenceValue = camera;
             thirdSo.FindProperty("hands").objectReferenceValue = hands;
+            thirdSo.FindProperty("heldItems").objectReferenceValue = heldItems;
             thirdSo.ApplyModifiedPropertiesWithoutUndo();
 
             var interactionDebug = go.AddComponent<InteractionDebug>();
@@ -1020,10 +1029,59 @@ namespace Residue.Editor.Build
         // -- Character ---------------------------------------------------------------------------------
 
         /// <summary>
+        /// §2.6's second camera: an overlay stacked on the eye camera that draws the hands and
+        /// whatever is in them, and nothing else.
+        /// <para>
+        /// Parented to the eye camera rather than to the rig, so it inherits every transform written
+        /// to the eye — including the one <see cref="ThirdPersonView"/> writes on F4 — without a
+        /// follow script that could disagree with it by a frame.
+        /// </para>
+        /// The 0.01 m near clip is the §2.6 requirement. The depth clear that comes free with an
+        /// overlay is the part that actually stops a bench slicing through a vial; see
+        /// <see cref="HeldItemCamera"/>.
+        /// </summary>
+        private static HeldItemCamera BuildHeldItemCamera(GameObject eyeGo, Camera eye,
+                                                          UniversalAdditionalCameraData eyeData,
+                                                          Transform carrySocket)
+        {
+            var go = new GameObject("HeldItemCamera");
+            go.transform.SetParent(eyeGo.transform, false);
+
+            var overlay = go.AddComponent<Camera>();
+            overlay.nearClipPlane = 0.01f;
+
+            // Nothing held is ever more than an arm away; a 60 m frustum here would only cost
+            // culling work on a layer with three objects in it.
+            overlay.farClipPlane = 3f;
+            overlay.fieldOfView = eye.fieldOfView;
+            overlay.cullingMask = 1 << HeldItemCamera.HeldItemLayer;
+
+            var overlayData = overlay.GetUniversalAdditionalCameraData();
+
+            // Order matters: the stack refuses a camera that is not already an Overlay.
+            overlayData.renderType = CameraRenderType.Overlay;
+
+            // The base camera grades and antialiases the whole stack. Asking the overlay to do it
+            // again would tone-map the hands twice.
+            overlayData.renderPostProcessing = false;
+
+            var stack = eyeData.cameraStack;
+            if (stack != null && !stack.Contains(overlay)) stack.Add(overlay);
+
+            var component = go.AddComponent<HeldItemCamera>();
+            var so = new SerializedObject(component);
+            so.FindProperty("baseCamera").objectReferenceValue = eye;
+            so.FindProperty("overlayCamera").objectReferenceValue = overlay;
+            so.FindProperty("handSocket").objectReferenceValue = carrySocket;
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            return component;
+        }
+
+        /// <summary>
         /// Forearm and palm per side, hung off the camera rig so head bob carries into them for free.
-        /// Deliberately not on their own overlay camera: that needs URP camera stacking, which means
-        /// a URP reference in three asmdefs. Tracked separately; a 0.05 m near clip is enough until
-        /// someone presses their face into a wall.
+        /// Left on the held-item layer by the caller, so they are drawn by the overlay camera and can
+        /// no longer be sliced open by a wall the player is standing against.
         /// </summary>
         private static GameObject BuildHands(GameObject rig, Material palette,
                                              PlayerController player, PlayerInteractor interactor)
