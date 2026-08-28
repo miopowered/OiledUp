@@ -306,6 +306,95 @@ namespace Residue.Gameplay.Simulation
             return true;
         }
 
+        // -- Saving and loading (#49) ------------------------------------------------------------------
+        //
+        // The vault serialises itself. Nothing here hands a SampleGroundTruth out or takes one in:
+        // the record types crossing this boundary are internal to Residue.Gameplay, and the
+        // conversion happens on this side of the wall in both directions. That keeps the promise at
+        // the top of this file intact — there is still no expression a caller outside this assembly
+        // can write that yields a truth object.
+
+        /// <summary>Flatten every sample's truth into records. See the note above.</summary>
+        internal void CaptureTruths(List<RunSnapshot.TruthRecord> into)
+        {
+            if (into == null) return;
+
+            foreach (var pair in truths)
+            {
+                var truth = pair.Value;
+                var record = new RunSnapshot.TruthRecord { Id = truth.Id.Value };
+
+                foreach (var fault in truth.ActualFaults) record.FaultIds.Add(fault != null ? fault.Id : null);
+                foreach (var severity in truth.FaultSeverities) record.Severities.Add(severity);
+
+                foreach (var kv in truth.TrueValues)
+                    record.TrueValues.Add(new RunSnapshot.Reading { ElementId = kv.Key, Value = kv.Value });
+
+                foreach (var kv in truth.Contamination)
+                    record.Contamination.Add(new RunSnapshot.Reading { ElementId = kv.Key, Value = kv.Value });
+
+                into.Add(record);
+            }
+
+            into.Sort((a, b) => a.Id.CompareTo(b.Id));
+        }
+
+        /// <summary>
+        /// Put one saved sample back in the vault, truth and all.
+        /// <para>
+        /// The faults arrive already resolved against the live catalog, because refusing an id that
+        /// no longer exists is the loader's job and it has to refuse the <i>whole</i> run rather than
+        /// this one sample — a sample whose fault silently vanished reads as healthy, and would
+        /// resolve as "no fault found" against true values that still carry the signature. That is
+        /// the chemistry lying, which is the one thing it may never do.
+        /// </para>
+        /// </summary>
+        internal void RestoreSample(SampleState state, IReadOnlyList<FaultDef> faults,
+                                    IReadOnlyList<float> severities,
+                                    IReadOnlyList<RunSnapshot.Reading> trueValues,
+                                    IReadOnlyList<RunSnapshot.Reading> contamination)
+        {
+            if (state == null) return;
+
+            var truth = new SampleGroundTruth { Id = state.Id };
+
+            if (faults != null)
+            {
+                for (int i = 0; i < faults.Count; i++)
+                {
+                    if (faults[i] == null) continue;
+                    truth.ActualFaults.Add(faults[i]);
+                    truth.FaultSeverities.Add(severities != null && i < severities.Count ? severities[i] : 0.5f);
+                }
+            }
+
+            if (trueValues != null)
+            {
+                foreach (var reading in trueValues) truth.TrueValues[reading.ElementId] = reading.Value;
+            }
+
+            if (contamination != null)
+            {
+                foreach (var reading in contamination) truth.Contamination[reading.ElementId] = reading.Value;
+            }
+
+            states[state.Id] = state;
+            truths[state.Id] = truth;
+        }
+
+        /// <summary>Re-queue a verdict that had not come due when the run was saved.</summary>
+        internal void RestorePending(SampleId sample, int resolveOnDay)
+        {
+            pending.Add(new PendingConsequence { Sample = sample, ResolveOnDay = resolveOnDay });
+            pending.Sort((a, b) => a.ResolveOnDay.CompareTo(b.ResolveOnDay));
+        }
+
+        /// <summary>Units the player filed MONITOR on, waiting for the next <c>BeginDay</c> to re-draw.</summary>
+        internal IReadOnlyList<SampleId> PendingRequeues => pendingRequeue;
+
+        /// <inheritdoc cref="PendingRequeues"/>
+        internal void RestoreRequeue(SampleId sample) => QueueRequeue(sample);
+
 #if UNITY_EDITOR
         /// <summary>
         /// Editor-only escape hatch for the ground-truth dump tool (issue #3) and tests.

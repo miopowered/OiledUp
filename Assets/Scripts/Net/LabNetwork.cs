@@ -709,11 +709,15 @@ namespace Residue.Net
             {
                 var slip = outstanding[i];
 
-                // The tag the lab filed it under, so the paper and the terminal row agree. A run that
-                // belongs to the instrument rather than to a sample is captioned as itself.
-                string tag = slip.Sample.IsValid && Lab.Samples.TryGet(slip.Sample, out var sample)
-                    ? sample.RecordTag
-                    : slip.Result != null && slip.Result.IsReference ? "CERT STANDARD" : "BLANK";
+                // The tag the lab filed it under, so the paper and the terminal row agree. Through
+                // RunCaption, which is the one place that precedence is decided — a replicated slip
+                // captioned by its own copy of the rule is how a client ends up reading a different
+                // name for the same run off the same piece of paper (#56).
+                string tag = RunCaption.For(
+                    slip.Result,
+                    slip.Sample.IsValid && Lab.Samples.TryGet(slip.Sample, out var sample)
+                        ? sample.RecordTag
+                        : null);
 
                 var machine = Lab.FindMachine(slip.MachineInstanceId);
                 string machineName = machine?.Def != null ? machine.Def.DisplayName : "Instrument";

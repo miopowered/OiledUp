@@ -49,6 +49,28 @@ namespace Residue.Gameplay.Simulation
 
         public bool IsBankrupt => Money < 0f;
 
+        /// <summary>
+        /// Put the books back where a save left them (#49).
+        /// <para>
+        /// <c>internal</c>, and every setter above it stays private. The books are moved by
+        /// <see cref="Apply"/>, <see cref="Charge"/> and <see cref="TrySpend"/> because each of those
+        /// is a rule about <i>why</i> money moves; a public writer would let any caller post a figure
+        /// with no reason behind it. Restoring a save is the one legitimate exception and it does not
+        /// need to leave this assembly to do its job. <see cref="Changed"/> is deliberately not raised
+        /// — nothing is subscribed yet at load time, and a run being rebuilt has not "changed".
+        /// </para>
+        /// </summary>
+        internal void Restore(float money, float reputation, float solventUnits,
+                              int referenceStandards, float totalEarned, float totalLost)
+        {
+            Money = money;
+            Reputation = reputation;
+            SolventUnits = solventUnits;
+            ReferenceStandards = referenceStandards;
+            TotalEarned = totalEarned;
+            TotalLost = totalLost;
+        }
+
         public void Apply(ConsequenceReport report)
         {
             Money += report.MoneyDelta;

@@ -120,6 +120,34 @@ namespace Residue.Gameplay.Simulation
             return false;
         }
 
+        /// <summary>
+        /// Empty the slot — both copies.
+        /// <para>
+        /// For a run that has ended (#49). The backup goes with the primary on purpose: leaving it
+        /// behind would let the next load "recover" a contract the player already finished, which
+        /// reads as the game forgetting the ending rather than as a rescue.
+        /// </para>
+        /// </summary>
+        public void Delete()
+        {
+            DeleteTemporaryFile();
+            TryDelete(SlotPath);
+            TryDelete(BackupPath);
+        }
+
+        /// <summary>True when there is something in the slot worth offering the player.</summary>
+        public bool Exists => File.Exists(SlotPath) || File.Exists(BackupPath);
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+            }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
+
         private static byte[] Encode(string payload, int version)
         {
             byte[] body = Utf8.GetBytes(payload);

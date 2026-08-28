@@ -152,10 +152,20 @@ namespace Residue.Gameplay.World
                 return;
             }
 
-            Lab = new LabState(catalog, ContractPlan.Default(), seed == 0 ? Random.Range(1, int.MaxValue) : seed)
-            {
-                MachineTimeScale = machineTimeScale
-            };
+            // Past the client return, and therefore host-only. This is the whole of the save layer's
+            // authority story: a client never reaches these lines, so it neither loads a run nor
+            // installs the hook that writes one. A save on a client would be a second set of books
+            // for state the host owns, and the two would part company on the first command the host
+            // refused (#49).
+            if (RunSaveSlot.TakeContinueRequest()) ContinueSavedRun();
+
+            Lab ??= new LabState(catalog, ContractPlan.Default(),
+                                 seed == 0 ? Random.Range(1, int.MaxValue) : seed);
+            Lab.MachineTimeScale = machineTimeScale;
+
+            // End of day is the only moment the simulation is quiescent, so it is the only moment a
+            // snapshot is a picture of anything. See RunSnapshotCapture.
+            if (savingAllowed) Lab.DayEnded += OnDayEndedSaveRun;
 
             // Loud on purpose. A scaled lab tells you nothing about whether the queue pressure works,
             // and this is exactly the kind of testing knob that ends up in a build.
@@ -167,15 +177,21 @@ namespace Residue.Gameplay.World
                     "Set machineTimeScale back to 1 on the LabRuntime object before judging the loop.", this);
             }
 
-            foreach (var id in installedMachineIds)
+            // A continued run already has its bench: the save names each instrument by instance id and
+            // brings its residue and its drift back with it. Installing over the top would give the
+            // lab two of everything and orphan the runtime state that arrived with the save.
+            if (Lab.Machines.Count == 0)
             {
-                var def = catalog.Machine(id);
-                if (def == null)
+                foreach (var id in installedMachineIds)
                 {
-                    Debug.LogWarning($"[LabRuntime] No MachineDef with id '{id}'; skipping.", this);
-                    continue;
+                    var def = catalog.Machine(id);
+                    if (def == null)
+                    {
+                        Debug.LogWarning($"[LabRuntime] No MachineDef with id '{id}'; skipping.", this);
+                        continue;
+                    }
+                    Lab.Install(def, id);
                 }
-                Lab.Install(def, id);
             }
 
             // This process simulates, so this process validates. On a client the executor stays null
@@ -187,9 +203,140 @@ namespace Residue.Gameplay.World
             LabView.Host = new HostLabView(Lab);
         }
 
+        // -- Saving and continuing (#49) ----------------------------------------------------------------
+
+        /// <summary>
+        /// False once a requested CONTINUE has been refused. A save this build could not read must
+        /// survive the shift the player ends up playing instead: overwriting it at the next day end
+        /// would destroy the only copy of a run that a build with the missing content could still
+        /// load. Nothing else clears it — a plain NEW SHIFT is the player choosing to start over, and
+        /// that legitimately writes over whatever was there.
+        /// </summary>
+        private bool savingAllowed = true;
+
+        /// <summary>True when this lab was rebuilt from disk rather than generated.</summary>
+        public bool Continued { get; private set; }
+
+        /// <summary>
+        /// Rebuild the saved run, or say loudly why not and leave <see cref="Lab"/> null so the caller
+        /// starts a fresh one.
+        /// </summary>
+        private void ContinueSavedRun()
+        {
+            if (RunSaveSlot.TryLoad(catalog, out var restored, out string refusal))
+            {
+                Lab = restored;
+                Continued = true;
+                Debug.Log($"[LabRuntime] Continued the saved run at day {restored.Day}.", this);
+                return;
+            }
+
+            savingAllowed = false;
+            Debug.LogError(
+                $"[LabRuntime] CONTINUE was asked for and refused: {refusal} Starting a new shift " +
+                "instead. The save has been left alone so a build that can read it still can.", this);
+        }
+
+        /// <summary>
+        /// Write the run out as the day closes. Subscribed only on a process that simulates, so this
+        /// is the structural half of "host-only" — see <see cref="RunSaveSlot"/> for the rest.
+        /// <para>
+        /// A finished run clears the slot rather than saving over it. CONTINUE on a contract that has
+        /// no day left to start is a button that loads a lab and then refuses to open it, which is a
+        /// worse answer than not offering the button.
+        /// </para>
+        /// </summary>
+        private void OnDayEndedSaveRun(IReadOnlyList<ConsequenceReport> reports)
+        {
+            if (Lab == null) return;
+
+            if (Lab.IsRunOver)
+            {
+                RunSaveSlot.Store.Delete();
+                return;
+            }
+
+            if (!RunSaveSlot.TrySave(Lab, out string refusal))
+            {
+                // §9: never fail quietly. A run that has silently stopped saving is a run the player
+                // finds out about by losing it.
+                Debug.LogError($"[LabRuntime] {refusal}", this);
+            }
+        }
+
+        /// <summary>
+        /// Put the room back together after a continued load: a vial for every bottle the save says
+        /// exists, and the paper nobody filed before they quit.
+        /// <para>
+        /// A fresh run gets its props as the samples arrive — <c>IntakeCrate.OnDayStarted</c> for the
+        /// crate, <c>MachineStation</c> for a printout. A continued run has bottles on shelves, in
+        /// the fridge and inside instruments that no arrival will ever announce, so without this the
+        /// player walks into a lab whose terminal lists twenty records and whose benches are bare.
+        /// </para>
+        /// <para>
+        /// Anything the save recorded as <i>held</i> is put back on a shelf first. A client id is a
+        /// connection number and means nothing across a restart, so a bottle left marked held by one
+        /// is a bottle nobody can ever pick up — the same failure
+        /// <c>SolventStore.ReleaseAllHeldBy</c> exists to prevent on a disconnect.
+        /// </para>
+        /// </summary>
+        private void RestoreProps()
+        {
+            if (Lab == null) return;
+
+            foreach (var sample in Lab.Samples.All)
+            {
+                if (sample.Location.Kind != SampleLocationKind.Held) continue;
+                SampleLifecycle.TryMove(sample, SampleLocation.OnSurface(SampleRack.DefaultRackId, -1), out _);
+            }
+
+            var slips = new List<ResultSlips.Slip>();
+            Lab.Slips.CollectInto(slips);
+            foreach (var slip in slips)
+            {
+                if (slip.Location.Kind != SampleLocationKind.Held) continue;
+                Lab.Slips.ReleaseAllHeldBy(slip.Location.HolderClientId);
+            }
+
+            foreach (var bottle in Lab.Solvent.All)
+            {
+                if (bottle.Location.Kind != SampleLocationKind.Held) continue;
+                Lab.Solvent.ReleaseAllHeldBy(bottle.Location.HolderClientId);
+            }
+
+            foreach (var sample in Lab.Samples.All)
+            {
+                if (props.ContainsKey(sample.Id)) continue;
+
+                var socket = PropSockets.For(sample.Location, null, out bool reachable);
+                if (socket == null) continue;   // archived, consumed, or a fixture this scene lacks
+
+                SpawnVial(sample.Id, sample.EquipmentTag, sample.VolumeMl, socket, reachable);
+            }
+
+            slips.Clear();
+            Lab.Slips.CollectInto(slips);
+            foreach (var slip in slips)
+            {
+                if (slipProps.ContainsKey(slip.Ticket)) continue;
+
+                var socket = PropSockets.ForSlip(slip.Location, null, out bool reachable);
+                if (socket == null) continue;
+
+                var machine = Lab.FindMachine(slip.MachineInstanceId);
+                var sample = Lab.Samples.Get(slip.Sample);
+
+                RestorePrintout(slip.Ticket, slip.Sample, slip.Result,
+                                machine?.Def != null ? machine.Def.DisplayName : "Instrument",
+                                RunCaption.For(slip.Result, sample != null ? sample.RecordTag : null),
+                                socket, reachable);
+            }
+        }
+
         private void OnDestroy()
         {
             if (Instance == this) Instance = null;
+            if (Lab != null) Lab.DayEnded -= OnDayEndedSaveRun;
             if (LabCommands.Executor != null && LabCommands.Executor.Lab == Lab) LabCommands.Executor = null;
 
             // Checked against this runtime's own lab, for the same reason the executor is: a second
@@ -311,6 +458,16 @@ namespace Residue.Gameplay.World
         private void Start()
         {
             if (Lab == null) return;
+
+            // A continued run opens between shifts, on the day it was saved at the end of. Beginning
+            // the next day here would skip the summary the player quit on and generate a morning's
+            // arrivals nobody asked for — the terminal's START NEXT DAY is where that decision lives.
+            if (Lab.Day > 0)
+            {
+                RestoreProps();
+                return;
+            }
+
             Lab.BeginDay();
         }
 
@@ -423,10 +580,31 @@ namespace Residue.Gameplay.World
             if (Lab == null) return null;
 
             int ticket = Lab.Slips.Issue(sampleId, machineInstanceId, result);
+            return RestorePrintout(ticket, sampleId, result, machineName, recordTag, socket);
+        }
+
+        /// <summary>
+        /// Build the paper for a ticket the host <i>already</i> minted — a slip a save recorded and
+        /// nobody had filed (#49).
+        /// <para>
+        /// Deliberately separate from <see cref="SpawnPrintout"/> rather than an optional argument on
+        /// it: issuing a ticket is the host's answer to a printer running, and a caller that could
+        /// name its own ticket could mint one over paper that already exists. Splitting the two keeps
+        /// <c>ResultSlips.Issue</c> the only way a number is ever handed out during play.
+        /// </para>
+        /// </summary>
+        private PrintoutProp RestorePrintout(int ticket, SampleId sampleId, TestResult result,
+                                             string machineName, string recordTag, Transform socket,
+                                             bool interactable = true)
+        {
+            if (ticket == ResultSlips.NoTicket || printoutPrefab == null || result == null ||
+                socket == null) return null;
+
+            if (slipProps.TryGetValue(ticket, out var existing) && existing != null) return existing;
 
             var printout = Instantiate(printoutPrefab, socket);
             printout.Bind(ticket, sampleId, result, machineName, recordTag);
-            printout.AttachTo(socket);
+            printout.AttachTo(socket, interactable);
 
             slipProps[ticket] = printout;
             return printout;

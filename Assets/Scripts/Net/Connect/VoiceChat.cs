@@ -140,14 +140,19 @@ namespace Residue.Net.Connect
 
             await lifecycle.WaitAsync();
 
-            var service = VivoxService.Instance;
-            HookEvents(service);
-
             string joining = ChannelName(lobbyId);
+            IVivoxService service = null;
             Task connecting = null;
 
             try
             {
+                // Acquiring the service is inside the try on purpose: VivoxService.Instance throws
+                // when UnityServices was never initialized, and anything thrown between WaitAsync
+                // and the try would strand the semaphore for the lifetime of the process. Every
+                // later JoinAsync would hang, and so would the LeaveAsync that teardown waits on.
+                service = VivoxService.Instance;
+                HookEvents(service);
+
                 if (ticket != operation) return;
 
                 connecting = ConnectServiceAsync(service, joining, displayName,
@@ -175,6 +180,10 @@ namespace Residue.Net.Connect
                 Debug.LogWarning($"[VoiceChat] Proximity voice is unavailable for this session " +
                                  $"({e.GetType().Name}: {e.Message}). The game remains connected.");
                 Changed?.Invoke();
+
+                // service is null only when acquiring it is what failed, in which case there is
+                // nothing logged in and nothing joined for cleanup to release.
+                if (service == null) return;
 
                 if (connecting != null && !connecting.IsCompleted)
                     _ = ReleaseWhenSettledAsync(connecting, service, joining);
@@ -206,14 +215,17 @@ namespace Residue.Net.Connect
             }
 
             await lifecycle.WaitAsync();
-            var service = VivoxService.Instance;
+            IVivoxService service = null;
             try
             {
+                // Inside the try for the same reason as JoinAsync — a semaphore stranded here would
+                // hang every future teardown, which is the one path that must always complete.
+                service = VivoxService.Instance;
                 await ReleaseServiceAsync(service, leaving);
             }
             finally
             {
-                UnhookEvents(service);
+                if (service != null) UnhookEvents(service);
                 lifecycle.Release();
             }
         }
@@ -410,16 +422,52 @@ namespace Residue.Net.Connect
                 new ChannelOptions { MakeActiveChannelUponJoining = true });
         }
 
-        /// <summary>Await SDK work without allowing it to hold the voice UI forever.</summary>
+        /// <summary>
+        /// Await SDK work without allowing it to hold the voice UI forever.
+        /// <para>
+        /// The losing side of the race is <b>cancelled</b>, not abandoned. An uncancelled
+        /// <see cref="Task.Delay(TimeSpan)"/> keeps a timer registration alive for its whole
+        /// duration, so every successful connect used to leak one for
+        /// <see cref="ConnectTimeoutSeconds"/> seconds — in the game, not only under test.
+        /// </para>
+        /// <para>
+        /// Both awaits are <c>ConfigureAwait(false)</c> deliberately. Nothing after them touches the
+        /// Unity API, and capturing the main-thread synchronization context here deadlocks any
+        /// caller that blocks on the returned task: the continuation needs a thread that is already
+        /// waiting on it. NUnit's <c>Assert.ThrowsAsync</c> is exactly such a caller — Unity's NUnit
+        /// 3.5 fork implements it as a bare reflected <c>Task.Wait()</c> with no message pump — and
+        /// that is what wedged the entire EditMode suite in #76.
+        /// </para>
+        /// </summary>
         public static async Task AwaitWithTimeoutAsync(Task work, float timeoutSeconds)
         {
             if (work == null) throw new ArgumentNullException(nameof(work));
 
-            var timeout = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(0.001f, timeoutSeconds)));
-            if (await Task.WhenAny(work, timeout) != work)
-                throw new TimeoutException($"Vivox did not connect within {timeoutSeconds:0.#} seconds");
+            var deadline = new CancellationTokenSource();
+            try
+            {
+                var timeout = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(0.001f, timeoutSeconds)),
+                                         deadline.Token);
 
-            await work;
+                bool workWon = await Task.WhenAny(work, timeout).ConfigureAwait(false) == work;
+
+                // Before the throw, so the timer is disarmed on both exits. Cancel settles the delay
+                // synchronously as Canceled; nothing here awaits it, so its TaskCanceledException is
+                // never rethrown, and a Canceled task holds no fault for the finalizer to re-raise.
+                deadline.Cancel();
+
+                if (!workWon)
+                {
+                    throw new TimeoutException(
+                        $"Vivox did not connect within {timeoutSeconds:0.#} seconds");
+                }
+
+                await work.ConfigureAwait(false);
+            }
+            finally
+            {
+                deadline.Dispose();
+            }
         }
 
         private static async Task ReleaseWhenSettledAsync(Task connecting, IVivoxService service,

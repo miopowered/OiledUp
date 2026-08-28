@@ -105,6 +105,20 @@ namespace Residue.Gameplay.Simulation
         /// <summary>What the last recalibration corrected, and how much filed work it put in doubt.</summary>
         public CalibrationOutcome? LastCalibration;
 
+        /// <summary>
+        /// The readout <see cref="LastCheck"/> was made from, kept only so a run save can rebuild the
+        /// check rather than store a second copy of it (#49).
+        /// <para>
+        /// A <see cref="CalibrationCheck"/> is a <i>reading</i> of this result against the house
+        /// certificate, and the certificate is derived from the profiles the catalog already holds.
+        /// Saving the derived object would put a number on disk that has a source, and the two would
+        /// be free to disagree the next time the baselines are retuned. Saving the run it came from
+        /// cannot: <c>CalibrationCheck.From</c> re-runs the same arithmetic on load.
+        /// </para>
+        /// Cleared with <see cref="LastCheck"/>, because a consumed certificate has nothing left to read.
+        /// </summary>
+        internal TestResult LastCheckRun;
+
         public MachineInstance(string instanceId, MachineDef def)
         {
             InstanceId = instanceId;
@@ -248,6 +262,21 @@ namespace Residue.Gameplay.Simulation
         }
 
         public void Clean() => Runtime.Clean();
+
+        /// <summary>
+        /// How long the run in progress was going to take. Needed by a save (#49) because
+        /// <see cref="Progress"/> is measured against it: restoring only
+        /// <see cref="SecondsRemaining"/> would leave a half-finished run reading as barely started.
+        /// </summary>
+        internal float RunDuration => runDuration;
+
+        /// <summary>Put a run in progress back the way a save found it. See <see cref="RunDuration"/>.</summary>
+        internal void RestoreRun(RunKind kind, float secondsRemaining, float duration)
+        {
+            ActiveRun = kind;
+            SecondsRemaining = secondsRemaining;
+            runDuration = duration;
+        }
 
         public override string ToString() =>
             $"{Def?.Id ?? "?"}[{InstanceId}] {(IsRunning ? $"running {Progress:P0}" : IsEmpty ? "idle" : "loaded")}";

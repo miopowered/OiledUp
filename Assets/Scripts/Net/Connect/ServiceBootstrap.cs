@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Residue.Net.Session;
 using Unity.Services.Authentication;
@@ -110,9 +111,22 @@ namespace Residue.Net.Connect
         private static async Task<ServiceStatus> RunAsync()
         {
             var work = SignInAsync();
-            var timeout = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(1f, TimeoutSeconds)));
+
+            // The loser of the race is cancelled rather than abandoned. An uncancelled Task.Delay
+            // stays armed for its full duration whichever way the race goes, so a sign-in that
+            // succeeds in 200 ms still leaves a timer holding its continuation for the remaining
+            // several seconds — once per attempt, and Forget() exists precisely so a player can
+            // attempt again. The same shape in VoiceChat was the leak found alongside #76.
+            //
+            // Deliberately no ConfigureAwait(false) here, unlike VoiceChat: the continuation below
+            // reaches Local(), which reads Application.persistentDataPath, and that is main-thread
+            // only. Resuming on a pool thread would trade a leak for a much worse bug.
+            using var deadline = new CancellationTokenSource();
+            var timeout = Task.Delay(TimeSpan.FromSeconds(Mathf.Max(1f, TimeoutSeconds)),
+                                     deadline.Token);
 
             var first = await Task.WhenAny(work, timeout);
+            deadline.Cancel();
 
             ServiceStatus status;
             if (first != work)

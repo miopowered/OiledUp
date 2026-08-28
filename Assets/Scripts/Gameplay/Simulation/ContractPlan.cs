@@ -33,11 +33,28 @@ namespace Residue.Gameplay.Simulation
     [Serializable]
     public sealed class ContractPlan
     {
-        public string Id = "mvp_shakedown";
+        /// <summary>Id of the only authored contract. See <see cref="ById"/>.</summary>
+        public const string DefaultId = "mvp_shakedown";
+
+        public string Id = DefaultId;
         public string DisplayName = "Shakedown";
         public List<DayPlan> Days = new();
 
         public int Length => Days.Count;
+
+        /// <summary>
+        /// The authored contract with this id, or null when nothing answers to it.
+        /// <para>
+        /// A run save stores this id rather than a copy of the twenty <see cref="DayPlan"/> rows, for
+        /// the same reason it stores content by id: the plan is balance, it is regenerated from
+        /// <see cref="Default"/> whenever the ramp is retuned, and a save carrying a stale copy would
+        /// quietly fork the arrival curve for anyone mid-contract. Null is the honest answer for an id
+        /// this build no longer has, and the loader refuses on it rather than substituting a
+        /// different contract under the player.
+        /// </para>
+        /// </summary>
+        public static ContractPlan ById(string id) =>
+            string.Equals(id, DefaultId, StringComparison.Ordinal) ? Default() : null;
 
         public DayPlan ForDay(int day)
         {
@@ -70,7 +87,7 @@ namespace Residue.Gameplay.Simulation
         {
             var plan = new ContractPlan
             {
-                Id = "mvp_shakedown",
+                Id = DefaultId,
                 DisplayName = "Shakedown",
                 Days = new List<DayPlan>()
             };
