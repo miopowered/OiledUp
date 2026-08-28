@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using Residue.Gameplay.Settings;
 using Residue.Net.Connect;
 using Residue.Net.Session;
 
@@ -404,25 +405,88 @@ namespace Residue.Tests.EditMode
             await VoiceChat.AwaitWithTimeoutAsync(Task.CompletedTask, 0.02f);
         }
 
+        /// <summary>
+        /// A call that never returns must give up on its own.
+        /// <para>
+        /// This used to be <c>Assert.ThrowsAsync</c>, and that is what wedged the whole EditMode
+        /// suite (#76). Unity's NUnit 3.5 fork implements <c>ThrowsAsync</c> as a reflected
+        /// <c>Task.Wait()</c> — it never installs or pumps a synchronization context — so it blocks
+        /// the Editor's main thread on a task whose continuation is queued to that same thread.
+        /// The run stopped dead here, every time, with the Editor unkillable-by-menu. Awaiting
+        /// instead keeps the test on Unity's async test path, which polls with <c>yield return</c>
+        /// and therefore keeps pumping.
+        /// </para>
+        /// </summary>
         [Test]
-        public void VoiceConnect_APendingSdkCallHasADeadline()
+        public async Task VoiceConnect_APendingSdkCallHasADeadline()
         {
             var never = new TaskCompletionSource<bool>();
+            try
+            {
+                await VoiceChat.AwaitWithTimeoutAsync(never.Task, 0.02f);
+                Assert.Fail("An SDK call that never returns was awaited past its deadline.");
+            }
+            catch (TimeoutException)
+            {
+            }
+            finally
+            {
+                // Nothing else will ever complete it; leaving it pending strands the continuations
+                // Task.WhenAny attached to it for the rest of the domain's life.
+                never.TrySetResult(false);
+            }
+        }
 
-            Assert.ThrowsAsync<TimeoutException>(async () =>
-                await VoiceChat.AwaitWithTimeoutAsync(never.Task, 0.02f));
+        /// <summary>
+        /// The deadline must fire without help from the main thread. This is the guard on the
+        /// <c>ConfigureAwait(false)</c> in <see cref="VoiceChat.AwaitWithTimeoutAsync"/>: drop it and
+        /// any caller that blocks — NUnit's <c>ThrowsAsync</c>, a <c>.Result</c>, a
+        /// <c>.Wait()</c> in shutdown code — deadlocks instead of timing out.
+        /// <para>
+        /// The wait is bounded so a regression fails this test in five seconds rather than hanging
+        /// the Editor the way #76 did. That is the whole point: the failure mode being guarded
+        /// against is one that destroys the evidence.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void VoiceConnect_TheDeadlineFiresWithoutTheMainThread()
+        {
+            var never = new TaskCompletionSource<bool>();
+            Task call = VoiceChat.AwaitWithTimeoutAsync(never.Task, 0.02f);
+
+            bool settled = call.Wait(TimeSpan.FromSeconds(5));
+
+            // Observe the fault either way. An unobserved TimeoutException would resurface as a
+            // console error on whichever later test happened to trigger the next collection.
+            call.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+            never.TrySetResult(false);
+
+            Assert.IsTrue(settled,
+                "AwaitWithTimeoutAsync did not complete while the main thread was blocked on it. " +
+                "Its continuation is waiting for a thread that is waiting for it.");
+            Assert.IsInstanceOf<TimeoutException>(call.Exception?.InnerException);
         }
 
         [Test]
         public void VoiceVolume_StaysWithinTheAudioRange()
         {
-            var voice = new VoiceChat();
+            // VoiceVolume lives in GameSettings and is persisted to PlayerPrefs, so a test that sets
+            // it and walks away changes the volume of whoever next runs the game on this machine.
+            float restore = GameSettings.VoiceVolume;
+            try
+            {
+                var voice = new VoiceChat();
 
-            voice.SetOutputVolume(-1f);
-            Assert.AreEqual(0f, voice.OutputVolume);
+                voice.SetOutputVolume(-1f);
+                Assert.AreEqual(0f, voice.OutputVolume);
 
-            voice.SetOutputVolume(2f);
-            Assert.AreEqual(1f, voice.OutputVolume);
+                voice.SetOutputVolume(2f);
+                Assert.AreEqual(1f, voice.OutputVolume);
+            }
+            finally
+            {
+                GameSettings.VoiceVolume = restore;
+            }
         }
 
         // -----------------------------------------------------------------------------------------
