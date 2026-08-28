@@ -110,6 +110,43 @@ namespace Residue.Gameplay.Simulation
             return ticket;
         }
 
+        /// <summary>
+        /// The ticket the next slip will be issued. Saved with a run (#49) so a continued shift
+        /// cannot re-mint a number a slip on a bench is already carrying.
+        /// </summary>
+        internal int NextTicket => nextTicket;
+
+        /// <summary>
+        /// Re-open a slip a save recorded, with the ticket it originally had.
+        /// <para>
+        /// <c>internal</c> rather than public, and deliberately not folded into <see cref="Issue"/>:
+        /// issuing is the host minting a number as paper comes out of a printer, and nothing but a
+        /// load has any business naming the ticket. The type doc's whole argument — a client says
+        /// <i>which</i> slip and never what it says — depends on tickets being the host's to hand out.
+        /// </para>
+        /// </summary>
+        internal void Restore(int ticket, SampleId sample, string machineInstanceId, TestResult result,
+                              SampleLocation location)
+        {
+            if (ticket <= NoTicket || result == null) return;
+
+            open[ticket] = new Entry
+            {
+                Sample = sample,
+                MachineInstanceId = machineInstanceId,
+                Result = result,
+                Location = location
+            };
+
+            if (ticket >= nextTicket) nextTicket = ticket + 1;
+        }
+
+        /// <summary>Set the next ticket after a restore, so it cannot collide with a saved one.</summary>
+        internal void RestoreNextTicket(int ticket)
+        {
+            if (ticket > nextTicket) nextTicket = ticket;
+        }
+
         public bool TryGet(int ticket, out Slip slip)
         {
             if (open.TryGetValue(ticket, out var entry))

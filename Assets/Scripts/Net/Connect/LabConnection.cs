@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
+using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
 using Residue.Net.Session;
 using Unity.Netcode;
@@ -279,6 +280,32 @@ namespace Residue.Net.Connect
         {
             if (!ConnectStates.AcceptsCommands(State)) return;
 
+            // A NEW SHIFT must never inherit a CONTINUE the player changed their mind about.
+            RunSaveSlot.ForgetContinueRequest();
+            StartLabScene();
+        }
+
+        /// <summary>
+        /// Pick the saved run back up (#49). The same path as <see cref="StartSinglePlayer"/> with a
+        /// latch set, because the component that rebuilds the run wakes on the other side of the
+        /// scene load and there is nothing to hand it an argument — the same shape, and the same
+        /// reason, as <see cref="LabRuntime.SimulatesLocally"/>.
+        /// <para>
+        /// Single player only, and that is not an oversight. A save is the host's run; offering
+        /// CONTINUE as a way to open a lobby would mean everyone who joined walked into day 14 of
+        /// somebody else's contract, halfway through consequences they never filed.
+        /// </para>
+        /// </summary>
+        public void ContinueSinglePlayer()
+        {
+            if (!ConnectStates.AcceptsCommands(State)) return;
+
+            RunSaveSlot.RequestContinue();
+            StartLabScene();
+        }
+
+        private void StartLabScene()
+        {
             Error = null;
             LabRuntime.SimulatesLocally = true;
             Set(ConnectState.SinglePlayer);
@@ -367,6 +394,12 @@ namespace Residue.Net.Connect
 
             var manager = NetworkManager.Singleton;
             LabRuntime.SimulatesLocally = true;
+
+            // A co-op shift is a fresh contract. CONTINUE is single player only — see
+            // ContinueSinglePlayer — and a latch left set would drop four players into day 14 of the
+            // host's solo run.
+            RunSaveSlot.ForgetContinueRequest();
+
             manager.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(Identity.StableId);
             Hook(manager);
 

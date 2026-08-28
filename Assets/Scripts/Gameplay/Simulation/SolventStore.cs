@@ -101,6 +101,26 @@ namespace Residue.Gameplay.Simulation
 
         public IReadOnlyList<SolventBottleState> All => bottles;
 
+        /// <summary>
+        /// Put one bottle back the way a save found it (#49).
+        /// <para>
+        /// Matched by id onto the bottles the constructor already made, rather than rebuilding the
+        /// list. The lab has a fixed number of them (<see cref="BottleCount"/>) and that count is
+        /// balance, not save data: a run saved when there were three must not hand a fourth to a build
+        /// that ships two, and a bottle the save does not mention stays where the constructor put it —
+        /// empty, in its cradle — which is the only safe answer.
+        /// </para>
+        /// </summary>
+        internal void Restore(string bottleId, int capacity, int charges, SampleLocation location)
+        {
+            var bottle = Find(bottleId);
+            if (bottle == null) return;
+
+            if (capacity > 0) bottle.Capacity = capacity;
+            bottle.Charges = charges < 0 ? 0 : charges > bottle.Capacity ? bottle.Capacity : charges;
+            bottle.Location = location;
+        }
+
         public SolventBottleState Find(string bottleId)
         {
             if (string.IsNullOrEmpty(bottleId)) return null;

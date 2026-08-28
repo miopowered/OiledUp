@@ -30,6 +30,41 @@ namespace Residue.Chemistry
             }
         }
 
+        /// <summary>
+        /// Copy the four words of live generator state out, so a saved run can be put back exactly
+        /// where it stopped (#49).
+        /// <para>
+        /// <b>The seed is not enough.</b> A seed names the start of a stream and a saved run is
+        /// halfway down it. Restoring from the seed would re-issue numbers the run had already
+        /// spent, so the first sample generated after a load would not be the one an uninterrupted
+        /// run would have produced — and hard rule 1 says a loaded contract must behave exactly like
+        /// the one that was saved. That is why this is four words rather than one.
+        /// </para>
+        /// </summary>
+        public void CaptureState(out uint a, out uint b, out uint c, out uint d)
+        {
+            a = x;
+            b = y;
+            c = z;
+            d = w;
+        }
+
+        /// <summary>
+        /// Rebuild a generator from <see cref="CaptureState"/>. An all-zero state is repaired the
+        /// same way the seeded constructor repairs it: xorshift cannot recover from all zeroes, and
+        /// a save that somehow carried one would otherwise return the same number forever.
+        /// </summary>
+        public static Rng FromState(uint a, uint b, uint c, uint d)
+        {
+            var restored = default(Rng);
+            restored.x = a;
+            restored.y = b;
+            restored.z = c;
+            restored.w = d;
+            if ((a | b | c | d) == 0u) restored.x = 0x9E3779B9u;
+            return restored;
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint Scramble(ref uint s)
         {

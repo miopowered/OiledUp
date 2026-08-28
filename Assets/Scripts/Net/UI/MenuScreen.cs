@@ -217,6 +217,11 @@ namespace Residue.Net.UI
 
             if (page != shown)
             {
+                // Coming back to the front door after a shift: the save slot has moved and the title
+                // page is caching what it last read off disk. Asking here rather than on every
+                // refresh keeps a file read out of the lobby's several-times-a-second redraw (#49).
+                if (page == MenuPage.Title) titlePage.RereadSaveSlot();
+
                 shown = page;
                 Paint(page);
 

@@ -78,6 +78,17 @@ namespace Residue.Chemistry
             nextId = Mathf.Max(1, firstSampleId);
         }
 
+        /// <summary>
+        /// The id the next generated sample will carry.
+        /// <para>
+        /// Saved with a run (#49) and handed back through <c>firstSampleId</c> on load. Without it a
+        /// continued contract would start counting from 1 again and mint ids that records already in
+        /// the vault are filed under — two samples with one identity, which the host's registry
+        /// resolves by silently overwriting the older one.
+        /// </para>
+        /// </summary>
+        public int NextSampleId => nextId;
+
         public GeneratedSample Generate(in GenerationRequest request, ref Rng rng)
         {
             var profile = request.Profile;

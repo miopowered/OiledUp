@@ -62,7 +62,7 @@ namespace Residue.Gameplay.Simulation
         public event Action<MachineInstance, CalibrationOutcome> Calibrated;
 
         private Rng rng;
-        private readonly SampleGenerator generator;
+        private SampleGenerator generator;
         private readonly Dictionary<string, EquipmentProfileDef> profilesById = new();
         private readonly List<ConsequenceReport> lastReports = new();
 
@@ -74,6 +74,7 @@ namespace Residue.Gameplay.Simulation
             Economy = new Economy(Tuning);
             Solvent = new SolventStore(Economy);
 
+            Seed = seed;
             rng = new Rng(seed);
             generator = new SampleGenerator(content.Faults);
             Standard = ReferenceStandard.FromProfiles(content.Profiles);
@@ -186,6 +187,9 @@ namespace Residue.Gameplay.Simulation
                 else if (finished == RunKind.Reference)
                 {
                     machine.LastCheck = CalibrationCheck.From(Standard, result, machine.Def, Day);
+
+                    // Kept beside the check for the save layer — see MachineInstance.LastCheckRun.
+                    machine.LastCheckRun = result;
                 }
 
                 Economy.Charge(result.Cost);
@@ -275,6 +279,7 @@ namespace Residue.Gameplay.Simulation
 
             machine.Runtime.Calibrate(Day);
             machine.LastCheck = null;   // consumed — the next calibration needs a fresh standard
+            machine.LastCheckRun = null;
             machine.LastCalibration = outcome;
 
             Calibrated?.Invoke(machine, outcome);
@@ -412,6 +417,50 @@ namespace Residue.Gameplay.Simulation
 
                 Samples.Add(generated);
             }
+        }
+
+        // -- Saving and loading (#49) -----------------------------------------------------------------
+        //
+        // Narrow, internal, and paired with RunSnapshotCapture / RunSnapshotRestore, which are the
+        // only callers. Everything below writes state the day cycle otherwise owns exclusively, so
+        // none of it may be reachable from outside Residue.Gameplay — least of all from a client.
+
+        /// <summary>The run seed. Diagnostic only: a seed reproduces generation, never decisions.</summary>
+        internal int Seed { get; private set; }
+
+        /// <summary>Live generator state, so a load resumes the stream rather than restarting it.</summary>
+        internal void CaptureRng(out uint a, out uint b, out uint c, out uint d) =>
+            rng.CaptureState(out a, out b, out c, out d);
+
+        /// <summary>The id the next arrival will carry.</summary>
+        internal int NextSampleId => generator.NextSampleId;
+
+        /// <summary>
+        /// Resume the sample stream exactly where the save left it. The generator is rebuilt rather
+        /// than mutated because its id counter is the other half of the same fact.
+        /// </summary>
+        internal void RestoreGeneration(Rng state, int nextSampleId)
+        {
+            rng = state;
+            generator = new SampleGenerator(Content.Faults, nextSampleId);
+        }
+
+        /// <summary>Put the day clock back. Saves happen at a day boundary, so this is normally a closed day.</summary>
+        internal void RestoreDay(int day, bool dayInProgress, float daySecondsRemaining)
+        {
+            Day = day;
+            DayInProgress = dayInProgress;
+            DaySecondsRemaining = daySecondsRemaining;
+        }
+
+        /// <summary>
+        /// Put back the summary the player was looking at. Purely presentational — every report here
+        /// has already been applied to the economy and its sample already marked resolved — but a
+        /// continued run that opened on an empty end-of-day screen would read as lost work.
+        /// </summary>
+        internal void RestoreReport(ConsequenceReport report)
+        {
+            if (report != null) lastReports.Add(report);
         }
 
         /// <summary>Samples that have arrived and not yet had a verdict filed.</summary>
