@@ -20,6 +20,7 @@ namespace Residue.Data
         [SerializeField] private List<EquipmentProfileDef> profiles = new();
         [SerializeField] private List<FaultDef> faults = new();
         [SerializeField] private List<MachineDef> machines = new();
+        [SerializeField] private List<CustomerDef> customers = new();
 
         public IReadOnlyList<ElementDef> Elements => elements;
         public IReadOnlyList<RootCauseDef> Causes => causes;
@@ -27,13 +28,30 @@ namespace Residue.Data
         public IReadOnlyList<FaultDef> Faults => faults;
         public IReadOnlyList<MachineDef> Machines => machines;
 
+        /// <summary>
+        /// The firms that send work (§6.1, #29). Referenced by id from a saved run and from a
+        /// <c>SampleState</c>, never embedded — a save that pinned its own copy of a customer would
+        /// fork the balance tables the moment they were rebuilt.
+        /// </summary>
+        public IReadOnlyList<CustomerDef> Customers => customers;
+
         public ElementDef Element(string id) => Find(elements, id);
         public RootCauseDef Cause(string id) => Find(causes, id);
         public EquipmentProfileDef Profile(string id) => Find(profiles, id);
         public FaultDef Fault(string id) => Find(faults, id);
         public MachineDef Machine(string id) => Find(machines, id);
+        public CustomerDef Customer(string id) => Find(customers, id);
 
         private static ElementDef Find(List<ElementDef> list, string id)
+        {
+            foreach (var e in list)
+            {
+                if (e != null && e.Id == id) return e;
+            }
+            return null;
+        }
+
+        private static CustomerDef Find(List<CustomerDef> list, string id)
         {
             foreach (var e in list)
             {
@@ -79,6 +97,7 @@ namespace Residue.Data
         }
 
         public bool IsComplete =>
-            elements.Count > 0 && profiles.Count > 0 && faults.Count > 0 && machines.Count > 0;
+            elements.Count > 0 && profiles.Count > 0 && faults.Count > 0 && machines.Count > 0 &&
+            customers.Count > 0;
     }
 }

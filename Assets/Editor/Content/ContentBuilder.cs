@@ -15,7 +15,9 @@ namespace Residue.Editor.Content
         public readonly Dictionary<string, EquipmentProfileDef> Profiles = new();
         public readonly Dictionary<string, FaultDef> Faults = new();
         public readonly Dictionary<string, MachineDef> Machines = new();
+        public readonly Dictionary<string, CustomerDef> Customers = new();
 
+        public CustomerDef Customer(string id) => Customers.TryGetValue(id, out var v) ? v : null;
         public ElementDef Element(string id) => Elements.TryGetValue(id, out var v) ? v : null;
         public EquipmentProfileDef Profile(string id) => Profiles.TryGetValue(id, out var v) ? v : null;
         public FaultDef Fault(string id) => Faults.TryGetValue(id, out var v) ? v : null;
@@ -70,6 +72,10 @@ namespace Residue.Editor.Content
             foreach (var row in ContentTables.Machines)
                 set.Machines[row.Id] = PopulateMachine(Instance<MachineDef>(resolver, $"Machine_{row.Id}"), row, set);
 
+            // After profiles, because a customer names the fluids it runs by profile id.
+            foreach (var row in ContentTables.Customers)
+                set.Customers[row.Id] = PopulateCustomer(Instance<CustomerDef>(resolver, $"Customer_{row.Id}"), row, set);
+
             return set;
         }
 
@@ -88,6 +94,7 @@ namespace Residue.Editor.Content
             FillList(so.FindProperty("profiles"), ContentTables.Profiles.Select(r => (UnityEngine.Object)set.Profile(r.Id)));
             FillList(so.FindProperty("faults"), ContentTables.Faults.Select(r => (UnityEngine.Object)set.Fault(r.Id)));
             FillList(so.FindProperty("machines"), ContentTables.Machines.Select(r => (UnityEngine.Object)set.Machine(r.Id)));
+            FillList(so.FindProperty("customers"), ContentTables.Customers.Select(r => (UnityEngine.Object)set.Customer(r.Id)));
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return catalog;
@@ -112,6 +119,46 @@ namespace Residue.Editor.Content
         }
 
         // -- Individual definitions -----------------------------------------------------------------
+
+        /// <summary>
+        /// Project a customer. The oils are resolved to <see cref="EquipmentProfileDef"/> references
+        /// rather than stored as ids, so a table naming a fluid that does not exist fails here — at
+        /// content build time, where it is one line to fix — instead of arriving as a null on a
+        /// delivery note halfway through a contract.
+        /// </summary>
+        private static CustomerDef PopulateCustomer(CustomerDef asset, in CustomerRow row, ContentSet set)
+        {
+            var so = new SerializedObject(asset);
+            so.FindProperty("id").stringValue = row.Id;
+            so.FindProperty("displayName").stringValue = row.Name;
+            so.FindProperty("industry").enumValueIndex = (int)row.Industry;
+            so.FindProperty("orderPrefix").stringValue = row.OrderPrefix;
+            so.FindProperty("reliability").enumValueIndex = (int)row.Reliability;
+            so.FindProperty("paperworkSlipChance").floatValue = row.PaperworkSlip;
+            so.FindProperty("sameDrumChance").floatValue = row.SameDrum;
+
+            var sites = so.FindProperty("sites");
+            sites.arraySize = row.Sites.Length;
+            for (int i = 0; i < row.Sites.Length; i++)
+                sites.GetArrayElementAtIndex(i).stringValue = row.Sites[i];
+
+            var oils = so.FindProperty("oils");
+            oils.arraySize = row.Oils.Length;
+            for (int i = 0; i < row.Oils.Length; i++)
+            {
+                var profile = set.Profile(row.Oils[i]);
+                if (profile == null)
+                {
+                    throw new ArgumentException(
+                        $"Customer '{row.Id}' runs '{row.Oils[i]}', which is not a profile in " +
+                        "ContentTables.Profiles.");
+                }
+                oils.GetArrayElementAtIndex(i).objectReferenceValue = profile;
+            }
+
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return asset;
+        }
 
         private static ElementDef PopulateElement(ElementDef asset, in ElementRow row)
         {

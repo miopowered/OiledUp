@@ -65,3 +65,10 @@ MonoBehaviour:
   - {fileID: 11400000, guid: 302bacad06abe0b4e833e567e3e52b61, type: 2}
   - {fileID: 11400000, guid: bad7201b22e4fa6449844c8efefa4144, type: 2}
   - {fileID: 11400000, guid: f4cd1d20bf488d04cb16565f51a67c05, type: 2}
+  customers:
+  - {fileID: 11400000, guid: 55d22da6dfe42e849ab2d409b73c09a5, type: 2}
+  - {fileID: 11400000, guid: d845a4782682b3846981f8c6c7722c00, type: 2}
+  - {fileID: 11400000, guid: f4d8f004394cc8d4bbd2aa7c70522c4e, type: 2}
+  - {fileID: 11400000, guid: 5a6bafc9603e6694d889d8ee99e3924a, type: 2}
+  - {fileID: 11400000, guid: c7ce925e312634241aad84acb278b09a, type: 2}
+  - {fileID: 11400000, guid: 4b5f80b732d4be2479704c3d06340a33, type: 2}

@@ -26,7 +26,8 @@ namespace Residue.Editor.Content
             { typeof(RootCauseDef), "Causes" },
             { typeof(EquipmentProfileDef), "Profiles" },
             { typeof(FaultDef), "Faults" },
-            { typeof(MachineDef), "Machines" }
+            { typeof(MachineDef), "Machines" },
+            { typeof(CustomerDef), "Customers" }
         };
 
         [MenuItem("Residue/Content/Rebuild Definitions", priority = 0)]
@@ -58,7 +59,8 @@ namespace Residue.Editor.Content
                 $"[Residue] Content rebuilt. " +
                 $"{ContentTables.Elements.Length} elements, {ContentTables.Causes.Length} causes, " +
                 $"{ContentTables.Profiles.Length} profiles, {ContentTables.Faults.Length} faults, " +
-                $"{ContentTables.Machines.Length} machines. " +
+                $"{ContentTables.Machines.Length} machines, " +
+                $"{ContentTables.Customers.Length} customers. " +
                 $"{created.Count} created, {touched.Count - created.Count} updated in place.");
 
             if (created.Count > 0)
@@ -197,6 +199,7 @@ namespace Residue.Editor.Content
             Fill(so.FindProperty("profiles"), ContentTables.Profiles.Select(r => (UnityEngine.Object)set.Profile(r.Id)));
             Fill(so.FindProperty("faults"), ContentTables.Faults.Select(r => (UnityEngine.Object)set.Fault(r.Id)));
             Fill(so.FindProperty("machines"), ContentTables.Machines.Select(r => (UnityEngine.Object)set.Machine(r.Id)));
+            Fill(so.FindProperty("customers"), ContentTables.Customers.Select(r => (UnityEngine.Object)set.Customer(r.Id)));
             so.ApplyModifiedPropertiesWithoutUndo();
 
             EditorUtility.SetDirty(catalog);
