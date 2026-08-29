@@ -48,6 +48,14 @@ namespace Residue.Gameplay.World
                  "into the wash station's cradles.")]
         [SerializeField] private SolventBottle bottlePrefab;
 
+        [Tooltip("The delivery carton. One instance is built per carton the truck sets down in the " +
+                 "bay (#30). Needs a CartonLid on its lid child.")]
+        [SerializeField] private CartonProp cartonPrefab;
+
+        [Tooltip("The delivery note. One instance is built per carton, in its note socket, the " +
+                 "moment the box is opened (#31).")]
+        [SerializeField] private DeliveryNoteProp notePrefab;
+
         public LabState Lab { get; private set; }
 
         /// <summary>
@@ -268,10 +276,16 @@ namespace Residue.Gameplay.World
         /// Put the room back together after a continued load: a vial for every bottle the save says
         /// exists, and the paper nobody filed before they quit.
         /// <para>
-        /// A fresh run gets its props as the samples arrive — <c>IntakeCrate.OnDayStarted</c> for the
-        /// crate, <c>MachineStation</c> for a printout. A continued run has bottles on shelves, in
+        /// A fresh run gets its props as the samples arrive — <see cref="CartonProp"/> when a box is
+        /// cut open, <c>MachineStation</c> for a printout. A continued run has bottles on shelves, in
         /// the fridge and inside instruments that no arrival will ever announce, so without this the
         /// player walks into a lab whose terminal lists twenty records and whose benches are bare.
+        /// </para>
+        /// <para>
+        /// A vial still in a carton is deliberately <i>not</i> rebuilt here: a restored box comes back
+        /// sealed (see <c>DeliveryBay.RebuildFrom</c>), a sealed box advertises no slots, and
+        /// <see cref="PropSockets"/> therefore answers null and this loop skips it. The bottle appears
+        /// when somebody opens the box, which is the only place a vial has ever come out of one.
         /// </para>
         /// <para>
         /// Anything the save recorded as <i>held</i> is put back on a shelf first. A client id is a
@@ -691,6 +705,87 @@ namespace Residue.Gameplay.World
 
             bottleProps[bottleId] = bottle;
             return bottle;
+        }
+
+        // -- Deliveries (#30, #31) ----------------------------------------------------------------------
+        //
+        // Keyed by carton id. A note has no key of its own — one carton, one note — so the two tables
+        // share it, which is also what makes retiring a flattened box able to take its paper with it.
+
+        private readonly Dictionary<string, CartonProp> cartonProps = new();
+        private readonly Dictionary<string, DeliveryNoteProp> noteProps = new();
+
+        public CartonProp CartonPropFor(string cartonId) =>
+            !string.IsNullOrEmpty(cartonId) && cartonProps.TryGetValue(cartonId, out var c) ? c : null;
+
+        public DeliveryNoteProp NotePropFor(string cartonId) =>
+            !string.IsNullOrEmpty(cartonId) && noteProps.TryGetValue(cartonId, out var n) ? n : null;
+
+        /// <summary>
+        /// Build the physical box for a carton the truck has just set down. Not pooled: there are a
+        /// handful a day and each one is flattened within the shift.
+        /// </summary>
+        public CartonProp SpawnCarton(Carton carton, Transform socket, bool interactable = true)
+        {
+            if (carton == null || cartonPrefab == null || socket == null) return null;
+            if (cartonProps.TryGetValue(carton.Id, out var existing) && existing != null) return existing;
+
+            var prop = Instantiate(cartonPrefab, socket);
+            prop.Bind(carton.Id, carton.JobNumber, carton.SenderName);
+            prop.AttachTo(socket, interactable);
+
+            cartonProps[carton.Id] = prop;
+            return prop;
+        }
+
+        /// <summary>
+        /// Build the paper that was in the box. Called by <see cref="CartonProp"/> the moment the seal
+        /// goes, because until then the note is not a thing anybody can reach (#31).
+        /// </summary>
+        public DeliveryNoteProp SpawnNote(Carton carton, Transform socket)
+        {
+            if (carton == null || notePrefab == null || socket == null) return null;
+            if (noteProps.TryGetValue(carton.Id, out var existing) && existing != null) return existing;
+
+            var prop = Instantiate(notePrefab, socket);
+            prop.Bind(carton.Id, carton.JobNumber, carton.SenderName,
+                      DeliveryNoteProp.Printed(carton.Note));
+            prop.AttachTo(socket, interactable: true);
+
+            noteProps[carton.Id] = prop;
+            return prop;
+        }
+
+        /// <summary>
+        /// Destroy a flattened carton, and the note with it.
+        /// <para>
+        /// The paper goes because the box it belonged to is gone: a note is a document for a shift
+        /// rather than a record (see <c>DeliveryNote</c>), and what outlives the day is the job number
+        /// on each <c>SampleState</c>. <c>DeliveryBay</c> already refuses to flatten a box whose note
+        /// is still in it or still in somebody's hands, so nothing is ever taken out of a grip here.
+        /// </para>
+        /// </summary>
+        public void RetireCarton(string cartonId)
+        {
+            if (string.IsNullOrEmpty(cartonId)) return;
+
+            if (noteProps.TryGetValue(cartonId, out var note))
+            {
+                noteProps.Remove(cartonId);
+                DestroyProp(note != null ? note.gameObject : null);
+            }
+
+            if (!cartonProps.TryGetValue(cartonId, out var carton)) return;
+            cartonProps.Remove(cartonId);
+            DestroyProp(carton != null ? carton.gameObject : null);
+        }
+
+        /// <summary>Destroy is a play-mode call and logs an error in edit mode, where tests run.</summary>
+        private static void DestroyProp(GameObject prop)
+        {
+            if (prop == null) return;
+            if (Application.isPlaying) Destroy(prop);
+            else DestroyImmediate(prop);
         }
 
         public VialProp PropFor(SampleId id) => props.TryGetValue(id, out var v) ? v : null;

@@ -74,6 +74,9 @@ namespace Residue.Gameplay.Simulation
             if (!RestoreMachines(rebuilt, snapshot, catalog, out refusal)) return false;
             if (!RestoreSamples(rebuilt, snapshot, catalog, out refusal)) return false;
 
+            // After the samples, because the bay is derived from where they say they are (#30, #49).
+            rebuilt.RebuildDeliveries();
+
             RestoreSlips(rebuilt, snapshot);
             RestoreBottles(rebuilt, snapshot);
             RestoreReports(rebuilt, snapshot);

@@ -31,6 +31,18 @@ namespace Residue.Gameplay.World
         /// <summary>Pick a solvent bottle up off its cradle or a rack (§5.2).</summary>
         TakeBottle,
 
+        /// <summary>Lift a delivery carton out of the bay. It fills your hands like anything else (#30).</summary>
+        TakeCarton,
+
+        /// <summary>Cut a sealed carton open. A hold, like a flush (#31).</summary>
+        OpenCarton,
+
+        /// <summary>Lift the delivery note out of an opened carton (#31).</summary>
+        TakeDeliveryNote,
+
+        /// <summary>Flatten an emptied carton so the lab is not knee-deep in cardboard (#31).</summary>
+        DiscardCarton,
+
         /// <summary>Set whatever is in your hands down on a surface.</summary>
         PutDown,
 
@@ -156,6 +168,24 @@ namespace Residue.Gameplay.World
         /// </summary>
         public static LabCommand TakeBottle(string bottleId) =>
             new(LabCommandKind.TakeBottle, bottleId);
+
+        // -- Deliveries ----------------------------------------------------------------------------
+        //
+        // A carton is named in FixtureId for the reason a bottle is: it is a placed thing with an id,
+        // and the field already crosses the wire in that role. The note has no id of its own — one
+        // carton, one note — so it borrows its box's.
+
+        public static LabCommand TakeCarton(string cartonId) =>
+            new(LabCommandKind.TakeCarton, cartonId);
+
+        public static LabCommand OpenCarton(string cartonId) =>
+            new(LabCommandKind.OpenCarton, cartonId);
+
+        public static LabCommand TakeDeliveryNote(string cartonId) =>
+            new(LabCommandKind.TakeDeliveryNote, cartonId);
+
+        public static LabCommand DiscardCarton(string cartonId) =>
+            new(LabCommandKind.DiscardCarton, cartonId);
 
         public static LabCommand PutDown(string surfaceId, int slot) =>
             new(LabCommandKind.PutDown, surfaceId, amount: slot);

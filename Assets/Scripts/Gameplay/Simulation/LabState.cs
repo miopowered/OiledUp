@@ -39,6 +39,14 @@ namespace Residue.Gameplay.Simulation
         /// </summary>
         public ResultSlips Slips { get; } = new();
 
+        /// <summary>
+        /// The loading bay, the truck and the cartons still standing in it (#30). Separate from
+        /// <see cref="Samples"/> because the vault answers "what oil exists" and this answers "what of
+        /// it is within reach yet" — a distinction that did not exist while the day's vials simply
+        /// appeared in a crate at 09:00.
+        /// </summary>
+        public DeliveryBay Deliveries { get; }
+
         public List<MachineInstance> Machines { get; } = new();
         public EconomyTuning Tuning { get; }
         public ContractPlan Plan { get; }
@@ -61,6 +69,18 @@ namespace Residue.Gameplay.Simulation
         /// <summary>An instrument has been recalibrated and the archive behind it re-scored (§5.3).</summary>
         public event Action<MachineInstance, CalibrationOutcome> Calibrated;
 
+        /// <summary>
+        /// The truck is a short way out (#30). Announced early on purpose: the acceptance criterion is
+        /// that the player can <i>choose</i> to finish a run first, and a choice needs notice.
+        /// </summary>
+        public event Action<DeliveryBay> DeliveryDue;
+
+        /// <summary>Cartons have been set down in the bay and can now be carried in.</summary>
+        public event Action<IReadOnlyList<Carton>> DeliveryArrived;
+
+        /// <summary>The bay is full and the rest of the load is staying on the truck.</summary>
+        public event Action<DeliveryBay> DeliveryHeld;
+
         private Rng rng;
         private SampleGenerator generator;
         private readonly Dictionary<string, EquipmentProfileDef> profilesById = new();
@@ -73,6 +93,7 @@ namespace Residue.Gameplay.Simulation
             Tuning = tuning ?? new EconomyTuning();
             Economy = new Economy(Tuning);
             Solvent = new SolventStore(Economy);
+            Deliveries = new DeliveryBay(Samples);
 
             Seed = seed;
             rng = new Rng(seed);
@@ -152,6 +173,12 @@ namespace Residue.Gameplay.Simulation
 
             GenerateArrivals(plan);
             GenerateRequeues();
+
+            // The paperwork exists from 09:00; the boxes do not. Everything generated above is on a
+            // truck until DeliveryBay puts it down — see the type doc there for why the chemistry is
+            // still minted at day start while the delivery is not.
+            Deliveries.ScheduleArrival(plan.DaySeconds);
+
             DayStarted?.Invoke(Day);
             return true;
         }
@@ -161,6 +188,13 @@ namespace Residue.Gameplay.Simulation
             if (!DayInProgress) return;
 
             DaySecondsRemaining = Mathf.Max(0f, DaySecondsRemaining - deltaSeconds);
+
+            switch (Deliveries.Tick(deltaSeconds))
+            {
+                case DeliveryEvent.DueSoon: DeliveryDue?.Invoke(Deliveries); break;
+                case DeliveryEvent.Arrived: DeliveryArrived?.Invoke(Deliveries.JustArrived); break;
+                case DeliveryEvent.Held: DeliveryHeld?.Invoke(Deliveries); break;
+            }
 
             foreach (var machine in Machines)
             {
@@ -348,6 +382,10 @@ namespace Residue.Gameplay.Simulation
             // bankruptcy on this day's reports still gets the rest of their reckoning.
             if (IsRunOver) Settle(Samples.ResolveDue(Day, Tuning, settleEverything: true));
 
+            // Cardboard does not survive the night (#31). Raised before DayEnded so anything listening
+            // for the summary can retire the props in the same pass.
+            Deliveries.SweepSpent();
+
             DayEnded?.Invoke(lastReports);
             return lastReports;
         }
@@ -366,18 +404,30 @@ namespace Residue.Gameplay.Simulation
             }
         }
 
-        /// <summary>Re-send the units the player chose to keep watching, with the fault further along.</summary>
+        /// <summary>
+        /// Re-send the units the player chose to keep watching, with the fault further along.
+        /// <para>
+        /// A re-draw travels in the same box as the rest of that firm's day: it came off the same
+        /// site on the same lorry, and giving it a carton of its own would put a second delivery note
+        /// on the bench for one vial. The sender is copied off the original, which
+        /// <see cref="SampleRegistry.BuildRequeue"/> deliberately does not do — it knows about
+        /// chemistry, not about who posted the box.
+        /// </para>
+        /// </summary>
         private void GenerateRequeues()
         {
             foreach (var id in Samples.TakePendingRequeues())
             {
+                var previous = Samples.Get(id);
                 var generated = Samples.BuildRequeue(id, generator, Day, ref rng);
                 if (generated == null) continue;
 
-                generated.State.Location = SampleLocation.InCrate("intake", -1);
+                generated.State.Customer = previous != null ? previous.Customer : null;
                 generated.State.IsSettled = false;
                 generated.State.TemperatureC = rng.Range(4f, 22f);
+
                 Samples.Add(generated);
+                PackInCarton(generated.State);
             }
         }
 
@@ -385,9 +435,12 @@ namespace Residue.Gameplay.Simulation
 
         private void GenerateArrivals(in DayPlan plan)
         {
-            if (plan.ProfileIds == null || plan.ProfileIds.Length == 0) return;
-
+            // Cleared before the early return, not after it: a day with nothing scheduled must not
+            // leave yesterday's paperwork on the bench claiming to be today's.
             notes.Clear();
+            cartons.Clear();
+
+            if (plan.ProfileIds == null || plan.ProfileIds.Length == 0) return;
 
             for (int i = 0; i < plan.SampleCount; i++)
             {
@@ -416,20 +469,39 @@ namespace Residue.Gameplay.Simulation
                 if (generated == null) continue;
 
                 generated.State.FieldTechNote = EquipmentTags.Note(ref rng);
-                generated.State.Location = SampleLocation.InCrate("intake", i);
                 generated.State.Customer = customer;
 
                 // Arrives unsettled and at ambient. Agitating and warming are player actions with a
-                // real time cost (§9) rather than menu clicks.
+                // real time cost (§9) rather than menu clicks — and unboxing is not one of them, so
+                // neither of these fields is touched again until the player shakes the vial into an
+                // instrument (#31).
                 generated.State.IsSettled = false;
                 generated.State.TemperatureC = rng.Range(4f, 22f);
 
                 Samples.Add(generated);
-
-                var note = NoteFor(customer);
-                generated.State.JobNumber = note.JobNumber;
-                note.Add(generated.State.EquipmentTag, profile, generated.State.Id);
+                PackInCarton(generated.State);
             }
+        }
+
+        /// <summary>
+        /// Put a generated sample in its sender's box, and its line on their note.
+        /// <para>
+        /// The location is the carton, so §5.1's unload step is now literally taking a vial out of a
+        /// box somebody carried in — <see cref="SampleLifecycle.TryMove"/> already treats leaving an
+        /// <c>InCrate</c> location as that step and needed no change.
+        /// </para>
+        /// </summary>
+        private void PackInCarton(SampleState sample)
+        {
+            if (sample == null) return;
+
+            var carton = CartonFor(sample.Customer);
+
+            sample.JobNumber = carton.JobNumber;
+            sample.Location = SampleLocation.InCrate(carton.Id, carton.Contents.Count);
+
+            carton.Add(sample.Id);
+            carton.Note.Add(sample.EquipmentTag, sample.Profile, sample.Id);
         }
 
         /// <summary>
@@ -456,21 +528,26 @@ namespace Residue.Gameplay.Simulation
         }
 
         /// <summary>
-        /// One note per sender per day. A carton comes from one firm, so vials from two customers
-        /// arriving on the same morning are two deliveries with two pieces of paper — which is what
-        /// makes #32's reconciliation a per-carton question rather than a daily audit.
+        /// One note per sender per day, and one box per note. A carton comes from one firm, so vials
+        /// from two customers arriving on the same morning are two deliveries with two pieces of paper
+        /// — which is what makes #32's reconciliation a per-carton question rather than a daily audit,
+        /// and what makes "one carton per note" the only grouping the lab has (#31).
         /// </summary>
-        private DeliveryNote NoteFor(CustomerDef customer)
+        private Carton CartonFor(CustomerDef customer)
         {
             string key = customer != null ? customer.Id : string.Empty;
-            if (notes.TryGetValue(key, out var existing)) return existing;
+            if (cartons.TryGetValue(key, out var existing)) return existing;
 
-            var created = new DeliveryNote(customer, EquipmentTags.JobNumber(customer, ref rng), Day);
-            notes[key] = created;
+            var note = new DeliveryNote(customer, EquipmentTags.JobNumber(customer, ref rng), Day);
+            notes[key] = note;
+
+            var created = Deliveries.Book(note, Day);
+            cartons[key] = created;
             return created;
         }
 
         private readonly Dictionary<string, DeliveryNote> notes = new();
+        private readonly Dictionary<string, Carton> cartons = new();
         private readonly List<CustomerDef> candidates = new();
 
         /// <summary>
@@ -505,6 +582,13 @@ namespace Residue.Gameplay.Simulation
             rng = state;
             generator = new SampleGenerator(Content.Faults, nextSampleId);
         }
+
+        /// <summary>
+        /// Rebuild the delivery bay from the restored samples (#49). Called once, after the vault is
+        /// back — see <see cref="DeliveryBay.RebuildFrom"/> for why a carton is derived rather than
+        /// written into the save.
+        /// </summary>
+        internal void RebuildDeliveries() => Deliveries.RebuildFrom(Samples.All);
 
         /// <summary>Put the day clock back. Saves happen at a day boundary, so this is normally a closed day.</summary>
         internal void RestoreDay(int day, bool dayInProgress, float daySecondsRemaining)

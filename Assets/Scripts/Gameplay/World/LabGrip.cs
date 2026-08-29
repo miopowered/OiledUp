@@ -16,7 +16,21 @@ namespace Residue.Gameplay.World
         /// refuse each other everywhere: an instrument will not run solvent, and a flush will not
         /// accept a sample.
         /// </summary>
-        Bottle
+        Bottle,
+
+        /// <summary>
+        /// A delivery carton (#30). Its own kind because it is the one carried thing that is itself a
+        /// container: a rack will not take one, an instrument certainly will not, and the host has to
+        /// know a box is in your hands to refuse opening it there.
+        /// </summary>
+        Carton,
+
+        /// <summary>
+        /// A delivery note (#31). Paper, like a slip, but named by the carton it came out of rather
+        /// than by a ticket — the numbers on a slip are the host's, and a note carries only what the
+        /// customer claimed.
+        /// </summary>
+        Note
     }
 
     /// <summary>
@@ -76,6 +90,16 @@ namespace Residue.Gameplay.World
         public static LabGrip OnBottle(string bottleId) =>
             new(GripKind.Bottle, SampleId.None, 0, bottleId);
 
+        public static LabGrip OnCarton(string cartonId) =>
+            new(GripKind.Carton, SampleId.None, 0, cartonId);
+
+        /// <summary>
+        /// The note out of this carton. Named by the box rather than by the job number, because the
+        /// box is what the host can look the paper up in — one carton, one note.
+        /// </summary>
+        public static LabGrip OnNote(string cartonId) =>
+            new(GripKind.Note, SampleId.None, 0, cartonId);
+
         public static readonly LabGrip OnBook = new(GripKind.Book, SampleId.None, 0);
 
         public static LabGrip OnBookItem(string bookId) =>
@@ -109,6 +133,8 @@ namespace Residue.Gameplay.World
             GripKind.Vial => $"vial {Sample}",
             GripKind.Slip => $"slip #{Ticket} ({Sample})",
             GripKind.Bottle => $"solvent bottle {ItemId ?? "?"}",
+            GripKind.Carton => $"carton {ItemId ?? "?"}",
+            GripKind.Note => $"the note from carton {ItemId ?? "?"}",
             GripKind.Book => "a manual",
             _ => "empty-handed"
         };

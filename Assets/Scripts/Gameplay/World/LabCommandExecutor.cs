@@ -62,6 +62,10 @@ namespace Residue.Gameplay.World
                 LabCommandKind.TakeSlip => TakeSlip(actor, command),
                 LabCommandKind.TakeBook => TakeBook(actor, command),
                 LabCommandKind.TakeBottle => TakeBottle(actor, command),
+                LabCommandKind.TakeCarton => TakeCarton(actor, command),
+                LabCommandKind.OpenCarton => OpenCarton(actor, command),
+                LabCommandKind.TakeDeliveryNote => TakeDeliveryNote(actor, command),
+                LabCommandKind.DiscardCarton => DiscardCarton(actor, command),
                 LabCommandKind.PutDown => PutDown(actor, command),
                 LabCommandKind.SelectInventory => SelectInventory(actor, command),
                 LabCommandKind.Agitate => Agitate(actor),
@@ -101,6 +105,12 @@ namespace Residue.Gameplay.World
             if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
             if (!lab.Samples.TryGet(command.Sample, out var sample))
                 return LabCommandResult.No("No such sample.");
+
+            // A vial in a box is only reachable once somebody has carried the box in, put it down and
+            // cut it open (#30, #31). Checked here rather than left to the prop, because the prop for
+            // a sealed carton's contents does not exist on any machine and a request naming one is
+            // therefore a request the host has to answer for itself.
+            if (!CanReachInCarton(actor, sample, out var sealedOff)) return sealedOff;
 
             switch (sample.Location.Kind)
             {
@@ -194,6 +204,132 @@ namespace Residue.Gameplay.World
             return LabCommandResult.Ok;
         }
 
+        // -- Deliveries (#30, #31) ---------------------------------------------------------------------
+        //
+        // Every one of these establishes the two facts a gateway cannot check for itself — whose hands
+        // and how far away — and then delegates to DeliveryBay, which owns the rules and phrases its
+        // own refusals. Nothing below re-states one.
+
+        /// <summary>
+        /// Whether a vial in a carton is reachable at all, and why not if it is not.
+        /// <para>
+        /// Returns true — "nothing to say" — for a sample that is not in a carton, so
+        /// <see cref="TakeVial"/> can call it unconditionally. A sample sitting in an
+        /// <c>InCrate</c> location with no carton behind it is left alone too: that is the shape a
+        /// freshly generated sample has before <c>LabState</c> packs it, and refusing it here would
+        /// make a generator detail into a player-facing refusal.
+        /// </para>
+        /// </summary>
+        private bool CanReachInCarton(ILabActor actor, SampleState sample, out LabCommandResult refused)
+        {
+            refused = default;
+
+            var carton = lab.Deliveries.CartonHolding(sample);
+            if (carton == null) return true;
+
+            if (carton.Stage == CartonStage.OnTheRoad)
+            {
+                refused = LabCommandResult.No(
+                    $"{sample.RecordTag} is still on the truck — the delivery has not been unloaded yet.");
+                return false;
+            }
+
+            if (carton.IsSealed)
+            {
+                refused = LabCommandResult.No(
+                    $"Carton {carton.JobNumber} is still sealed. Open it before taking anything out.");
+                return false;
+            }
+
+            // A box in somebody's arms is a box nobody can reach into, including the person carrying
+            // it. Stated rather than assumed, because the vial's prop is riding in their hands and
+            // would otherwise look perfectly grabbable to a second player.
+            if (carton.Location.Kind == SampleLocationKind.Held)
+            {
+                refused = LabCommandResult.No(
+                    carton.Location.HolderClientId == actor.ClientId
+                        ? "Set the carton down before taking vials out of it."
+                        : $"Someone else is carrying carton {carton.JobNumber}.");
+                return false;
+            }
+
+            // Reach is checked against the box rather than the shelf it is standing on: a carton is a
+            // registered fixture in its own right, and the bay is 4 m of floor rather than a point.
+            return !OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out refused);
+        }
+
+        private LabCommandResult TakeCarton(ILabActor actor, LabCommand command)
+        {
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+
+            var carton = lab.Deliveries.Find(command.FixtureId);
+            if (carton == null) return LabCommandResult.No("No such carton.");
+
+            if (carton.Location.Kind == SampleLocationKind.OnSurface &&
+                OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far))
+            {
+                return far;
+            }
+
+            if (!lab.Deliveries.TryTake(carton.Id, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            Store(actor, LabGrip.OnCarton(carton.Id));
+            return LabCommandResult.Ok;
+        }
+
+        private LabCommandResult OpenCarton(ILabActor actor, LabCommand command)
+        {
+            var carton = lab.Deliveries.Find(command.FixtureId);
+            if (carton == null) return LabCommandResult.No("No such carton.");
+
+            if (OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far)) return far;
+
+            return lab.Deliveries.TryOpen(carton.Id, actor.ClientId, out string refusal)
+                ? LabCommandResult.Ok
+                : LabCommandResult.No(refusal);
+        }
+
+        private LabCommandResult TakeDeliveryNote(ILabActor actor, LabCommand command)
+        {
+            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+
+            var carton = lab.Deliveries.Find(command.FixtureId);
+            if (carton == null) return LabCommandResult.No("No such carton.");
+
+            // Against whatever the paper is sitting in — the box, or the bench somebody left it on —
+            // for the reason TakeSlip checks the slip's own container rather than the printer.
+            string standingAt = carton.NoteIsInside ? carton.Id : carton.NoteLocation.ContainerId;
+            if (OutOfReach(actor, standingAt, "that delivery note", out var far)) return far;
+
+            if (!lab.Deliveries.TryTakeNote(carton.Id, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            Store(actor, LabGrip.OnNote(carton.Id));
+            return LabCommandResult.Ok;
+        }
+
+        private LabCommandResult DiscardCarton(ILabActor actor, LabCommand command)
+        {
+            var carton = lab.Deliveries.Find(command.FixtureId);
+            if (carton == null) return LabCommandResult.No("No such carton.");
+
+            if (carton.Location.Kind == SampleLocationKind.OnSurface &&
+                OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far))
+            {
+                return far;
+            }
+
+            bool wasInHand = actor.Grip.Kind == GripKind.Carton &&
+                             string.Equals(actor.Grip.ItemId, carton.Id, System.StringComparison.Ordinal);
+
+            if (!lab.Deliveries.TryDiscard(carton.Id, actor.ClientId, out string refusal))
+                return LabCommandResult.No(refusal);
+
+            if (wasInHand) actor.SetGrip(LabGrip.Empty);
+            return LabCommandResult.Ok;
+        }
+
         private static bool CanStore(ILabActor actor) =>
             actor is ILabInventoryActor inventory
                 ? inventory.InventoryCount < inventory.InventoryCapacity
@@ -219,6 +355,8 @@ namespace Residue.Gameplay.World
                 GripKind.Vial => LabGrip.OnVial(command.Sample),
                 GripKind.Slip => LabGrip.OnSlip(command.Sample, command.Amount),
                 GripKind.Bottle => LabGrip.OnBottle(command.Text),
+                GripKind.Carton => LabGrip.OnCarton(command.Text),
+                GripKind.Note => LabGrip.OnNote(command.Text),
                 GripKind.Book => LabGrip.OnBookItem(command.Text),
                 _ => LabGrip.Empty
             };
@@ -265,6 +403,29 @@ namespace Residue.Gameplay.World
                     // rack is a hole a vial cannot use, which is §5.5's shelf pressure doing its job.
                     if (!lab.Solvent.TryPutDown(grip.ItemId, actor.ClientId, surface, command.Amount,
                                                 out string refusal))
+                    {
+                        return LabCommandResult.No(refusal);
+                    }
+                    break;
+                }
+
+                case GripKind.Carton:
+                {
+                    // Named here for the reason a racked slip is: every other process asks the bay
+                    // where a box is, so emptying the hand without recording the shelf would leave the
+                    // carton standing in the bay on every screen except the one that moved it.
+                    if (!lab.Deliveries.TryPutDown(grip.ItemId, actor.ClientId, surface, command.Amount,
+                                                   out string refusal))
+                    {
+                        return LabCommandResult.No(refusal);
+                    }
+                    break;
+                }
+
+                case GripKind.Note:
+                {
+                    if (!lab.Deliveries.TryPutDownNote(grip.ItemId, actor.ClientId, surface,
+                                                       command.Amount, out string refusal))
                     {
                         return LabCommandResult.No(refusal);
                     }

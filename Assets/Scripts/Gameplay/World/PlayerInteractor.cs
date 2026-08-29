@@ -329,6 +329,8 @@ namespace Residue.Gameplay.World
             VialProp vial => LabGrip.OnVial(vial.SampleId),
             PrintoutProp slip => LabGrip.OnSlip(slip.SampleId, slip.Ticket),
             SolventBottle bottle => LabGrip.OnBottle(bottle.BottleId),
+            CartonProp carton => LabGrip.OnCarton(carton.CartonId),
+            DeliveryNoteProp note => LabGrip.OnNote(note.CartonId),
             ReferenceBook book => LabGrip.OnBookItem(book.InventoryId),
             null => LabGrip.Empty,
             _ => LabGrip.OnBook
@@ -502,6 +504,8 @@ namespace Residue.Gameplay.World
                 VialProp vial => LabCommand.TakeVial(vial.SampleId),
                 PrintoutProp slip => LabCommand.TakeSlip(slip.Ticket),
                 SolventBottle bottle => LabCommand.TakeBottle(bottle.BottleId),
+                CartonProp carton => LabCommand.TakeCarton(carton.CartonId),
+                DeliveryNoteProp note => LabCommand.TakeDeliveryNote(note.CartonId),
                 ReferenceBook book => LabCommand.TakeBook(book.InventoryId),
                 _ => LabCommand.TakeBook()
             };

@@ -158,7 +158,7 @@ a report can be matched to a bottle and to a terminal row without a lookup.
    > could diff it against a player-typed tag and hand over a mis-log for free. Booking-in is gone,
    > so `RecordTag` *is* the label and there is no diff to make. The split now stands on the first
    > argument alone.
-2. `IVialSlots` is the surface abstraction. `IntakeCrate`, `SampleRack` and `MachineStation` each
+2. `IVialSlots` is the surface abstraction. `CartonProp`, `SampleRack` and `MachineStation` each
    hand out the transform for slot *N*, and register it alongside their position with
    `LabRuntime.RegisterFixture`, so a client can turn `rack#3` back into a place in the room.
    Occupancy is read off the slot transforms — a slot's child *is* its occupant — so props parented
