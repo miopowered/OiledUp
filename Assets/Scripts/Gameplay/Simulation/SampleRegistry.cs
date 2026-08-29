@@ -271,7 +271,16 @@ namespace Residue.Gameplay.Simulation
 
             float previous = truth.FaultSeverities.Count > 0 ? truth.FaultSeverities[0] : 0.5f;
 
-            var request = GenerationRequest.Default(state.Profile, state.EquipmentTag, day);
+            // Labelled with the tank that was actually drawn, not with whatever survived on the last
+            // bottle. A re-draw is a fresh sample the plant takes and writes out properly, and the
+            // plant has never been in any doubt about which bath it went to — so a unit whose label
+            // came off in the post (#32) comes back legible. Nothing leaks by then: MONITOR has
+            // already resolved, and §5.4 reveals what a resolved record really was.
+            string tankTag = !string.IsNullOrEmpty(truth.TrueTankTag)
+                ? truth.TrueTankTag
+                : state.EquipmentTag;
+
+            var request = GenerationRequest.Default(state.Profile, tankTag, day);
             request.ForcedFault = fault;
             request.ForcedSeverity01 = Mathf.Clamp01(previous + rng.Range(0.18f, 0.32f));
             request.CascadeChance = 0f;
@@ -284,6 +293,115 @@ namespace Residue.Gameplay.Simulation
             generated.State.FieldTechNote =
                 $"Resample. Previously reported MONITOR on day {state.FiledOnDay}; unit kept in service.";
             return generated;
+        }
+
+        /// <summary>
+        /// Bottle a second vial out of the drum an earlier one came from (§6.1, #32).
+        /// <para>
+        /// Lives here for the reason <see cref="BuildRequeue"/> does: it needs ground truth, and the
+        /// point of it is that the truth is <i>copied</i> rather than rolled. Two vials off one drum
+        /// are the same oil — the same faults at the same severities, the same true values, the same
+        /// contamination — and that is exactly why the trap is fair. Hard rule 1 is untouched: no
+        /// instrument reads differently, the two samples simply are the same sample. Running both and
+        /// finding they agree to within instrument noise is the tell, and it is a measurement the
+        /// player takes rather than an intuition they are asked for.
+        /// </para>
+        /// <para>
+        /// The generator is still run, and its roll is thrown away. That is not waste: it is how the
+        /// new vial gets an id from the one counter that mints them, and it keeps the draw sequence a
+        /// function of what happened rather than of which branch was taken.
+        /// </para>
+        /// <para>
+        /// Both vials come back marked <see cref="SampleAmbiguity.DuplicateClaim"/> and pointing at
+        /// each other, because neither can say which of the note's two claims it answers.
+        /// </para>
+        /// </summary>
+        public GeneratedSample BuildSplitDraw(SampleId source, SampleGenerator generator, int day,
+                                              ref Rng rng)
+        {
+            if (generator == null) return null;
+            if (!states.TryGetValue(source, out var state)) return null;
+            if (!truths.TryGetValue(source, out var truth)) return null;
+
+            var request = GenerationRequest.Default(state.Profile, state.EquipmentTag, day);
+            request.HoursSinceOilChange = state.HoursSinceOilChange;
+            request.CascadeChance = 0f;
+            request.ForceHealthy = true;
+
+            var generated = generator.Generate(request, ref rng);
+            if (generated == null) return null;
+
+            var copy = generated.Truth;
+
+            copy.TrueValues.Clear();
+            foreach (var kv in truth.TrueValues) copy.TrueValues[kv.Key] = kv.Value;
+
+            copy.Contamination.Clear();
+            foreach (var kv in truth.Contamination) copy.Contamination[kv.Key] = kv.Value;
+
+            copy.ActualFaults.Clear();
+            copy.FaultSeverities.Clear();
+            for (int i = 0; i < truth.ActualFaults.Count; i++)
+            {
+                copy.ActualFaults.Add(truth.ActualFaults[i]);
+                copy.FaultSeverities.Add(i < truth.FaultSeverities.Count ? truth.FaultSeverities[i] : 0.5f);
+            }
+
+            copy.SameDrumAs = source;
+            truth.SameDrumAs = generated.State.Id;
+
+            state.Ambiguity = SampleAmbiguity.DuplicateClaim;
+            generated.State.Ambiguity = SampleAmbiguity.DuplicateClaim;
+            generated.State.HoursSinceOilChange = state.HoursSinceOilChange;
+
+            return generated;
+        }
+
+        /// <summary>
+        /// Record where a vial actually came from (#32). Host bookkeeping written as a carton is
+        /// packed; the player is told none of it.
+        /// <para>
+        /// <paramref name="trueNoteLine"/> is -1 for a vial the note never mentioned. Indices refer to
+        /// the note as it was printed, so this is written after every discrepancy has been introduced
+        /// and never before.
+        /// </para>
+        /// </summary>
+        internal void SetProvenance(SampleId id, string trueTankTag, int trueNoteLine)
+        {
+            if (!truths.TryGetValue(id, out var truth)) return;
+            truth.TrueTankTag = trueTankTag;
+            truth.TrueNoteLine = trueNoteLine;
+        }
+
+        /// <summary>
+        /// What the customer's dispatcher says this bottle was, when somebody rings and asks (#32).
+        ///
+        /// <para>
+        /// <b>Answers for an unreadable label and nothing else.</b> That is the only question the
+        /// customer can settle: their own copy of the note says which tank they drew, and the label
+        /// coming off in transit is not something they did. Ask them about two vials claiming one tank
+        /// and they will confirm their own paperwork — which is the very thing in doubt — so the call
+        /// is refused for those, out at <see cref="LabState.TryCallCustomer"/>, before any shift time
+        /// is spent. A phone call that resolved §6.1's trap would delete it.
+        /// </para>
+        ///
+        /// <para>
+        /// Narrow by construction: it returns a tank tag the note already prints, for a vial the
+        /// player can already see has no label. Nothing about the chemistry crosses.
+        /// </para>
+        /// </summary>
+        internal bool TryReadDispatchRecord(SampleId id, out string tankTag, out int noteLine)
+        {
+            tankTag = null;
+            noteLine = -1;
+
+            if (!states.TryGetValue(id, out var state)) return false;
+            if (state.Ambiguity != SampleAmbiguity.UnreadableLabel) return false;
+            if (!truths.TryGetValue(id, out var truth)) return false;
+
+            tankTag = truth.TrueTankTag;
+            noteLine = truth.TrueNoteLine;
+            return !string.IsNullOrEmpty(tankTag);
         }
 
         /// <summary>
@@ -322,7 +440,17 @@ namespace Residue.Gameplay.Simulation
             foreach (var pair in truths)
             {
                 var truth = pair.Value;
-                var record = new RunSnapshot.TruthRecord { Id = truth.Id.Value };
+                var record = new RunSnapshot.TruthRecord
+                {
+                    Id = truth.Id.Value,
+
+                    // Provenance travels with the chemistry, and has to: a verdict resolves days
+                    // after it was filed, so a save taken in between must still know that the vial
+                    // the player named W1 QUENCH 2 was never drawn from it (#32).
+                    TrueTankTag = truth.TrueTankTag,
+                    TrueNoteLine = truth.TrueNoteLine,
+                    SameDrumAs = truth.SameDrumAs.Value
+                };
 
                 foreach (var fault in truth.ActualFaults) record.FaultIds.Add(fault != null ? fault.Id : null);
                 foreach (var severity in truth.FaultSeverities) record.Severities.Add(severity);
@@ -348,11 +476,15 @@ namespace Residue.Gameplay.Simulation
         /// resolve as "no fault found" against true values that still carry the signature. That is
         /// the chemistry lying, which is the one thing it may never do.
         /// </para>
+        /// <para>
+        /// The readings and the provenance come straight off the record, which is why the record
+        /// itself is the parameter: everything on it that needs a catalog lookup is already resolved
+        /// by the loader, and everything else is plain data this can copy without a second signature
+        /// to keep in step.
+        /// </para>
         /// </summary>
         internal void RestoreSample(SampleState state, IReadOnlyList<FaultDef> faults,
-                                    IReadOnlyList<float> severities,
-                                    IReadOnlyList<RunSnapshot.Reading> trueValues,
-                                    IReadOnlyList<RunSnapshot.Reading> contamination)
+                                    IReadOnlyList<float> severities, RunSnapshot.TruthRecord record)
         {
             if (state == null) return;
 
@@ -368,14 +500,15 @@ namespace Residue.Gameplay.Simulation
                 }
             }
 
-            if (trueValues != null)
+            if (record != null)
             {
-                foreach (var reading in trueValues) truth.TrueValues[reading.ElementId] = reading.Value;
-            }
+                foreach (var reading in record.TrueValues) truth.TrueValues[reading.ElementId] = reading.Value;
+                foreach (var reading in record.Contamination)
+                    truth.Contamination[reading.ElementId] = reading.Value;
 
-            if (contamination != null)
-            {
-                foreach (var reading in contamination) truth.Contamination[reading.ElementId] = reading.Value;
+                truth.TrueTankTag = record.TrueTankTag;
+                truth.TrueNoteLine = record.TrueNoteLine;
+                truth.SameDrumAs = new SampleId(record.SameDrumAs);
             }
 
             states[state.Id] = state;

@@ -87,6 +87,42 @@ namespace Residue.Gameplay.World
         /// <summary>Root causes for the verdict dropdown. Content, identical in every process.</summary>
         public IReadOnlyList<RootCauseDef> Causes = new List<RootCauseDef>();
 
+        /// <summary>
+        /// The delivery notes the run still holds a box for, so the desk can offer the lines an
+        /// ambiguous vial might answer (#32).
+        ///
+        /// <para>
+        /// <b>Lines only, and never a reconciliation.</b> What crosses is what the customer typed —
+        /// the same claim <c>DeliveryNoteProp</c> prints on the paper in the box, in the same order,
+        /// with no tick marks, no counts against what actually arrived and no "this one is missing".
+        /// The comparison is the player's and doing it here would answer #32 for them; see
+        /// <see cref="DeliveryNote"/>.
+        /// </para>
+        ///
+        /// <para>
+        /// Empty on a joined desk until cartons replicate (#80). The panel says so rather than
+        /// pretending the note is blank, and nothing else on the screen depends on it — a client can
+        /// still run, file and read everything it always could.
+        /// </para>
+        /// </summary>
+        public IReadOnlyList<DeliveryNote> Notes = new List<DeliveryNote>();
+
+        /// <summary>The note a vial arrived under, matched on its job number, or null.</summary>
+        public DeliveryNote NoteFor(SampleState sample)
+        {
+            if (sample == null || string.IsNullOrEmpty(sample.JobNumber)) return null;
+
+            foreach (var note in Notes)
+            {
+                if (note != null &&
+                    string.Equals(note.JobNumber, sample.JobNumber, System.StringComparison.Ordinal))
+                {
+                    return note;
+                }
+            }
+            return null;
+        }
+
         /// <summary>The sample under that id, or null. Looks in both lists — a re-opened record is in neither for long.</summary>
         public SampleState Sample(SampleId id)
         {
@@ -139,6 +175,16 @@ namespace Residue.Gameplay.World
             var instruments = new List<InstrumentRecord>(lab.Machines.Count);
             foreach (var machine in lab.Machines) instruments.Add(InstrumentRecord.FromHost(machine));
 
+            // Read off the cartons rather than off LabState.Notes, because the two disagree after a
+            // CONTINUE: the day dictionary is rebuilt by BeginDay and a loaded run's paperwork is
+            // derived from where its vials say they are (DeliveryBay.RebuildFrom). The box is the one
+            // that always has a note in it.
+            var notes = new List<DeliveryNote>();
+            foreach (var carton in lab.Deliveries.Cartons)
+            {
+                if (carton?.Note != null) notes.Add(carton.Note);
+            }
+
             return new LabRecords
             {
                 Day = lab.Day,
@@ -163,7 +209,8 @@ namespace Residue.Gameplay.World
                 // Straight off the lab. Single player and the host read their own reports and always
                 // did; nothing here goes near a view (see the type doc).
                 Reports = lab.LastReports,
-                Causes = lab.Content != null ? lab.Content.Causes : new List<RootCauseDef>()
+                Causes = lab.Content != null ? lab.Content.Causes : new List<RootCauseDef>(),
+                Notes = notes
             };
         }
     }

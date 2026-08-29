@@ -1,15 +1,19 @@
 # Oiled Up
 
-## Current milestone: M2 — Verdict loop
+## Where the project is
 
-Goal: a single player can complete a full lab day and receive clear win/loss feedback.
+| Milestone | State |
+|---|---|
+| M0 Grey box · M2 Verdict loop · M3 Contamination · M5 Day cycle | Complete |
+| M1 Chemistry + tests | Complete bar debug tooling and CI ([#3](https://github.com/miopowered/OiledUp/issues/3), [#18](https://github.com/miopowered/OiledUp/issues/18)) |
+| M4 Co-op | Complete host-side; **a joined client cannot see delivery cartons** ([#80](https://github.com/miopowered/OiledUp/issues/80)) |
+| D1 Heat-treatment domain · D2 Deliveries and customers | Complete |
+| F1 Frontend, options, accessibility | Menu, lobby, settings, rebinds and colourblind support done; polish outstanding |
+| M6 Art · M7 Content and balance · M8 Weird layer | Not started |
 
-- [x] Sample lifecycle and validation
-- [x] Verdict filing and delayed consequences
-- [x] Terminal, reference book, economy, and reputation
-- [x] Contract timing that allows consequences to resolve
-- [ ] [Target feedback and held-item camera](https://github.com/miopowered/OiledUp/issues/36)
-- [x] [Three-slot inventory, unified HUD, and item inspection](https://github.com/miopowered/OiledUp/issues/63)
+A single player can play a full contract end to end: samples arrive by truck, are
+unboxed, reconciled against a delivery note, prepped, run, filed, and resolved —
+with the run surviving a quit. It remains pre-alpha.
 
 ## Project
 
@@ -20,21 +24,50 @@ fire. Unnecessary shutdowns are costly too, so there is no safe default answer.
 
 The project is built with Unity 6 and URP. It currently includes the playable
 lab workflow, deterministic chemistry, contamination and calibration systems,
-host-authoritative multiplayer foundations, proximity voice, and tested save
-and lab-layout foundations. It remains pre-alpha.
+customer deliveries and note reconciliation, host-authoritative multiplayer,
+proximity voice, run save and continue, and a full front end.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 
 ## Still missing
 
-- Final M2 interaction polish: inventory, inspection, target feedback, and held-item presentation
-- Customer deliveries: trucks, cartons, delivery notes, and discrepancy checks
-- Complete co-op validation and consistent host/client machine displays
-- Full run save/restore and player-facing lab rebuild mode
-- Main, pause, settings, loading, onboarding, and credits screens
-- Rebindable controls, motion comfort, colourblind support, and localisation readiness
-- Final art, audio, content, balance, and meta-progression passes
-- Chemistry debug tooling and working Unity CI licence setup
+### Blocking co-op
+
+- **[#80](https://github.com/miopowered/OiledUp/issues/80) Cartons are not replicated.** A joined
+  client sees the bay and the truck but no boxes, so it cannot start the day. Single player and the
+  host are complete; this is the one thing standing between the current build and a co-op session.
+
+### Verification debt
+
+- **The EditMode suite is not routinely run.** [#76](https://github.com/miopowered/OiledUp/issues/76)
+  fixed the deadlock that made it unrunnable, but that fix is itself unvalidated, and roughly sixty
+  tests added since have never been executed. Run `Residue > Build > Run EditMode Tests` and read
+  `Temp/oiledup-editmode.txt`.
+- **[#18](https://github.com/miopowered/OiledUp/issues/18) CI is deliberately off** while this is a
+  single-developer project — the local path works, it is just operated by hand. Revisit if a second
+  person commits, or if `main` goes red unnoticed again.
+- **[#3](https://github.com/miopowered/OiledUp/issues/3)** No debug command to dump a generated
+  sample's ground truth, which makes a chemistry bug harder to pin than it should be.
+
+### Polish and accessibility ([F1](https://github.com/miopowered/OiledUp/milestone/12))
+
+- [#46](https://github.com/miopowered/OiledUp/issues/46) The lab is completely silent — no audio at
+  all. The settings screen already has volume sliders wired to nothing.
+- [#47](https://github.com/miopowered/OiledUp/issues/47) No first-run onboarding; nothing tells a new
+  player the lab has rules.
+- [#51](https://github.com/miopowered/OiledUp/issues/51) Scene transitions hard-cut.
+- [#53](https://github.com/miopowered/OiledUp/issues/53) No credits screen, which some art licences
+  require.
+- [#54](https://github.com/miopowered/OiledUp/issues/54) Motion comfort is partly done — FOV and
+  head-bob-off ship; bob as a scale and any control over the landing impulse do not.
+- [#55](https://github.com/miopowered/OiledUp/issues/55) Every player-facing string is a literal at
+  its use site, so localisation is not yet possible.
+
+### Not started
+
+- Art pass (M6), content and balance pass (M7), and the optional weird layer (M8).
+- [#34](https://github.com/miopowered/OiledUp/issues/34) Assemblies and namespaces are still
+  `Residue.*` from the working title.
 
 Track the details in [GitHub Issues](https://github.com/miopowered/OiledUp/issues).
 
@@ -59,13 +92,20 @@ restore, use these menu commands:
 1. `Residue > Content > Rebuild Definitions`
 2. `Residue > Content > Validate`
 3. `Residue > Art > Rebuild Palette`
+4. `Residue > Build > Rebuild Greybox Lab`
 
-Open `Assets/Scenes/Lab.unity`.
+Open `Assets/Scenes/Boot.unity` and press Play. That is the scene a build starts
+in, and the menu, the save slot and the lobby all wake up there — opening
+`Lab.unity` directly skips them and starts a run with no way back to a menu.
 
 ## Tests
 
-In Unity, open **Window > General > Test Runner** and run the
-`Residue.Tests.EditMode` suite.
+`Residue > Build > Run EditMode Tests`, then read `Temp/oiledup-editmode.txt`. It
+appends a line per test as the run goes, so a run that dies partway still says how
+far it got. The Test Runner window works too.
+
+Do not drive `TestRunnerApi` from the Unity MCP tool — see the trap documented in
+[CLAUDE.md](CLAUDE.md), which deadlocks the Editor after every test has passed.
 
 When changing balance data, edit
 `Assets/Editor/Content/ContentTables.cs`, rebuild and validate the definitions,

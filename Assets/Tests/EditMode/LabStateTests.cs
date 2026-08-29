@@ -291,6 +291,11 @@ namespace Residue.Tests.EditMode
                 if (truth == null || truth.IsHealthy) continue;
                 if (truth.WorstSeverity != FaultSeverity.Developing) continue;
 
+                // Skip a bottle whose label did not survive the post (#32). A re-draw of one comes
+                // back labelled with the tank that was really drawn, which is right and is a different
+                // claim from the one below.
+                if (sample.Ambiguity != SampleAmbiguity.None) continue;
+
                 target = sample;
                 originalSeverity = truth.FaultSeverities[0];
                 faultId = truth.PrimaryFault.Id;

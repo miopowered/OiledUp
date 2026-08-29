@@ -31,6 +31,18 @@ namespace Residue.Gameplay.World
         /// <summary>Pick a solvent bottle up off its cradle or a rack (§5.2).</summary>
         TakeBottle,
 
+        /// <summary>Lift a delivery carton out of the bay. It fills your hands like anything else (#30).</summary>
+        TakeCarton,
+
+        /// <summary>Cut a sealed carton open. A hold, like a flush (#31).</summary>
+        OpenCarton,
+
+        /// <summary>Lift the delivery note out of an opened carton (#31).</summary>
+        TakeDeliveryNote,
+
+        /// <summary>Flatten an emptied carton so the lab is not knee-deep in cardboard (#31).</summary>
+        DiscardCarton,
+
         /// <summary>Set whatever is in your hands down on a surface.</summary>
         PutDown,
 
@@ -82,6 +94,18 @@ namespace Residue.Gameplay.World
 
         /// <summary>Withdraw a verdict filed on numbers a drifting instrument produced (§5.3).</summary>
         ReopenSuspect,
+
+        /// <summary>
+        /// Record which line of a delivery note an ambiguous vial answers (#32). Refused outright for
+        /// a vial whose label is legible — this is not booking-in coming back.
+        /// </summary>
+        RegisterSample,
+
+        /// <summary>
+        /// Ring a customer's dispatcher about a label that cannot be read (#32). Costs shift time and
+        /// settles nothing else.
+        /// </summary>
+        CallCustomer,
 
         /// <summary>Close the shift and settle everything due.</summary>
         EndDay,
@@ -157,6 +181,24 @@ namespace Residue.Gameplay.World
         public static LabCommand TakeBottle(string bottleId) =>
             new(LabCommandKind.TakeBottle, bottleId);
 
+        // -- Deliveries ----------------------------------------------------------------------------
+        //
+        // A carton is named in FixtureId for the reason a bottle is: it is a placed thing with an id,
+        // and the field already crosses the wire in that role. The note has no id of its own — one
+        // carton, one note — so it borrows its box's.
+
+        public static LabCommand TakeCarton(string cartonId) =>
+            new(LabCommandKind.TakeCarton, cartonId);
+
+        public static LabCommand OpenCarton(string cartonId) =>
+            new(LabCommandKind.OpenCarton, cartonId);
+
+        public static LabCommand TakeDeliveryNote(string cartonId) =>
+            new(LabCommandKind.TakeDeliveryNote, cartonId);
+
+        public static LabCommand DiscardCarton(string cartonId) =>
+            new(LabCommandKind.DiscardCarton, cartonId);
+
         public static LabCommand PutDown(string surfaceId, int slot) =>
             new(LabCommandKind.PutDown, surfaceId, amount: slot);
 
@@ -215,6 +257,26 @@ namespace Residue.Gameplay.World
 
         public static LabCommand ReopenSuspect(SampleId sample) =>
             new(LabCommandKind.ReopenSuspect, sample: sample);
+
+        /// <summary>
+        /// Say which line of the note this vial answers, or
+        /// <see cref="Residue.Chemistry.SampleState.CannotTell"/> that you cannot say (#32).
+        /// <para>
+        /// The note is named by nothing: a vial arrived under exactly one delivery and the host knows
+        /// which, so letting a request pick the paperwork would let a client register a bottle against
+        /// somebody else's job.
+        /// </para>
+        /// </summary>
+        public static LabCommand RegisterSample(SampleId sample, int noteLine) =>
+            new(LabCommandKind.RegisterSample, sample: sample, amount: noteLine);
+
+        /// <summary>
+        /// Ring the sender of one delivery (#32). The carton travels in <see cref="Text"/> rather than
+        /// <see cref="FixtureId"/> because the action is aimed at the terminal — you make the call
+        /// from the desk — and the box is its subject, not the thing being operated.
+        /// </summary>
+        public static LabCommand CallCustomer(string cartonId) =>
+            new(LabCommandKind.CallCustomer, text: cartonId);
 
         public static LabCommand EndDay() => new(LabCommandKind.EndDay);
 

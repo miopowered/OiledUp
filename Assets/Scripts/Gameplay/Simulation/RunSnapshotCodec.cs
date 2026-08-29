@@ -75,14 +75,16 @@ namespace Residue.Gameplay.Simulation
                      Float(sample.VolumeMl), Float(sample.TemperatureC), Bool(sample.IsSettled),
                      Int(sample.FiledVerdict), Text(sample.FiledRootCauseId), Int(sample.FiledOnDay),
                      Bool(sample.ConsequenceResolved),
-                     Text(sample.CustomerId), Text(sample.JobNumber));
+                     Text(sample.CustomerId), Text(sample.JobNumber),
+                     Int(sample.Ambiguity), Int(sample.RegisteredLine), Text(sample.RegisteredTag));
                 WritePlace(text, "sample.at", sample.Location);
                 foreach (var result in sample.Results) WriteResult(text, "sample.result", result);
             }
 
             foreach (var truth in snapshot.Truths)
             {
-                Line(text, "truth", Int(truth.Id));
+                Line(text, "truth", Int(truth.Id), Text(truth.TrueTankTag), Int(truth.TrueNoteLine),
+                     Int(truth.SameDrumAs));
                 for (int i = 0; i < truth.FaultIds.Count; i++)
                 {
                     Line(text, "truth.fault", Text(truth.FaultIds[i]),
@@ -138,7 +140,7 @@ namespace Residue.Gameplay.Simulation
                 Line(text, "report", Int(report.Sample), Text(report.RecordTag), Int(report.Filed),
                      Int(report.Outcome), Float(report.MoneyDelta), Float(report.ReputationDelta),
                      Bool(report.RootCauseCorrect), Text(report.FaultName), Text(report.ActualRootCause),
-                     Bool(report.RequeueSample), Text(report.Headline));
+                     Bool(report.RequeueSample), Text(report.Headline), Int(report.Registration));
             }
 
             return text.ToString();
@@ -269,7 +271,10 @@ namespace Residue.Gameplay.Simulation
                             FiledOnDay = Int(parts, 13),
                             ConsequenceResolved = Bool(parts, 14),
                             CustomerId = Text(parts, 15),
-                            JobNumber = Text(parts, 16)
+                            JobNumber = Text(parts, 16),
+                            Ambiguity = Int(parts, 17),
+                            RegisteredLine = Int(parts, 18),
+                            RegisteredTag = Text(parts, 19)
                         };
                         reading.Samples.Add(sample);
                         break;
@@ -284,7 +289,13 @@ namespace Residue.Gameplay.Simulation
                         break;
 
                     case "truth":
-                        truth = new RunSnapshot.TruthRecord { Id = Int(parts, 1) };
+                        truth = new RunSnapshot.TruthRecord
+                        {
+                            Id = Int(parts, 1),
+                            TrueTankTag = Text(parts, 2),
+                            TrueNoteLine = Int(parts, 3),
+                            SameDrumAs = Int(parts, 4)
+                        };
                         reading.Truths.Add(truth);
                         break;
 
@@ -421,7 +432,8 @@ namespace Residue.Gameplay.Simulation
                             FaultName = Text(parts, 8),
                             ActualRootCause = Text(parts, 9),
                             RequeueSample = Bool(parts, 10),
-                            Headline = Text(parts, 11)
+                            Headline = Text(parts, 11),
+                            Registration = Int(parts, 12)
                         });
                         break;
 

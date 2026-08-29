@@ -55,6 +55,14 @@ namespace Residue.Editor.Build
         private const float RoomDepth = 8f;
         private const float RoomHeight = 3f;
         private const float BenchHeight = 0.9f;
+        private const float WallThickness = 0.2f;
+
+        // Delivery bay (#33): an opening in the west wall, aligned with the intake bench so a
+        // delivery lands where it is carried from. Width and height are a small roller-door
+        // opening, not full room height — the header above it is where the shutter housing sits.
+        private const float BayWidth = 2.4f;
+        private const float BayHeight = 2.3f;
+        private const float BayCenterZ = 1.6f;
 
         private static readonly string[] MachineIds =
             { "cooling_curve", "karl_fischer", "viscometer", "centrifuge", "elemental" };
@@ -123,15 +131,20 @@ namespace Residue.Editor.Build
             var screenMaterial = EnsureScreenMaterial();
             var volumeProfile = EnsureLabVolumeProfile();
             var printoutPrefab = BuildPrintoutPrefab(palette);
+            var cartonPrefab = BuildCartonPrefab(palette);
+            var notePrefab = BuildDeliveryNotePrefab(palette);
 
             var books = new List<ReferenceBook>();
 
             BuildEnvironment(scene, palette, emissivePalette, volumeProfile);
-            BuildRuntime(scene, catalog, vialPrefab, printoutPrefab, bottlePrefab);
+            var truck = BuildDeliveryTruck(scene, palette);
+            BuildDeliveryBay(scene, truck);
+            BuildRuntime(scene, catalog, vialPrefab, printoutPrefab, bottlePrefab,
+                         cartonPrefab, notePrefab);
             var stations = BuildStations(scene, palette, screenMaterial, books);
             var player = BuildPlayer(scene, palette, inputAsset, panelSettings);
 
-            WireTerminal(stations.terminal, player.terminalScreen);
+            WireTerminal(stations, player.terminalScreen);
 
             // Scene-placed rather than spawned: the host loads this scene over the network and NGO
             // brings scene NetworkObjects up on every client as part of that load, so the lab's
@@ -159,10 +172,9 @@ namespace Residue.Editor.Build
         {
             var root = NewRoot(scene, "Environment");
 
-            var room = new ProcMesh.Builder()
-                .Room(new Vector3(RoomWidth, RoomHeight, RoomDepth), 0.2f, PaletteUv.Family.NeutralCold, 4)
-                .ToMesh("Lab_Room");
+            var room = BuildRoomShellWithBay();
             AddStatic(root, "Room", SaveMesh(room), palette, Vector3.zero, addCollider: true);
+            BuildBayDressing(root, palette);
 
             // Bench along the far wall, machines sit on it. 0.9 m per §2.1.
             var bench = new ProcMesh.Builder()
@@ -258,11 +270,182 @@ namespace Residue.Editor.Build
             RenderSettings.fogEndDistance = 26f;
         }
 
+        /// <summary>
+        /// The room shell, minus a bay opening in the west wall (#33).
+        /// <para>
+        /// <see cref="ProcMesh.Builder.Room"/> builds a fully sealed box, one <c>Box</c> call per
+        /// wall, so cutting an opening into it means reproducing that same construction by hand:
+        /// floor, ceiling and the other three walls are copied verbatim, and the west wall's single
+        /// box becomes two piers either side of the hole plus a header above it. Same family, same
+        /// steps, same per-wall thickness box as <c>Room</c> uses, so the seam is invisible.
+        /// </para>
+        /// </summary>
+        private static Mesh BuildRoomShellWithBay()
+        {
+            const float w = RoomWidth, h = RoomHeight, d = RoomDepth, t = WallThickness;
+            const PaletteUv.Family family = PaletteUv.Family.NeutralCold;
+            const int step = 4;
+
+            float bayZMin = BayCenterZ - BayWidth * 0.5f;
+            float bayZMax = BayCenterZ + BayWidth * 0.5f;
+            float southLength = bayZMin - (-d * 0.5f);
+            float northLength = d * 0.5f - bayZMax;
+
+            var b = new ProcMesh.Builder()
+                // Floor and ceiling, identical to Room().
+                .Box(new Vector3(0f, -t * 0.5f, 0f), new Vector3(w + t * 2f, t, d + t * 2f), family, step)
+                .Box(new Vector3(0f, h + t * 0.5f, 0f), new Vector3(w + t * 2f, t, d + t * 2f), family, step + 2)
+                // North/south (Z) walls and the east (+X) wall: unbroken, identical to Room().
+                .Box(new Vector3(0f, h * 0.5f, d * 0.5f + t * 0.5f), new Vector3(w + t * 2f, h, t), family, step + 1)
+                .Box(new Vector3(0f, h * 0.5f, -d * 0.5f - t * 0.5f), new Vector3(w + t * 2f, h, t), family, step + 1)
+                .Box(new Vector3(w * 0.5f + t * 0.5f, h * 0.5f, 0f), new Vector3(t, h, d), family, step + 1);
+
+            // West wall, split around the bay: a pier south of the opening, a pier north of it, and
+            // a header spanning the opening's width above BayHeight. The opening itself is left
+            // empty from the floor up to BayHeight — that gap is the bay.
+            float wallX = -w * 0.5f - t * 0.5f;
+            b.Box(new Vector3(wallX, h * 0.5f, -d * 0.5f + southLength * 0.5f),
+                new Vector3(t, h, southLength), family, step + 1);
+            b.Box(new Vector3(wallX, h * 0.5f, d * 0.5f - northLength * 0.5f),
+                new Vector3(t, h, northLength), family, step + 1);
+            b.Box(new Vector3(wallX, (BayHeight + h) * 0.5f, BayCenterZ),
+                new Vector3(t, h - BayHeight, BayWidth), family, step + 1);
+
+            return b.ToMesh("Lab_Room");
+        }
+
+        /// <summary>
+        /// Static dressing around the bay opening: a housing for a rolled-up curtain under the
+        /// header, and a track down each jamb. Purely cosmetic — nothing here moves, and no
+        /// collider blocks the opening. The delivery behaviour owns when goods move through it.
+        /// </summary>
+        private static void BuildBayDressing(GameObject root, Material palette)
+        {
+            var housingMesh = SaveMesh(ProcMesh.Box("Bay_ShutterHousing",
+                new Vector3(0.28f, 0.30f, BayWidth + 0.1f), PaletteUv.Family.Steel, 5));
+            AddStatic(root, "Bay_ShutterHousing", housingMesh, palette,
+                new Vector3(-RoomWidth * 0.5f + 0.20f, BayHeight + 0.05f, BayCenterZ), addCollider: false);
+
+            var trackMesh = SaveMesh(ProcMesh.Box("Bay_Track",
+                new Vector3(0.05f, BayHeight, 0.08f), PaletteUv.Family.Steel, 6));
+            AddStatic(root, "Bay_TrackSouth", trackMesh, palette,
+                new Vector3(-RoomWidth * 0.5f + 0.05f, BayHeight * 0.5f, BayCenterZ - BayWidth * 0.5f + 0.04f),
+                addCollider: false);
+            AddStatic(root, "Bay_TrackNorth", trackMesh, palette,
+                new Vector3(-RoomWidth * 0.5f + 0.05f, BayHeight * 0.5f, BayCenterZ + BayWidth * 0.5f - 0.04f),
+                addCollider: false);
+        }
+
+        /// <summary>
+        /// The truck's exterior, parked outside the bay opening (#33).
+        /// <para>
+        /// Its own top-level scene root, inactive by default — <c>LabRuntime</c> has no notion of an
+        /// active delivery yet, so nothing here decides when a truck should be visible. The delivery
+        /// behaviour is expected to <c>SetActive(true)</c> this root for the length of a delivery and
+        /// switch it off again once the cargo is unloaded.
+        /// </para>
+        /// Positioned nose-away-from-the-building: the cargo doors face the bay, the cab is furthest
+        /// from it, so a player standing in the opening looks straight at the back of the load.
+        /// </summary>
+        /// <summary>
+        /// The standing places inside the bay opening, and the switch that shows the truck.
+        /// <para>
+        /// Positioned just inside the room rather than out on the apron: the cartons have to be
+        /// somewhere the player walks past, because #30's pressure is the choice between finishing a
+        /// run and clearing the bay, and a delivery you cannot see is not a choice. Four places, from
+        /// <see cref="DeliveryBay.DefaultCapacity"/> — the courier fills them and keeps the rest on the
+        /// truck, so ignoring the bay costs shift time later rather than losing samples.
+        /// </para>
+        /// </summary>
+        private static void BuildDeliveryBay(Scene scene, GameObject truck)
+        {
+            var go = NewRoot(scene, "DeliveryBay");
+            go.transform.position = new Vector3(-RoomWidth * 0.5f + 0.9f, 0f, BayCenterZ);
+
+            var station = go.AddComponent<DeliveryBayStation>();
+
+            var so = new SerializedObject(station);
+            so.FindProperty("truck").objectReferenceValue = truck;
+            so.FindProperty("spacing").floatValue = 0.8f;
+            so.FindProperty("columns").intValue = 2;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        private static GameObject BuildDeliveryTruck(Scene scene, Material palette)
+        {
+            var root = NewRoot(scene, "DeliveryTruck");
+            root.transform.position =
+                new Vector3(-RoomWidth * 0.5f - WallThickness - 0.3f, 0f, BayCenterZ);
+
+            const float cargoLength = 3.0f, cargoWidth = 2.2f, cargoHeight = 2.4f, deckHeight = 0.45f;
+            const float cabLength = 1.4f, cabWidth = 2.0f, cabHeight = 1.9f;
+
+            var cargoMesh = SaveMesh(ProcMesh.Box("Truck_Cargo",
+                new Vector3(cargoLength, cargoHeight, cargoWidth), PaletteUv.Family.NeutralCold, 9));
+            AddChild(root, "Cargo", cargoMesh, palette,
+                new Vector3(-cargoLength * 0.5f, deckHeight + cargoHeight * 0.5f, 0f), addCollider: true);
+
+            // A shallow panel proud of the cargo box's rear face (x = 0, nearest the bay) so the
+            // loading end reads as a pair of doors rather than just the end of a box.
+            var doorMesh = SaveMesh(ProcMesh.Box("Truck_CargoDoors",
+                new Vector3(0.03f, cargoHeight - 0.1f, cargoWidth - 0.1f), PaletteUv.Family.Steel, 6));
+            AddChild(root, "CargoDoors", doorMesh, palette,
+                new Vector3(-0.02f, deckHeight + cargoHeight * 0.5f, 0f), addCollider: false);
+
+            var cabMesh = SaveMesh(ProcMesh.Box("Truck_Cab",
+                new Vector3(cabLength, cabHeight, cabWidth), PaletteUv.Family.NeutralCold, 11));
+            AddChild(root, "Cab", cabMesh, palette,
+                new Vector3(-cargoLength - cabLength * 0.5f, deckHeight + cabHeight * 0.5f, 0f),
+                addCollider: true);
+
+            var chassisMesh = SaveMesh(ProcMesh.Box("Truck_Chassis",
+                new Vector3(cargoLength + cabLength, deckHeight * 0.5f, cargoWidth * 0.8f),
+                PaletteUv.Family.Sump, 3));
+            AddChild(root, "Chassis", chassisMesh, palette,
+                new Vector3(-(cargoLength + cabLength) * 0.5f, deckHeight * 0.25f, 0f), addCollider: false);
+
+            var wheelMesh = SaveMesh(ProcMesh.Cylinder("Truck_Wheel", 0.40f, 0.28f, 14,
+                PaletteUv.Family.Sump, 1));
+
+            // Proud of the cargo box's own side faces, so the wheel is visibly outside the body
+            // rather than flush with it and fighting its side face for the same plane.
+            float halfTrack = cargoWidth * 0.5f + 0.08f;
+            AddWheelPair(root, wheelMesh, palette, -0.55f, 0.40f, halfTrack, "Rear");
+            AddWheelPair(root, wheelMesh, palette, -cargoLength - cabLength + 0.55f, 0.40f, halfTrack, "Front");
+
+            root.SetActive(false);
+            return root;
+        }
+
+        /// <summary>
+        /// One axle's worth of wheels either side of the truck's centreline.
+        /// <para>
+        /// <see cref="ProcMesh.Cylinder"/> builds along local +Y with its flat cap faces normal to
+        /// Y, so a wheel needs that axis rotated onto world Z (the truck's width) before the tread
+        /// sweeps the right way. Both sides take the same rotation — the mesh is radially symmetric,
+        /// so which way the caps happen to face does not matter.
+        /// </para>
+        /// </summary>
+        private static void AddWheelPair(GameObject root, Mesh wheelMesh, Material palette,
+                                         float x, float y, float halfTrack, string axleName)
+        {
+            var rotation = Quaternion.Euler(90f, 0f, 0f);
+
+            var left = AddChild(root, $"Wheel_{axleName}L", wheelMesh, palette,
+                new Vector3(x, y, -halfTrack), addCollider: false);
+            left.transform.localRotation = rotation;
+
+            var right = AddChild(root, $"Wheel_{axleName}R", wheelMesh, palette,
+                new Vector3(x, y, halfTrack), addCollider: false);
+            right.transform.localRotation = rotation;
+        }
+
         // -- Simulation host ---------------------------------------------------------------------------
 
         private static LabRuntime BuildRuntime(Scene scene, ContentCatalog catalog,
                                                VialProp vialPrefab, PrintoutProp printoutPrefab,
-                                               SolventBottle bottlePrefab)
+                                               SolventBottle bottlePrefab,
+                                               CartonProp cartonPrefab, DeliveryNoteProp notePrefab)
         {
             var go = new GameObject("LabRuntime");
             SceneManager.MoveGameObjectToScene(go, scene);
@@ -273,6 +456,8 @@ namespace Residue.Editor.Build
             so.FindProperty("vialPrefab").objectReferenceValue = vialPrefab;
             so.FindProperty("printoutPrefab").objectReferenceValue = printoutPrefab;
             so.FindProperty("bottlePrefab").objectReferenceValue = bottlePrefab;
+            so.FindProperty("cartonPrefab").objectReferenceValue = cartonPrefab;
+            so.FindProperty("notePrefab").objectReferenceValue = notePrefab;
 
             var ids = so.FindProperty("installedMachineIds");
             ids.arraySize = MachineIds.Length;
@@ -285,7 +470,7 @@ namespace Residue.Editor.Build
 
         // -- Stations ----------------------------------------------------------------------------------
 
-        private static (TerminalStation terminal, IntakeCrate crate) BuildStations(
+        private static TerminalStation BuildStations(
             Scene scene, Material palette, Material screenMaterial, List<ReferenceBook> books)
         {
             var root = NewRoot(scene, "Stations");
@@ -385,24 +570,10 @@ namespace Residue.Editor.Build
             AddRack(root, scene, "rack_island_b", new Vector3(0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
             AddRack(root, scene, "rack_bench", new Vector3(-3.85f, BenchHeight, benchZ), palette, rackMesh, 4);
 
-            // Intake crate
-            var crateGo = new GameObject("IntakeCrate");
-            SceneManager.MoveGameObjectToScene(crateGo, scene);
-            crateGo.transform.SetParent(root.transform, false);
-            crateGo.transform.position = new Vector3(-RoomWidth * 0.5f + 1.1f, BenchHeight, 1.6f);
-
-            var crateMesh = SaveMesh(ProcMesh.Box("Crate_Body", new Vector3(0.75f, 0.22f, 0.55f),
-                PaletteUv.Family.Oxide, 6));
-            AddChild(crateGo, "Body", crateMesh, palette, new Vector3(0f, 0.11f, 0f), addCollider: true);
-
-            var slotRoot = new GameObject("Slots");
-            slotRoot.transform.SetParent(crateGo.transform, false);
-            slotRoot.transform.localPosition = new Vector3(0f, 0.24f, 0f);
-
-            var crate = crateGo.AddComponent<IntakeCrate>();
-            var crateSo = new SerializedObject(crate);
-            crateSo.FindProperty("slotRoot").objectReferenceValue = slotRoot.transform;
-            crateSo.ApplyModifiedPropertiesWithoutUndo();
+            // The intake crate is gone (#30). It spawned the day's vials directly on the bench at
+            // 09:00, which is the teleporting-content problem the printout work removed everywhere
+            // else — samples now arrive on a truck, in cartons somebody has to carry in and open.
+            // Its bench stays: it is where a carton gets put down.
 
             // Terminal
             var terminalGo = new GameObject("Terminal");
@@ -418,7 +589,7 @@ namespace Residue.Editor.Build
 
             BuildBookRack(root, scene, palette, books);
 
-            return (terminal, crate);
+            return terminal;
         }
 
         // -- Machine visuals ---------------------------------------------------------------------------
@@ -1392,6 +1563,97 @@ namespace Residue.Editor.Build
             var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
             Object.DestroyImmediate(go);
             return prefab.GetComponent<PrintoutProp>();
+        }
+
+        /// <summary>
+        /// A delivered carton, with a lid kept as a separate transform so opening it reads visually
+        /// instead of the whole box just vanishing (#33).
+        /// <para>
+        /// Geometry only — no <see cref="Carryable"/> subclass is attached here, per this task's
+        /// brief. The delivery behaviour is expected to add one and address the child named "Lid" by
+        /// name to move or hide it when the carton opens, the same way <c>MachineStation</c> already
+        /// addresses named sockets on the machine bodies above.
+        /// </para>
+        /// </summary>
+        private static CartonProp BuildCartonPrefab(Material palette)
+        {
+            string path = $"{PrefabFolder}/Carton.prefab";
+            var go = new GameObject("Carton");
+
+            const float width = 0.40f, depth = 0.30f, bodyHeight = 0.26f, lidHeight = 0.04f;
+
+            var bodyMesh = SaveMesh(ProcMesh.Box("Carton_Body",
+                new Vector3(width, bodyHeight, depth), PaletteUv.Family.NeutralWarm, 8));
+            var strapMesh = SaveMesh(ProcMesh.Box("Carton_Strap",
+                new Vector3(width + 0.004f, bodyHeight + 0.004f, 0.03f), PaletteUv.Family.Sump, 4));
+            var lidMesh = SaveMesh(ProcMesh.Box("Carton_Lid",
+                new Vector3(width + 0.02f, lidHeight, depth + 0.02f), PaletteUv.Family.NeutralWarm, 5));
+
+            AddChild(go, "Body", bodyMesh, palette, new Vector3(0f, bodyHeight * 0.5f, 0f), addCollider: false);
+            AddChild(go, "Strap", strapMesh, palette, new Vector3(0f, bodyHeight * 0.5f, 0f), addCollider: false);
+
+            // Sibling of Body, not its child: whatever opens the carton moves or hides this object on
+            // its own, and it must keep working even if Body is later swapped, pooled or destroyed.
+            AddChild(go, "Lid", lidMesh, palette,
+                new Vector3(0f, bodyHeight + lidHeight * 0.5f, 0f), addCollider: false);
+
+            // The root collider covers the BODY only, not the lid. The two are separate targets: the
+            // body is what you pick up, the lid is what you hold Interact on to cut the box open. One
+            // collider spanning both would put the lid inside the body's bounds, the ray would resolve
+            // to the carton every time, and the box could never be opened.
+            var collider = go.AddComponent<BoxCollider>();
+            collider.center = new Vector3(0f, bodyHeight * 0.5f, 0f);
+            collider.size = new Vector3(width + 0.02f, bodyHeight, depth + 0.02f);
+
+            var body = go.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+
+            var carton = go.AddComponent<CartonProp>();
+            var cartonSo = new SerializedObject(carton);
+            cartonSo.FindProperty("lid").objectReferenceValue = go.transform.Find("Lid");
+            cartonSo.ApplyModifiedPropertiesWithoutUndo();
+
+            // The lid carries its own collider and its own Interactable, so it can be aimed at
+            // independently of the box it sits on.
+            var lid = go.transform.Find("Lid").gameObject;
+            var lidCollider = lid.AddComponent<BoxCollider>();
+            lidCollider.size = new Vector3(width + 0.02f, lidHeight, depth + 0.02f);
+            lid.AddComponent<CartonLid>();
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            Object.DestroyImmediate(go);
+            return prefab.GetComponent<CartonProp>();
+        }
+
+        /// <summary>
+        /// The note that rides along with a delivery, styled like <see cref="PrintoutProp"/>'s sheet
+        /// (same sheet and header-band construction, same dimensions) so paper reads as one family
+        /// across the lab regardless of which machine or which delivery it came from (#33).
+        /// </summary>
+        private static DeliveryNoteProp BuildDeliveryNotePrefab(Material palette)
+        {
+            string path = $"{PrefabFolder}/DeliveryNote.prefab";
+            var go = new GameObject("DeliveryNote");
+
+            var sheetMesh = SaveMesh(ProcMesh.Box("DeliveryNote_Sheet",
+                new Vector3(0.105f, 0.0015f, 0.145f), PaletteUv.Family.NeutralWarm, 14));
+            var bandMesh = SaveMesh(ProcMesh.Box("DeliveryNote_Band",
+                new Vector3(0.105f, 0.0018f, 0.020f), PaletteUv.Family.Sump, 5));
+
+            AddChild(go, "Sheet", sheetMesh, palette, Vector3.zero, addCollider: false);
+            AddChild(go, "Band", bandMesh, palette, new Vector3(0f, 0.0004f, 0.058f), addCollider: false);
+
+            var collider = go.AddComponent<BoxCollider>();
+            collider.size = new Vector3(0.11f, 0.02f, 0.15f);
+
+            var body = go.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+
+            go.AddComponent<DeliveryNoteProp>();
+
+            var prefab = PrefabUtility.SaveAsPrefabAsset(go, path);
+            Object.DestroyImmediate(go);
+            return prefab.GetComponent<DeliveryNoteProp>();
         }
 
         /// <summary>

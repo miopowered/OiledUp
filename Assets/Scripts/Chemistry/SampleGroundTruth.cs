@@ -37,6 +37,45 @@ namespace Residue.Chemistry
         /// </summary>
         public readonly Dictionary<string, float> Contamination = new();
 
+        // ---- Provenance (#32) ----
+        //
+        // Where the oil actually came from, which is hidden information for exactly the reason the
+        // chemistry is: the player has to work it out from the note and the readings, and a client
+        // that could read it would be reading the answer. It rides in this type rather than in a
+        // second host-only map so there is still only one vault to keep shut — Residue.Net references
+        // Residue.Gameplay and could name a public dictionary on LabState, but there is no expression
+        // in any assembly that yields one of these.
+        //
+        // None of it is chemistry and none of it touches a reading. Hard rule 1 is not bent here: a
+        // careless customer is a customer whose paperwork and drum discipline are worth checking, not
+        // one whose instruments lie.
+
+        /// <summary>
+        /// The tank the oil in this vial was really drawn from, whatever the label survived to say.
+        /// Equal to <see cref="SampleState.EquipmentTag"/> for every vial with a legible label.
+        /// </summary>
+        public string TrueTankTag;
+
+        /// <summary>
+        /// The line of its delivery note this vial really answers, or -1 for one the note never
+        /// mentioned — #32's "unlisted sample". Indices are into
+        /// <c>DeliveryNote.Lines</c> as it was printed.
+        /// </summary>
+        public int TrueNoteLine = -1;
+
+        /// <summary>
+        /// The other vial this one shares a drum with (§6.1), or <see cref="SampleId.None"/>.
+        /// <para>
+        /// Symmetric: both halves of a split draw name each other. The pair are the same oil down to
+        /// the last true value, so the tell is that they measure the same — which is something the
+        /// player can run twice and compare, not something they have to intuit.
+        /// </para>
+        /// </summary>
+        public SampleId SameDrumAs = SampleId.None;
+
+        /// <summary>One draw was bottled twice and booked as two. The trap §6.1 names outright.</summary>
+        public bool DrawnFromOneDrum => SameDrumAs.IsValid;
+
         /// <summary>
         /// The fault the generator considers the discriminating one for scoring the root-cause bonus.
         /// Null when the sample is healthy.

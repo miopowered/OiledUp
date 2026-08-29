@@ -9,6 +9,16 @@ namespace Residue.Chemistry
     /// </summary>
     public sealed class SampleState
     {
+        /// <summary>No decision recorded yet. The value <see cref="RegisteredLine"/> starts at.</summary>
+        public const int Unregistered = -1;
+
+        /// <summary>
+        /// The player looked and could not say. A recorded decision rather than the absence of one:
+        /// declaring a pair of vials inseparable is the correct answer to §6.1's same-drum trap, and
+        /// it has to be distinguishable from never having looked.
+        /// </summary>
+        public const int CannotTell = -2;
+
         public SampleId Id;
 
         /// <summary>
@@ -65,6 +75,47 @@ namespace Residue.Chemistry
 
         public bool IsResample => ResampleOf.IsValid;
 
+        // ---- Reconciliation (#32) ----
+
+        /// <summary>
+        /// Why this vial cannot say for itself which line of its note it answers, or
+        /// <see cref="SampleAmbiguity.None"/> — which is almost always.
+        /// <para>
+        /// Client-safe: it restates what somebody standing at the bench can already see. It does not
+        /// say what the vial <i>is</i>; that is <see cref="SampleGroundTruth"/>'s and the player has to
+        /// work it out.
+        /// </para>
+        /// </summary>
+        public SampleAmbiguity Ambiguity;
+
+        /// <summary>
+        /// Which line of the delivery note the player says this vial answers.
+        /// <see cref="Unregistered"/> until they say, <see cref="CannotTell"/> if they say they cannot.
+        /// <para>
+        /// Meaningless — and refused — while <see cref="Ambiguity"/> is
+        /// <see cref="SampleAmbiguity.None"/>. That refusal is the whole of #73's settlement: the
+        /// typed step exists for the two bottles a shift that cannot speak for themselves, never for
+        /// the other fourteen.
+        /// </para>
+        /// </summary>
+        public int RegisteredLine = Unregistered;
+
+        /// <summary>
+        /// The tank tag off the line they picked, copied at the moment they picked it. Null while
+        /// unregistered or when they recorded <see cref="CannotTell"/>.
+        /// <para>
+        /// Copied rather than looked up, because a note is a runtime object that does not survive the
+        /// shift and a verdict resolves days later. This is what the report ends up naming, and
+        /// <see cref="RecordTag"/> marks it as the player's call rather than something read off a
+        /// bottle.
+        /// </para>
+        /// </summary>
+        public string RegisteredTag;
+
+        /// <summary>A decision is outstanding on this vial. Never blocks anything; see <see cref="SampleAmbiguity"/>.</summary>
+        public bool NeedsRegistering =>
+            Ambiguity != SampleAmbiguity.None && RegisteredLine == Unregistered;
+
         // ---- Physical ----
 
         /// <summary>Remaining volume. Starts at 100 ml; the full panel costs more than that (§4.5).</summary>
@@ -113,9 +164,18 @@ namespace Residue.Chemistry
         /// a distinct member because "what the record is filed under" is what every caller actually
         /// means, and because a sample with no label still has to be nameable in a refusal.
         /// </para>
+        /// <para>
+        /// A vial whose label is unreadable is the one exception, and it is marked as one. Once the
+        /// player has registered it (#32) the record is filed under the tank they named — with
+        /// "(unlabelled vial)" after it, every time, on every screen and in every report. That suffix
+        /// is not decoration: it is the difference between a name the customer printed and a name the
+        /// lab decided on, and the whole cost of getting the decision wrong lands on that difference.
+        /// </para>
         /// </summary>
         public string RecordTag =>
-            string.IsNullOrEmpty(EquipmentTag) ? $"UNLABELLED {Id}" : EquipmentTag;
+            !string.IsNullOrEmpty(EquipmentTag) ? EquipmentTag
+            : !string.IsNullOrEmpty(RegisteredTag) ? $"{RegisteredTag} (unlabelled vial)"
+            : $"UNLABELLED {Id}";
 
         public bool HasVolumeFor(MachineDef machine) => machine != null && VolumeMl >= machine.SampleVolumeMl;
 

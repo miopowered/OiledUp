@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Residue.Chemistry;
 using Residue.Data;
+using UnityEngine;
 
 namespace Residue.Gameplay.Simulation
 {
@@ -19,9 +20,15 @@ namespace Residue.Gameplay.Simulation
     /// <para>
     /// <b>Lines carry the sample they refer to, and it may be absent.</b> <see cref="Line.Sample"/> is
     /// <see cref="SampleId.None"/> for a line whose vial never turned up, and a vial that arrived with
-    /// no line is simply not in <see cref="Lines"/>. Both shapes are expressible today so that #32 can
-    /// produce them without reshaping the note — but nothing generates either yet, and a note built by
-    /// <see cref="For"/> always matches its carton exactly.
+    /// no line is simply not in <see cref="Lines"/>. Both shapes are now produced:
+    /// <see cref="LabState"/> introduces them at day start from the sender's own propensities — see
+    /// <see cref="DeliveryDiscrepancies"/>.
+    /// </para>
+    ///
+    /// <para>
+    /// <b><see cref="Line.Sample"/> is host bookkeeping and is never printed.</b> It is how the lab
+    /// knows which vial answers which claim; the paper carries a tank tag and a fluid, exactly as a
+    /// real dispatch note does. See <c>DeliveryNoteProp.Printed</c> for what the player actually reads.
     /// </para>
     ///
     /// <para>
@@ -78,6 +85,35 @@ namespace Residue.Gameplay.Simulation
 
         public void Add(string tankTag, EquipmentProfileDef profile, SampleId sample) =>
             lines.Add(new Line(tankTag, profile, sample));
+
+        /// <summary>
+        /// Put a line somewhere other than the end.
+        /// <para>
+        /// Used only by <see cref="LabState"/> when it introduces a discrepancy (#32). A note is
+        /// printed in the order the dispatcher booked the draws, so a claim the box does not answer —
+        /// or a second draw from a tank already listed — belongs wherever it was booked, not tacked
+        /// onto the bottom. Always-last would be a pattern the player learns in three deliveries, and
+        /// then the reconciliation is a glance at one row instead of a read of the whole page.
+        /// </para>
+        /// <para>
+        /// Callers that recorded a line index before inserting have to recompute it. Indices are a
+        /// property of the printed page, not of a sample.
+        /// </para>
+        /// </summary>
+        internal void Insert(int index, string tankTag, EquipmentProfileDef profile, SampleId sample) =>
+            lines.Insert(Mathf.Clamp(index, 0, lines.Count), new Line(tankTag, profile, sample));
+
+        /// <summary>Which line a vial answers, or -1 for one this note never mentioned.</summary>
+        public int IndexOf(SampleId sample)
+        {
+            if (!sample.IsValid) return -1;
+
+            for (int i = 0; i < lines.Count; i++)
+            {
+                if (lines[i].Sample == sample) return i;
+            }
+            return -1;
+        }
 
         /// <summary>
         /// The line naming a tank, or a line with no tag if this note does not mention it. Used by the

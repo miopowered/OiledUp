@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Residue.Chemistry;
 
 namespace Residue.Gameplay.Simulation
 {
@@ -50,7 +51,7 @@ namespace Residue.Gameplay.Simulation
         /// A reader refuses anything it does not recognise, with both numbers in the message. See
         /// <see cref="RunSnapshotCodec"/> for why refusing beats guessing.
         /// </summary>
-        public const int SchemaVersion = 2;
+        public const int SchemaVersion = 3;
 
         public int Schema = SchemaVersion;
 
@@ -175,6 +176,18 @@ namespace Residue.Gameplay.Simulation
             public string FiledRootCauseId;
             public int FiledOnDay = -1;
             public bool ConsequenceResolved;
+
+            /// <summary><c>SampleAmbiguity</c> as an int (#32).</summary>
+            public int Ambiguity;
+
+            /// <summary>
+            /// What the player recorded about an ambiguous vial. Saved because a verdict resolves days
+            /// after it was filed: a decision made on day 3 has to still be the decision being scored
+            /// on day 9, across however many quits happen in between.
+            /// </summary>
+            public int RegisteredLine = SampleState.Unregistered;
+
+            public string RegisteredTag;
         }
 
         /// <summary>SERVER ONLY. What is actually wrong with a sample. See the type doc.</summary>
@@ -185,6 +198,17 @@ namespace Residue.Gameplay.Simulation
             public readonly List<float> Severities = new();
             public readonly List<Reading> TrueValues = new();
             public readonly List<Reading> Contamination = new();
+
+            // -- Provenance (#32) --
+            //
+            // Plain values rather than content ids: a tank tag is a string the customer printed, not
+            // a definition, so there is nothing here for a rebuilt ContentTables to fork.
+
+            public string TrueTankTag;
+            public int TrueNoteLine = -1;
+
+            /// <summary>The other half of a split draw, or 0 for none.</summary>
+            public int SameDrumAs;
         }
 
         /// <summary>One installed instrument: what it is, what is in it, and what it has drifted to.</summary>
@@ -277,6 +301,9 @@ namespace Residue.Gameplay.Simulation
             public string ActualRootCause;
             public bool RequeueSample;
             public string Headline;
+
+            /// <summary><c>RegistrationOutcome</c> as an int (#32). Already shown; nothing secret.</summary>
+            public int Registration;
         }
     }
 }

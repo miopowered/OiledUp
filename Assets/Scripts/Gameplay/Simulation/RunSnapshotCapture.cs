@@ -165,7 +165,11 @@ namespace Residue.Gameplay.Simulation
                 FiledVerdict = sample.FiledVerdict.HasValue ? (int)sample.FiledVerdict.Value : -1,
                 FiledRootCauseId = sample.FiledRootCause != null ? sample.FiledRootCause.Id : null,
                 FiledOnDay = sample.FiledOnDay,
-                ConsequenceResolved = sample.ConsequenceResolved
+                ConsequenceResolved = sample.ConsequenceResolved,
+
+                Ambiguity = (int)sample.Ambiguity,
+                RegisteredLine = sample.RegisteredLine,
+                RegisteredTag = sample.RegisteredTag
             };
 
             foreach (var result in sample.Results) record.Results.Add(Record(result));
@@ -234,7 +238,8 @@ namespace Residue.Gameplay.Simulation
             FaultName = report.FaultName,
             ActualRootCause = report.ActualRootCause,
             RequeueSample = report.RequeueSample,
-            Headline = report.Headline
+            Headline = report.Headline,
+            Registration = (int)report.Registration
         };
     }
 }

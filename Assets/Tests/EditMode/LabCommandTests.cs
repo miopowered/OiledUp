@@ -109,8 +109,30 @@ namespace Residue.Tests.EditMode
         {
             var lab = new LabState(catalog, OneDay(), seed);
             lab.Install(catalog.Machine("elemental"), "elemental");
+
+            // The truck now turns up a quarter of the way into the shift and every vial arrives in a
+            // sealed box (#30, #31). None of the tests below are about the bay, so the fixture lands
+            // the delivery and cuts the tape rather than repeating it in fifteen places. What the bay
+            // itself promises is guarded in DeliveryTests.
+            lab.Deliveries.ArrivalShiftFraction = 0f;
             lab.BeginDay();
+            DeliverAndOpenEverything(lab);
+
             return lab;
+        }
+
+        /// <summary>Land the whole delivery and open every box, so vials are reachable.</summary>
+        private static void DeliverAndOpenEverything(LabState lab)
+        {
+            // Wide enough that the bay cannot hold anything back — capacity is what DeliveryTests
+            // exercises, and a fixture that quietly hit it would fail these tests for the wrong reason.
+            lab.Deliveries.Capacity = 64;
+            lab.Tick(0.01f);
+
+            foreach (var carton in lab.Deliveries.Cartons)
+            {
+                Assert.IsTrue(lab.Deliveries.TryOpen(carton.Id, 0, out string refusal), refusal);
+            }
         }
 
         /// <summary>Out of the crate and agitated — ready for an instrument.</summary>
@@ -828,7 +850,10 @@ namespace Residue.Tests.EditMode
             var lab = NewLab();
             var executor = new LabCommandExecutor(lab);
 
-            var sample = lab.OpenSamples().First();
+            // Any bottle whose label survived the post. #32 lets a label arrive unreadable, and that
+            // one vial in a shift is the single case where a name is decided rather than read — the
+            // claim under test is about all the others.
+            var sample = lab.OpenSamples().First(s => s.Ambiguity == SampleAmbiguity.None);
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out _));
 
             Assert.AreEqual(sample.EquipmentTag, sample.RecordTag,

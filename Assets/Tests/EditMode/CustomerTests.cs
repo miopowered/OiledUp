@@ -17,10 +17,11 @@ namespace Residue.Tests.EditMode
     /// has run, and that only holds if six distinct firms actually exist, each with its own oils and
     /// sites, and if the paperwork they generate is internally consistent day to day.
     /// <para>
-    /// #32 is what later lets a note disagree with its carton and lets one drum answer for several
-    /// tanks. Two tests here (<see cref="DeliveryNote_CanExpressALineNoVialAnswered"/> and
-    /// <see cref="CountFor_CountsTwoLinesThatNameTheSameTank"/>) exist to prove that shape is already
-    /// expressible on <c>DeliveryNote</c> today, without anything yet generating it.
+    /// #32 now lets a note disagree with its carton and lets one drum answer for several tanks; what
+    /// it produces and how a player finds it is guarded by <see cref="ReconciliationTests"/>. Two
+    /// tests here (<see cref="DeliveryNote_CanExpressALineNoVialAnswered"/> and
+    /// <see cref="CountFor_CountsTwoLinesThatNameTheSameTank"/>) hold the shape on
+    /// <c>DeliveryNote</c> itself, by hand and independently of the generator.
     /// </para>
     /// </summary>
     public sealed class CustomerTests
@@ -164,25 +165,59 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// Today, a note is only ever built from the carton that was actually packed — #32 is what
-        /// later lets the two disagree. The sum of every note's line count must equal the number of
-        /// samples the day actually generated, or the paperwork and the crate are already lying to
-        /// each other before #32 gives them a reason to.
+        /// A note and its carton are now allowed to disagree — that is #32 — but only in the ways #32
+        /// introduces. Every claim the paperwork says <i>did</i> arrive must still point at a real
+        /// vial, that vial must be in the box the note came in, and no two lines may point at the
+        /// same bottle. Without this a "missing sample" and a bookkeeping bug are indistinguishable,
+        /// and the player would be reconciling against a note that was simply broken.
         /// </summary>
         [Test]
-        public void NoteLines_MatchTheCartonExactlyToday()
+        public void EveryAnsweredNoteLine_PointsAtOneRealVialInThatBox()
         {
             var lab = new LabState(catalog,
                 PlanOf(1, 15, new[] { "hardening_oil_general", "quench_oil_cold", "quench_oil_martempering" }),
                 202);
             lab.BeginDay();
 
-            int arrived = lab.Samples.All.Count;
-            int noted = lab.Notes.Sum(n => n.Count);
+            Assert.Greater(lab.Samples.All.Count, 0, "Fixture generated no samples.");
 
-            Assert.Greater(arrived, 0, "Fixture generated no samples.");
-            Assert.AreEqual(arrived, noted,
-                "The day's notes must account for every sample that arrived, no more and no fewer.");
+            foreach (var carton in lab.Deliveries.Cartons)
+            {
+                var seen = new HashSet<SampleId>();
+
+                foreach (var line in carton.Note.Lines)
+                {
+                    if (!line.Arrived) continue;
+
+                    Assert.IsTrue(lab.Samples.TryGet(line.Sample, out var sample),
+                        $"{carton.Note.JobNumber} claims '{line.TankTag}' arrived, and it names a " +
+                        "sample that does not exist.");
+                    Assert.IsTrue(carton.Contents.Contains(line.Sample),
+                        $"{sample.RecordTag} is on {carton.Note.JobNumber}'s note but is not in its box.");
+                    Assert.IsTrue(seen.Add(line.Sample),
+                        $"Two lines of {carton.Note.JobNumber} point at the same bottle.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Every sample the day generated is in exactly one box, discrepancies included. A vial added
+        /// by #32 that never got packed would be a record on the terminal with no bottle in the room.
+        /// </summary>
+        [Test]
+        public void EverySampleGenerated_IsPackedInExactlyOneCarton()
+        {
+            var lab = new LabState(catalog,
+                PlanOf(1, 15, new[] { "hardening_oil_general", "quench_oil_cold" }), 8080);
+            lab.BeginDay();
+
+            var packed = new List<SampleId>();
+            foreach (var carton in lab.Deliveries.Cartons) packed.AddRange(carton.Contents);
+
+            Assert.IsNotEmpty(packed, "Fixture packed nothing.");
+            CollectionAssert.AllItemsAreUnique(packed, "A vial was packed into two boxes.");
+            Assert.AreEqual(lab.Samples.All.Count, packed.Count,
+                "A generated sample never made it into a carton.");
         }
 
         /// <summary>
@@ -237,6 +272,9 @@ namespace Residue.Tests.EditMode
             {
                 foreach (var line in note.Lines)
                 {
+                    // A line no vial answered is #32's missing sample and names no id to look up.
+                    if (!line.Arrived) continue;
+
                     Assert.IsTrue(lab.Samples.TryGet(line.Sample, out var sample),
                         "A note line pointed at a sample that does not exist.");
                     Assert.AreEqual(note.JobNumber, sample.JobNumber,
