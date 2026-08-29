@@ -57,6 +57,8 @@ namespace Residue.Net
         private NetworkList<ResultView> results;
         private NetworkList<ReadingView> readings;
         private NetworkList<SlipView> slips;
+        private NetworkList<CartonView> cartons;
+        private NetworkList<NoteLineView> noteLines;
 
         /// <summary>
         /// The day's reckoning, and the only list here whose safety is a matter of <i>when</i> rather
@@ -127,6 +129,33 @@ namespace Residue.Net
         /// </summary>
         public NetworkList<SolventBottleView> SolventBottles => solventBottles;
 
+        /// <summary>
+        /// The delivery, as physical objects: one row per box the run still has, wherever it has got
+        /// to (#80).
+        /// <para>
+        /// Without it a joined client saw the bay and the truck and no boxes — it could not carry one
+        /// in, open one, or reach a single vial, so on a client the day never started. That is a wider
+        /// hole than the empty instrument trays <see cref="Slips"/> filled: paperwork was one step of
+        /// the loop, and this is the step that supplies every other one.
+        /// </para>
+        /// <para>
+        /// The rows carry counts and locations and no manifest — see <see cref="CartonView"/> for why
+        /// that is hard rule 2 rather than economy.
+        /// </para>
+        /// </summary>
+        public NetworkList<CartonView> Cartons => cartons;
+
+        /// <summary>
+        /// What is typed on the delivery notes, one row per line (§5.1, #29, #32).
+        /// <para>
+        /// Separate from <see cref="Cartons"/> because a page is not a fixed width, exactly as
+        /// <see cref="Readings"/> is separate from <see cref="Results"/>. It is the claim the customer
+        /// made rather than a fact about the oil, and the one field that would make it a fact — which
+        /// vial answers which line — is not on the row at all. See <see cref="NoteLineView"/>.
+        /// </para>
+        /// </summary>
+        public NetworkList<NoteLineView> NoteLines => noteLines;
+
         /// <summary>Raised on the server when a dropped player's item must be put back (§M4).</summary>
         public event Action<PlayerSession, HeldItem> ItemReleased;
 
@@ -142,6 +171,8 @@ namespace Residue.Net
             results = new NetworkList<ResultView>();
             readings = new NetworkList<ReadingView>();
             slips = new NetworkList<SlipView>();
+            cartons = new NetworkList<CartonView>();
+            noteLines = new NetworkList<NoteLineView>();
             reports = new NetworkList<ReportView>();
         }
 
@@ -661,6 +692,12 @@ namespace Residue.Net
             GatherBottles();
             Sync(solventBottles, bottleRows);
 
+            // Before the paperwork below, because the boxes are what the day's samples arrive in and a
+            // client with no cartons cannot start a shift at all (#80).
+            GatherCartons();
+            Sync(cartons, cartonRows);
+            Sync(noteLines, noteLineRows);
+
             // Slips first: GatherResults consults the rows this builds, because a slip somebody
             // carried away is a run that has to keep travelling after the instrument that printed it
             // has moved on.
@@ -741,6 +778,49 @@ namespace Residue.Net
                 var row = slipRows[i];
                 row.ResultKey = resultRows[at].Key;
                 slipRows[i] = row;
+            }
+        }
+
+        // -- Deliveries (#80) --------------------------------------------------------------------------
+
+        private readonly List<CartonView> cartonRows = new();
+        private readonly List<NoteLineView> noteLineRows = new();
+
+        /// <summary>
+        /// Rebuild the carton rows and the note lines under them.
+        /// <para>
+        /// A flattened box is <b>dropped</b> rather than sent with a tombstone, exactly as a consumed
+        /// vial is: a client reconciles by matching ids, so a row that stops appearing is a prop to
+        /// destroy, and one list is easier to reason about than a list plus a rule about dead entries.
+        /// </para>
+        /// <para>
+        /// A box still on the truck <i>is</i> published, and that is deliberate. It is what keeps the
+        /// lorry parked outside on every screen while there is anything left to unload — #30's standing
+        /// reminder that the bay is full — and it costs nothing, because nothing in the room builds a
+        /// prop for it (see <c>CartonReconciler</c>) and the host already says the same thing out loud.
+        /// </para>
+        /// <para>
+        /// The count on each row comes from <see cref="DeliveryBay.RemainingIn"/> — read off the vials'
+        /// own locations, so the box and the bottles cannot disagree — and it is the only thing said
+        /// here about what is inside. See <see cref="CartonView"/>.
+        /// </para>
+        /// </summary>
+        private void GatherCartons()
+        {
+            cartonRows.Clear();
+            noteLineRows.Clear();
+
+            var bay = Lab.Deliveries;
+            if (bay == null) return;
+
+            var all = bay.Cartons;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var carton = all[i];
+                if (carton == null || carton.Stage == CartonStage.Discarded) continue;
+
+                cartonRows.Add(CartonView.From(carton, bay.RemainingIn(carton)));
+                NoteLineView.Gather(carton, noteLineRows);
             }
         }
 

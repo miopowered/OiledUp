@@ -135,8 +135,28 @@ namespace Residue.Net.Views
                 InDoubt = inDoubt,
                 Instruments = instruments,
                 Reports = ReadReports(day.Day),
-                Causes = catalog.Causes
+                Causes = catalog.Causes,
+
+                // The paperwork that came in the boxes (#32, #80). Rebuilt from the lines the host
+                // published rather than from anything this file works out, and rebuilt by the same
+                // code that types the paper prop — the desk and the page in the player's hand have to
+                // number the rows identically, because a registration is filed by row number.
+                Notes = ReadNotes()
             };
+        }
+
+        /// <summary>
+        /// The delivery notes this client has been told about.
+        /// <para>
+        /// Empty until <c>LabNetwork</c> spawns, and the panel that reads it says so rather than
+        /// pretending the note is blank. Nothing else on the screen depends on it.
+        /// </para>
+        /// </summary>
+        private List<DeliveryNote> ReadNotes()
+        {
+            var notes = new List<DeliveryNote>();
+            ReplicatedCartons.ReadNotes(network, notes);
+            return notes;
         }
 
         /// <summary>

@@ -53,28 +53,32 @@ namespace Residue.Gameplay.World
             }
         }
 
-        private Carton State
+        /// <summary>
+        /// The box as this process can see it — its own bay, or the replicated row. Through
+        /// <see cref="CartonProp.TryState"/> rather than a second lookup of its own, so a lid and the
+        /// box it is taped to cannot disagree about whether it is still sealed.
+        /// </summary>
+        private bool TryState(out CartonPlacement state)
         {
-            get
-            {
-                var box = Box;
-                return box != null ? box.Carton : null;
-            }
+            var box = Box;
+            if (box != null) return box.TryState(out state);
+
+            state = default;
+            return false;
         }
 
         public override float HoldSeconds
         {
             get
             {
-                var state = State;
-                return state != null && state.IsSealed ? Mathf.Max(0f, openHoldSeconds) : 0f;
+                bool sealedShut = TryState(out var state) && state.IsSealed;
+                return sealedShut ? Mathf.Max(0f, openHoldSeconds) : 0f;
             }
         }
 
         public override string Prompt(PlayerInteractor player)
         {
-            var state = State;
-            if (state == null || !state.IsSealed) return null;
+            if (!TryState(out var state) || !state.IsSealed) return null;
 
             // Said out loud rather than left as a dead object: you cannot get both hands into a box you
             // are carrying, and the walk from the bay to a bench is the point of #30.
@@ -84,12 +88,9 @@ namespace Residue.Gameplay.World
             return $"Hold to open carton {state.JobNumber}";
         }
 
-        public override bool CanInteract(PlayerInteractor player)
-        {
-            var state = State;
-            return state != null && state.IsSealed &&
-                   state.Location.Kind != SampleLocationKind.Held;
-        }
+        public override bool CanInteract(PlayerInteractor player) =>
+            TryState(out var state) && state.IsSealed &&
+            state.Location.Kind != SampleLocationKind.Held;
 
         /// <summary>
         /// Ask to open it. The lid only swings and the vials only appear once the host has agreed —
@@ -103,10 +104,13 @@ namespace Residue.Gameplay.World
 
             LabCommands.Attempt(player, LabCommand.OpenCarton(box.CartonId), _ =>
             {
-                var state = box.Carton;
-                int count = state != null && state.Note != null ? state.Note.Count : 0;
+                // The count comes off the note — what the customer says they sent — rather than off
+                // the box, and that is deliberate on both sides of the wire: the difference between
+                // the two is #32, and a toast that quoted the actual number would announce it.
+                bool known = box.TryState(out var state);
+                int count = known && state.Note != null ? state.Note.Count : 0;
 
-                player.Say(state != null
+                player.Say(known
                     ? $"Carton {state.JobNumber} open — {count} vial(s) and a delivery note."
                     : "Carton open.", 4f);
             });

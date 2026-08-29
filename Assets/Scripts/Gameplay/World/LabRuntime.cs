@@ -105,6 +105,13 @@ namespace Residue.Gameplay.World
         private SlipReconciler slips;
 
         /// <summary>
+        /// Keeps this process's delivery cartons in step with the host's (#80). Client-only for the
+        /// reason <see cref="vials"/> is: a host sets its own boxes down as the truck unloads, through
+        /// <see cref="DeliveryBayStation"/>.
+        /// </summary>
+        private CartonReconciler cartons;
+
+        /// <summary>
         /// Keeps the solvent bottles where the host says they are. Unlike <see cref="vials"/> this
         /// runs on every process — a host has no separate bottle spawner to duplicate, so both sides
         /// share one. Built on first use rather than in <c>Awake</c>, so an edit-mode test that never
@@ -156,6 +163,7 @@ namespace Residue.Gameplay.World
             {
                 vials = new VialReconciler(this);
                 slips = new SlipReconciler(this);
+                cartons = new CartonReconciler(this);
                 Debug.Log("[LabRuntime] Client process — the lab is replicated, not simulated.", this);
                 return;
             }
@@ -493,8 +501,12 @@ namespace Residue.Gameplay.World
             }
             else
             {
-                // No lab means no simulation to advance, but there are still bottles and slips in the
-                // room and the host has an opinion about where they are.
+                // No lab means no simulation to advance, but there are still boxes, bottles and slips
+                // in the room and the host has an opinion about where they are.
+                //
+                // Cartons first: a box is a container, and the bottles inside it can only be placed
+                // once it has been built and has registered its slots.
+                cartons?.Tick();
                 vials?.Tick();
                 slips?.Tick();
             }
@@ -721,20 +733,40 @@ namespace Residue.Gameplay.World
         public DeliveryNoteProp NotePropFor(string cartonId) =>
             !string.IsNullOrEmpty(cartonId) && noteProps.TryGetValue(cartonId, out var n) ? n : null;
 
+        /// <summary>The boxes standing in this process's room, so a reconciler can retire the strays.</summary>
+        public IReadOnlyDictionary<string, CartonProp> CartonProps => cartonProps;
+
         /// <summary>
         /// Build the physical box for a carton the truck has just set down. Not pooled: there are a
         /// handful a day and each one is flattened within the shift.
         /// </summary>
-        public CartonProp SpawnCarton(Carton carton, Transform socket, bool interactable = true)
+        public CartonProp SpawnCarton(Carton carton, Transform socket, bool interactable = true) =>
+            carton == null
+                ? null
+                : SpawnCarton(carton.Id, carton.JobNumber, carton.SenderName, socket, interactable);
+
+        /// <summary>
+        /// Build the physical box from the facts about a delivery, rather than from a
+        /// <see cref="Carton"/> nobody but the host has.
+        /// <para>
+        /// This is the one that actually builds the prop, and both sides go through it — the argument
+        /// <see cref="SpawnVial(SampleId,string,float,Transform,bool)"/> makes at length. §3.2 keeps a
+        /// carton a local prop on every machine in the session; the only thing that differs is where
+        /// the instruction came from, the host's own bay or the replicated record a
+        /// <see cref="CartonReconciler"/> is walking.
+        /// </para>
+        /// </summary>
+        public CartonProp SpawnCarton(string cartonId, string jobNumber, string senderName,
+                                      Transform socket, bool interactable = true)
         {
-            if (carton == null || cartonPrefab == null || socket == null) return null;
-            if (cartonProps.TryGetValue(carton.Id, out var existing) && existing != null) return existing;
+            if (string.IsNullOrEmpty(cartonId) || cartonPrefab == null || socket == null) return null;
+            if (cartonProps.TryGetValue(cartonId, out var existing) && existing != null) return existing;
 
             var prop = Instantiate(cartonPrefab, socket);
-            prop.Bind(carton.Id, carton.JobNumber, carton.SenderName);
+            prop.Bind(cartonId, jobNumber, senderName);
             prop.AttachTo(socket, interactable);
 
-            cartonProps[carton.Id] = prop;
+            cartonProps[cartonId] = prop;
             return prop;
         }
 
@@ -742,17 +774,28 @@ namespace Residue.Gameplay.World
         /// Build the paper that was in the box. Called by <see cref="CartonProp"/> the moment the seal
         /// goes, because until then the note is not a thing anybody can reach (#31).
         /// </summary>
-        public DeliveryNoteProp SpawnNote(Carton carton, Transform socket)
+        public DeliveryNoteProp SpawnNote(Carton carton, Transform socket) =>
+            carton == null
+                ? null
+                : SpawnNote(carton.Id, carton.JobNumber, carton.SenderName,
+                            DeliveryNoteProp.Printed(carton.Note), socket);
+
+        /// <summary>
+        /// Build the paper from what is printed on it, rather than from a <see cref="DeliveryNote"/>
+        /// only the host holds. One builder, two callers, for the reason
+        /// <see cref="SpawnCarton(string,string,string,Transform,bool)"/> gives.
+        /// </summary>
+        public DeliveryNoteProp SpawnNote(string cartonId, string jobNumber, string senderName,
+                                          string printed, Transform socket)
         {
-            if (carton == null || notePrefab == null || socket == null) return null;
-            if (noteProps.TryGetValue(carton.Id, out var existing) && existing != null) return existing;
+            if (string.IsNullOrEmpty(cartonId) || notePrefab == null || socket == null) return null;
+            if (noteProps.TryGetValue(cartonId, out var existing) && existing != null) return existing;
 
             var prop = Instantiate(notePrefab, socket);
-            prop.Bind(carton.Id, carton.JobNumber, carton.SenderName,
-                      DeliveryNoteProp.Printed(carton.Note));
+            prop.Bind(cartonId, jobNumber, senderName, printed);
             prop.AttachTo(socket, interactable: true);
 
-            noteProps[carton.Id] = prop;
+            noteProps[cartonId] = prop;
             return prop;
         }
 

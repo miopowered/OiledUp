@@ -772,8 +772,8 @@ namespace Residue.Gameplay.World
             if (note == null || note.Count == 0)
             {
                 box.Add(Tiny(
-                    $"No delivery note for {sample.JobNumber ?? "this vial"} at this desk. " +
-                    "Paperwork does not reach a joined terminal yet (#80).",
+                    $"No delivery note on file for {sample.JobNumber ?? "this vial"}. " +
+                    "Ring the customer, or read the paper that came in the box.",
                     SignalPalette.Caution));
                 return box;
             }

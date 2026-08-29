@@ -32,6 +32,15 @@ namespace Residue.Gameplay.World
         [SerializeField] private MeshRenderer paper;
 
         /// <summary>
+        /// The physical text baked onto <see cref="paper"/> (#82) — see <see cref="PrintedSheetSurface"/>
+        /// for why it is its own overlay rather than a texture swap on that renderer's material. Built
+        /// once, on the first bind that finds a real sheet, and redrawn on every bind after; several
+        /// EditMode fixtures bind a bare prop with no sheet at all, which this and
+        /// <see cref="RenderOntoPaper"/> treat as "nothing to write on yet" rather than an error.
+        /// </summary>
+        private PrintedSheetSurface surface;
+
+        /// <summary>
         /// The host's handle for this slip (<see cref="Residue.Gameplay.Simulation.ResultSlips"/>).
         /// <para>
         /// Filing names the ticket and never the values. §3.1 forbids a client computing a test
@@ -136,7 +145,33 @@ namespace Residue.Gameplay.World
             MachineName = string.IsNullOrEmpty(machineName) ? "instrument" : machineName;
             RecordTag = string.IsNullOrEmpty(recordTag) ? "UNKNOWN" : recordTag;
             name = $"Printout_{sampleId}_{MachineName}";
+            RenderOntoPaper();
         }
+
+        /// <summary>
+        /// Put what <see cref="BuildReadingText"/> already says onto the physical slip. Reusing that
+        /// method rather than composing a second layout keeps the paper and the bottom-left HUD
+        /// overlay (kept deliberately — see the type doc) reading the same values by construction,
+        /// including the "not through yet" and "this paper is blank" placeholders for a client still
+        /// waiting on <see cref="ResultKey"/> to resolve.
+        /// <para>
+        /// Called from <see cref="Describe"/>, i.e. on every bind — including the reconcile passes a
+        /// client's slip gets re-bound on — so a reading that was not available yet gets drawn onto the
+        /// paper the moment it is.
+        /// </para>
+        /// </summary>
+        private void RenderOntoPaper()
+        {
+            if (surface == null)
+            {
+                if (paper == null) return;
+                surface = new PrintedSheetSurface(paper, name);
+            }
+
+            surface.Draw(BuildReadingText());
+        }
+
+        private void OnDestroy() => surface?.Dispose();
 
         public override string Prompt(PlayerInteractor player)
         {
@@ -149,6 +184,17 @@ namespace Residue.Gameplay.World
         public override string UseHint => "read slip";
 
         public override string InspectionText => BuildReadingText();
+
+        /// <summary>
+        /// Tips the sheet up towards the camera in the inspection view, the same way
+        /// <c>DeliveryNoteProp</c> and <c>ReferenceBook</c> do for the same reason: <see cref="paper"/>
+        /// is a flat, thin box whose readable face is its local up, and the default identity rotation
+        /// would present that face edge-on rather than facing the player. Added alongside #82's baked
+        /// text — a face nobody is looking at is not a fixable typography problem.
+        /// </summary>
+        public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
+
+        public override Quaternion InventoryIconRotation => InspectionRotation;
 
         /// <summary>Glance at the slip without walking to the desk. Reading is not filing.</summary>
         public override void UseInHand(PlayerInteractor player)

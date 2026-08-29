@@ -46,7 +46,8 @@ namespace Residue.Tests.EditMode
                          .Concat(content.Causes.Values)
                          .Concat(content.Profiles.Values)
                          .Concat(content.Faults.Values)
-                         .Concat(content.Machines.Values))
+                         .Concat(content.Machines.Values)
+                         .Concat(content.Customers.Values))
             {
                 Object.DestroyImmediate(o);
             }
@@ -247,7 +248,15 @@ namespace Residue.Tests.EditMode
                 // Catch-alls. Substring matching means "PrimaryFaultId" and "FaultName" fail too.
                 "Fault",
                 "Truth",
-                "Actual"
+                "Actual",
+
+                // Not ground truth either, and protected for the reason drift is: which vial arrived
+                // under which claim is #32's whole question, and the player answers it with the note in
+                // one hand and the rack in front of them. A carton that carried its manifest — or a
+                // note line that named the sample answering it — would hand that over on every client.
+                // CartonView carries a count and NoteLineView carries a claim; see both type docs.
+                "Contents",
+                "Manifest"
             };
 
             // The list used to hold two more entries, both about §5.1's mis-log: SampleState's
@@ -451,6 +460,184 @@ namespace Residue.Tests.EditMode
             Assert.AreEqual(economy.Reputation, view.Reputation, 1e-3f);
             Assert.AreEqual(4f, view.SolventUnits, 1e-3f);
             Assert.AreEqual(1, view.ReferenceStandards);
+        }
+
+        // -----------------------------------------------------------------------------------------
+        // 2a. The delivery (#30, #31, #32, #80). A box replicates so a client can start the day at
+        //     all — and what it must not replicate is what is in it.
+        // -----------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Promise: a client can see how much is left in a box and never which bottles they are.
+        /// <para>
+        /// A carton's contents are the answer to #32. The player works out which vial answers which
+        /// line of the delivery note by reading the paper and looking at the rack, and
+        /// <see cref="Carton.Contents"/> is the lab's own record of the right answer — so a view
+        /// carrying it would settle the reconciliation for every client without anybody looking at
+        /// anything. What has to travel is the number, because "3 vials still in it" is on the prompt
+        /// and a box you cannot count is a box you cannot decide to go back to.
+        /// </para>
+        /// So this plays a real morning, projects a real box, and pins both halves: the count tracks
+        /// what is physically inside, and nothing on the row can name a sample.
+        /// </summary>
+        [Test]
+        public void CartonView_SaysHowMuchIsLeftInTheBoxAndNeverWhatIsInIt()
+        {
+            var lab = ArrivedLab();
+            var carton = FullestCarton(lab);
+
+            int before = lab.Deliveries.RemainingIn(carton);
+            Assert.GreaterOrEqual(before, 1, "No box arrived with a vial in it; this proves nothing.");
+
+            var view = CartonView.From(carton, before);
+
+            Assert.AreEqual(carton.Id, view.Id.ToString(),
+                "The row has to name the box, or a client cannot match the bottles inside it to it — " +
+                "a vial's ContainerId is this same string.");
+            Assert.AreEqual(carton.JobNumber, view.JobNumber.ToString(),
+                "The job number is on the outside of the box and on the prompt.");
+            Assert.AreEqual(before, view.VialsRemaining);
+            Assert.IsTrue(view.IsSealed, "A box off the truck is taped shut until somebody cuts it.");
+            Assert.IsTrue(view.NoteIsInside, "The paperwork ships in the box (#31).");
+
+            // Lift one bottle out. The count is the only thing about the contents that may move.
+            var lifted = InsideOf(lab, carton)[0];
+            Assert.IsTrue(
+                SampleLifecycle.TryMove(lifted, SampleLocation.OnSurface("bench", 0), out string refusal),
+                refusal);
+
+            var after = CartonView.From(carton, lab.Deliveries.RemainingIn(carton));
+            Assert.AreEqual(before - 1, after.VialsRemaining,
+                "The count is read off where the bottles say they are, so taking one out has to show.");
+
+            AssertNamesNoSample(typeof(CartonView),
+                "A carton's contents are the answer to #32. A client holding them has the " +
+                "reconciliation done for it.");
+        }
+
+        /// <summary>
+        /// Promise: a replicated delivery note carries what the customer claimed and not whether the
+        /// claim was met.
+        /// <para>
+        /// <see cref="DeliveryNote.Line"/> holds the sample that really answers each line. It is host
+        /// bookkeeping, it is never printed on the paper, and it is exactly the thing #32 asks the
+        /// player to work out — a line that arrived on a client knowing it had been answered would let
+        /// a screen tick the page off, and a note that reconciles itself leaves nothing to find (hard
+        /// rule 3's tell, deleted).
+        /// </para>
+        /// The rest of the page has to cross intact, though, and in order: a registration is filed by
+        /// row number, so a page numbered differently at the two ends would record the wrong claim.
+        /// </summary>
+        [Test]
+        public void AReplicatedNoteLine_CarriesTheClaimAndNotTheVialThatAnswersIt()
+        {
+            var lab = ArrivedLab();
+
+            var rows = new List<NoteLineView>();
+            int lines = 0;
+            int answered = 0;
+
+            foreach (var carton in lab.Deliveries.Cartons)
+            {
+                var note = carton.Note;
+                if (note == null) continue;
+
+                int before = rows.Count;
+                NoteLineView.Gather(carton, rows);
+
+                Assert.AreEqual(note.Count, rows.Count - before,
+                    "Every line the customer typed has to reach the desk, including the ones no " +
+                    "bottle answers — a note that quietly dropped those would reconcile perfectly.");
+
+                for (int i = 0; i < note.Count; i++)
+                {
+                    var row = rows[before + i];
+
+                    Assert.AreEqual(carton.Id, row.CartonId.ToString());
+                    Assert.AreEqual(i, row.Index,
+                        "Rows are numbered as they are printed. A registration is filed by row number, " +
+                        "so a page numbered differently at the two ends records the wrong claim.");
+                    Assert.AreEqual(note.Lines[i].TankTag ?? string.Empty, row.TankTag.ToString(),
+                        "The tank the sender says they drew is the whole of what the page says.");
+
+                    lines++;
+                    if (note.Lines[i].Arrived) answered++;
+                }
+            }
+
+            Assert.Greater(lines, 0, "The morning issued no paperwork; this test compared nothing.");
+            Assert.Greater(answered, 0,
+                "No line was answered by a vial, so the field under test never had a value to leak.");
+
+            AssertNamesNoSample(typeof(NoteLineView),
+                "A line that named the vial answering it would let a screen tick the page off, which " +
+                "is #32 done for the player.");
+        }
+
+        /// <summary>
+        /// No member of a view may be, or be named after, a sample. Reflection rather than a field
+        /// list, so a field added later is covered the day it lands rather than the day someone
+        /// remembers this file.
+        /// </summary>
+        private static void AssertNamesNoSample(Type view, string because)
+        {
+            var offenders = new List<string>();
+
+            foreach (var field in view.GetFields(BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (field.FieldType == typeof(SampleId)) offenders.Add($"{view.Name}.{field.Name} (SampleId)");
+            }
+
+            foreach (string member in MemberNames(view))
+            {
+                if (member.IndexOf("Sample", StringComparison.OrdinalIgnoreCase) >= 0)
+                    offenders.Add($"{view.Name}.{member}");
+            }
+
+            Assert.IsEmpty(offenders, $"{because}\nOffenders:\n  " + string.Join("\n  ", offenders));
+        }
+
+        /// <summary>A lab one morning in, with the truck unloaded and every box still sealed.</summary>
+        private LabState ArrivedLab()
+        {
+            var lab = new LabState(catalog, PlanOf(1, samplesPerDay: 12, healthyChance: 0.3f), 20260830);
+            lab.Deliveries.Capacity = 64;
+            lab.BeginDay();
+            lab.Tick(lab.Deliveries.SecondsUntilArrival + 0.01f);
+            return lab;
+        }
+
+        /// <summary>The box the morning put the most bottles in, so the counts have somewhere to move.</summary>
+        private static Carton FullestCarton(LabState lab)
+        {
+            Carton fullest = null;
+            int most = 0;
+
+            foreach (var carton in lab.Deliveries.Cartons)
+            {
+                if (carton.Stage != CartonStage.Delivered) continue;
+
+                int inside = lab.Deliveries.RemainingIn(carton);
+                if (inside <= most) continue;
+
+                fullest = carton;
+                most = inside;
+            }
+
+            Assert.IsNotNull(fullest, "The truck unloaded nothing; this test compared nothing.");
+            return fullest;
+        }
+
+        private static List<SampleState> InsideOf(LabState lab, Carton carton)
+        {
+            var inside = new List<SampleState>();
+            foreach (var sample in lab.Samples.All)
+            {
+                if (sample.Location.Kind != SampleLocationKind.InCrate) continue;
+                if (sample.Location.ContainerId != carton.Id) continue;
+                inside.Add(sample);
+            }
+            return inside;
         }
 
         // -----------------------------------------------------------------------------------------
@@ -753,6 +940,33 @@ namespace Residue.Tests.EditMode
                 ContractLength = 20
             };
             Assert.AreEqual(day, RoundTrip(day));
+
+            var carton = new CartonView
+            {
+                Id = "carton:3:KH-04127",
+                JobNumber = "KH-04127",
+                CustomerId = "werk_nord",
+                Day = 3,
+                Stage = CartonStage.Delivered,
+                IsSealed = false,
+                VialsRemaining = 4,
+                Kind = SampleLocationKind.OnSurface,
+                ContainerId = "bay",
+                SlotIndex = 2,
+                NoteKind = SampleLocationKind.Held,
+                NoteHolderClientId = 7UL,
+                NoteSlotIndex = -1
+            };
+            Assert.AreEqual(carton, RoundTrip(carton));
+
+            var line = new NoteLineView
+            {
+                CartonId = "carton:3:KH-04127",
+                Index = 2,
+                TankTag = "HALLE-3 SEALED QUENCH 1",
+                ProfileId = "corrosion_protection_oil"
+            };
+            Assert.AreEqual(line, RoundTrip(line));
 
             var report = new ReportView
             {

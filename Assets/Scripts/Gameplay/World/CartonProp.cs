@@ -25,6 +25,17 @@ namespace Residue.Gameplay.World
     /// </para>
     ///
     /// <para>
+    /// <b>It reads a <see cref="CartonPlacement"/>, not a <see cref="Carton"/>.</b> A client has no
+    /// <c>LabState</c> and never will (<see cref="LabRuntime.SimulatesLocally"/>), so a prop that held
+    /// the host's live box found nothing on a joined client and switched itself off — no prompt, no
+    /// lid to cut, no way to reach the day's samples at all (#80). Going through
+    /// <see cref="CartonFeed.TryFind"/> means the same code draws a host's own box and a replicated
+    /// snapshot of one, which is the argument <see cref="MachineStation"/> makes for instruments. The
+    /// single remaining host branch is <see cref="RevealHostContents"/>, and it is there because a
+    /// client's bottles arrive by a different road.
+    /// </para>
+    ///
+    /// <para>
     /// Cutting the tape lives on <see cref="CartonLid"/>, not here, for the reason
     /// <see cref="MachineActionButton"/> is separate from <see cref="MachineStation"/>: one is a tap
     /// and one is a hold, and <see cref="Interactable.HoldSeconds"/> is a property of the thing you
@@ -78,19 +89,12 @@ namespace Residue.Gameplay.World
             $"CARTON {jobNumber}\nFrom {sender}";
 
         /// <summary>
-        /// The host's record of this box, or null on a process that has no lab. Resolved per access
-        /// rather than cached, for the reason <see cref="MachineStation.Machine"/> is.
+        /// This box as whatever this process can see of it. Resolved per access rather than cached,
+        /// for the reason <see cref="MachineStation.Machine"/> is: on a client the bay is in the room
+        /// before <c>LabNetwork</c> spawns, so a prop that latched an answer at startup would stay
+        /// dead for the whole session.
         /// </summary>
-        public Carton Carton => Bay?.Find(CartonId);
-
-        private static DeliveryBay Bay
-        {
-            get
-            {
-                var lab = LabRuntime.Instance != null ? LabRuntime.Instance.Lab : null;
-                return lab != null ? lab.Deliveries : null;
-            }
-        }
+        public bool TryState(out CartonPlacement box) => CartonFeed.TryFind(CartonId, out box);
 
         /// <summary>
         /// Give the box its id and announce it. Separate from <c>OnEnable</c> for the reason
@@ -120,25 +124,24 @@ namespace Residue.Gameplay.World
         /// <c>InCrate(cartonId, n)</c> into a socket by asking <see cref="LabRuntime.SlotsFor"/>, so a
         /// sealed carton that advertised its slots would have every vial in it parented into the box
         /// and visible through the lid — including on a continued run, where <c>RestoreProps</c> walks
-        /// exactly that path. Registering the position without the slots means a sealed box is a place
-        /// the host can measure your distance to and nothing else.
+        /// exactly that path, and on a client, where <see cref="VialReconciler"/> does. Registering the
+        /// position without the slots means a sealed box is a place the host can measure your distance
+        /// to and nothing else.
         /// </para>
         /// </summary>
         private void Register()
         {
             if (string.IsNullOrEmpty(CartonId)) return;
 
-            var carton = Carton;
-            if (carton != null && !carton.IsSealed) LabRuntime.RegisterFixture(CartonId, transform, this);
+            if (TryState(out var box) && !box.IsSealed) LabRuntime.RegisterFixture(CartonId, transform, this);
             else LabRuntime.RegisterFixture(CartonId, transform);
         }
 
         private void Update()
         {
-            var carton = Carton;
-            if (carton == null) return;
+            if (!TryState(out var box)) return;
 
-            if (!carton.IsSealed && !shownOpen) Reveal(carton);
+            if (!box.IsSealed && !shownOpen) Reveal(box);
 
             // AttachTo re-enables every collider under this object when the box is set down, which
             // would put the swung-back lid back in front of the vials. Cheap to re-assert, and the
@@ -157,18 +160,43 @@ namespace Residue.Gameplay.World
         /// (#31). The only fields read below are the ones the label already shows.
         /// </para>
         /// </summary>
-        private void Reveal(Carton carton)
+        private void Reveal(in CartonPlacement box)
         {
             shownOpen = true;
 
             PoseLid(open: true);
             DisableLid();
 
-            // The holes exist now, so the box becomes a container a location can resolve into.
+            // The holes exist now, so the box becomes a container a location can resolve into. On a
+            // client that is the whole of "the bottles appear": each one's record already names this
+            // carton, and VialReconciler can finally turn that into a socket.
             LabRuntime.RegisterFixture(CartonId, transform, this);
 
             var runtime = LabRuntime.Instance;
             if (runtime == null) return;
+
+            RevealHostContents(runtime);
+
+            runtime.SpawnNote(CartonId, box.JobNumber, box.SenderName,
+                              DeliveryNoteProp.Printed(box.Note), NoteSocket);
+        }
+
+        /// <summary>
+        /// Build the bottles this box still holds, on the process that knows what they are.
+        /// <para>
+        /// The one host branch left in this component, and it is here because the two sides get their
+        /// bottles by different roads rather than because they disagree: a host walks its own
+        /// <see cref="Carton.Contents"/>, and a client is told where each bottle is by
+        /// <see cref="VialReconciler"/>, which resolves the location through the slots registered
+        /// just above. Publishing the manifest so that both could take this path would put the answer
+        /// to #32 on the wire — see <c>CartonView</c>.
+        /// </para>
+        /// </summary>
+        private void RevealHostContents(LabRuntime runtime)
+        {
+            var lab = runtime.Lab;
+            var carton = lab != null ? lab.Deliveries.Find(CartonId) : null;
+            if (carton == null) return;
 
             for (int i = 0; i < carton.Contents.Count; i++)
             {
@@ -183,17 +211,21 @@ namespace Residue.Gameplay.World
                 int index = sample.Location.SlotIndex;
                 runtime.SpawnVial(sample, Slot(index < 0 ? FreeSlot() : index));
             }
-
-            runtime.SpawnNote(carton, NoteSocket);
         }
 
         /// <summary>
-        /// Where the paper sits. Built on demand rather than required in the prefab, for the reason
-        /// <see cref="SampleRack"/> builds its holes lazily: a socket is a transform at an offset, and
-        /// a component that only works when somebody remembered to wire an empty <c>GameObject</c> is
-        /// a component that will one day be dropped into a scene and silently do nothing.
+        /// Where the paper sits while it is in the box. Built on demand rather than required in the
+        /// prefab, for the reason <see cref="SampleRack"/> builds its holes lazily: a socket is a
+        /// transform at an offset, and a component that only works when somebody remembered to wire an
+        /// empty <c>GameObject</c> is a component that will one day be dropped into a scene and
+        /// silently do nothing.
+        /// <para>
+        /// Public because <see cref="CartonReconciler"/> has to put the note back in the box when
+        /// another player sets it down again, and this socket is deliberately <i>not</i> one of the
+        /// vial holes — see <see cref="Carton.InsideSlot"/>.
+        /// </para>
         /// </summary>
-        private Transform NoteSocket
+        public Transform NoteSocket
         {
             get
             {
@@ -284,51 +316,32 @@ namespace Residue.Gameplay.World
 
         // -- Interaction --------------------------------------------------------------------------------
 
-        /// <summary>Vials the host still says are in this box, or 0 on a process with no lab.</summary>
-        private int Remaining
-        {
-            get
-            {
-                var bay = Bay;
-                var carton = bay?.Find(CartonId);
-                return carton == null ? 0 : bay.RemainingIn(carton);
-            }
-        }
-
         /// <summary>True when the only thing left to do with this box is flatten it (#31).</summary>
-        private bool Spent
-        {
-            get
-            {
-                var carton = Carton;
-                return carton != null && !carton.IsSealed && !carton.NoteIsInside && Remaining == 0;
-            }
-        }
+        private static bool Spent(in CartonPlacement box) =>
+            !box.IsSealed && !box.NoteIsInside && box.VialsRemaining == 0;
 
         public override string Prompt(PlayerInteractor player)
         {
-            var carton = Carton;
-            if (carton == null) return DisplayName;
+            if (!TryState(out var box)) return DisplayName;
 
-            if (Spent) return $"Flatten carton {jobNumber}";
+            if (Spent(box)) return $"Flatten carton {jobNumber}";
 
-            if (!carton.IsSealed && carton.NoteIsInside && Remaining == 0)
+            if (!box.IsSealed && box.NoteIsInside && box.VialsRemaining == 0)
                 return $"Carton {jobNumber} — empty. The delivery note is still in it.";
 
             if (!player.InventoryHasSpace) return "Inventory full";
 
-            if (carton.IsSealed) return $"Take carton {jobNumber} — {sender}";
+            if (box.IsSealed) return $"Take carton {jobNumber} — {sender}";
 
-            int left = Remaining;
+            int left = box.VialsRemaining;
             return $"Take carton {jobNumber} ({left} vial{(left == 1 ? "" : "s")} still in it)";
         }
 
         public override bool CanInteract(PlayerInteractor player)
         {
-            var carton = Carton;
-            if (carton == null) return false;
-            if (Spent) return true;
-            if (!carton.IsSealed && carton.NoteIsInside && Remaining == 0) return false;
+            if (!TryState(out var box)) return false;
+            if (Spent(box)) return true;
+            if (!box.IsSealed && box.NoteIsInside && box.VialsRemaining == 0) return false;
             return player.InventoryHasSpace;
         }
 
@@ -339,10 +352,9 @@ namespace Residue.Gameplay.World
         /// </summary>
         public override void Interact(PlayerInteractor player)
         {
-            var carton = Carton;
-            if (carton == null) return;
+            if (!TryState(out var box)) return;
 
-            if (Spent)
+            if (Spent(box))
             {
                 LabCommands.Attempt(player, LabCommand.DiscardCarton(CartonId), _ =>
                 {
