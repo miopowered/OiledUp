@@ -74,7 +74,8 @@ namespace Residue.Gameplay.Simulation
                      Int(sample.CollectedDay), Int(sample.ResampleOf),
                      Float(sample.VolumeMl), Float(sample.TemperatureC), Bool(sample.IsSettled),
                      Int(sample.FiledVerdict), Text(sample.FiledRootCauseId), Int(sample.FiledOnDay),
-                     Bool(sample.ConsequenceResolved));
+                     Bool(sample.ConsequenceResolved),
+                     Text(sample.CustomerId), Text(sample.JobNumber));
                 WritePlace(text, "sample.at", sample.Location);
                 foreach (var result in sample.Results) WriteResult(text, "sample.result", result);
             }
@@ -266,7 +267,9 @@ namespace Residue.Gameplay.Simulation
                             FiledVerdict = Int(parts, 11),
                             FiledRootCauseId = Text(parts, 12),
                             FiledOnDay = Int(parts, 13),
-                            ConsequenceResolved = Bool(parts, 14)
+                            ConsequenceResolved = Bool(parts, 14),
+                            CustomerId = Text(parts, 15),
+                            JobNumber = Text(parts, 16)
                         };
                         reading.Samples.Add(sample);
                         break;

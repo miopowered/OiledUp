@@ -150,6 +150,8 @@ namespace Residue.Gameplay.Simulation
                 Id = sample.Id.Value,
                 EquipmentTag = sample.EquipmentTag,
                 ProfileId = sample.Profile != null ? sample.Profile.Id : null,
+                CustomerId = sample.Customer != null ? sample.Customer.Id : null,
+                JobNumber = sample.JobNumber,
                 HoursSinceOilChange = sample.HoursSinceOilChange,
                 FieldTechNote = sample.FieldTechNote,
                 CollectedDay = sample.CollectedDay,

@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 
 namespace Residue.Gameplay.Simulation
 {
@@ -42,15 +43,48 @@ namespace Residue.Gameplay.Simulation
         public static string For(string profileId, ref Rng rng)
         {
             string plant = Plants[rng.Range(0, Plants.Length)];
-            var tanks = profileId switch
-            {
-                "quench_oil_martempering" => HotTanks,
-                "quench_oil_vacuum" => VacuumTanks,
-                "corrosion_protection_oil" => ProtectionTanks,
-                _ => QuenchTanks
-            };
+            var tanks = TanksFor(profileId);
             return $"{plant} {tanks[rng.Range(0, tanks.Length)]}";
         }
+
+        /// <summary>
+        /// The label on a vial that came from a named customer (#29).
+        /// <para>
+        /// The plant code is one of <i>that firm's</i> sites rather than a draw from the generic list,
+        /// which is what turns a tag from decoration into evidence: a rack of Kessler vials all read
+        /// W1/W2/W3, so a line on their note claiming a site they do not own is visible, and two lines
+        /// a site apart are easy to conflate at a glance. Both are what #32 needs to be fair.
+        /// </para>
+        /// Falls back to the anonymous plants when there is no customer, so a generated sample with no
+        /// sender still gets a plausible label rather than a blank one.
+        /// </summary>
+        public static string For(CustomerDef customer, string profileId, ref Rng rng)
+        {
+            if (customer == null || customer.Sites.Count == 0) return For(profileId, ref rng);
+
+            string site = customer.Sites[rng.Range(0, customer.Sites.Count)];
+            var tanks = TanksFor(profileId);
+            return $"{site} {tanks[rng.Range(0, tanks.Length)]}";
+        }
+
+        /// <summary>
+        /// A job number for one delivery, e.g. <c>KH-04127</c>. Five digits so two jobs from the same
+        /// firm in one contract do not read alike, and prefixed per customer so paperwork on a bench
+        /// can be sorted back to a sender without opening it.
+        /// </summary>
+        public static string JobNumber(CustomerDef customer, ref Rng rng)
+        {
+            string prefix = customer != null ? customer.OrderPrefix : "JOB";
+            return $"{prefix}-{rng.Range(10000, 99999)}";
+        }
+
+        private static string[] TanksFor(string profileId) => profileId switch
+        {
+            "quench_oil_martempering" => HotTanks,
+            "quench_oil_vacuum" => VacuumTanks,
+            "corrosion_protection_oil" => ProtectionTanks,
+            _ => QuenchTanks
+        };
 
         /// <summary>
         /// Notes from the customer's process engineer. Often vague, sometimes wrong, sometimes

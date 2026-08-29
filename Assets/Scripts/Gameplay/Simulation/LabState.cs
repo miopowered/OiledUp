@@ -387,12 +387,20 @@ namespace Residue.Gameplay.Simulation
         {
             if (plan.ProfileIds == null || plan.ProfileIds.Length == 0) return;
 
+            notes.Clear();
+
             for (int i = 0; i < plan.SampleCount; i++)
             {
                 string profileId = plan.ProfileIds[rng.Range(0, plan.ProfileIds.Length)];
                 if (!profilesById.TryGetValue(profileId, out var profile)) continue;
 
-                var request = GenerationRequest.Default(profile, EquipmentTags.For(profileId, ref rng), Day);
+                // Who sent it is decided before the label, because the label is drawn from their
+                // sites (#29). A profile nobody in the catalog runs still arrives — anonymously,
+                // through the generic plant list — rather than being dropped from the day.
+                var customer = PickSender(profileId);
+
+                var request = GenerationRequest.Default(
+                    profile, EquipmentTags.For(customer, profileId, ref rng), Day);
                 request.HealthyChance = plan.HealthyChance;
                 request.HoursSinceOilChange = rng.Range(0.15f, 1f) * profile.DefaultOilChangeHours;
 
@@ -409,6 +417,7 @@ namespace Residue.Gameplay.Simulation
 
                 generated.State.FieldTechNote = EquipmentTags.Note(ref rng);
                 generated.State.Location = SampleLocation.InCrate("intake", i);
+                generated.State.Customer = customer;
 
                 // Arrives unsettled and at ambient. Agitating and warming are player actions with a
                 // real time cost (§9) rather than menu clicks.
@@ -416,8 +425,60 @@ namespace Residue.Gameplay.Simulation
                 generated.State.TemperatureC = rng.Range(4f, 22f);
 
                 Samples.Add(generated);
+
+                var note = NoteFor(customer);
+                generated.State.JobNumber = note.JobNumber;
+                note.Add(generated.State.EquipmentTag, profile, generated.State.Id);
             }
         }
+
+        /// <summary>
+        /// A firm that runs this fluid, or null if none does.
+        /// <para>
+        /// Drawn through the run's own <see cref="Rng"/> so a seed reproduces a whole contract's
+        /// senders, not just its chemistry — two players on the same seed have to see the same names
+        /// on the same days or a shared run is not the same run.
+        /// </para>
+        /// </summary>
+        private CustomerDef PickSender(string profileId)
+        {
+            candidates.Clear();
+
+            var all = Content != null ? Content.Customers : null;
+            if (all == null) return null;
+
+            for (int i = 0; i < all.Count; i++)
+            {
+                if (all[i] != null && all[i].Runs(profileId)) candidates.Add(all[i]);
+            }
+
+            return candidates.Count == 0 ? null : candidates[rng.Range(0, candidates.Count)];
+        }
+
+        /// <summary>
+        /// One note per sender per day. A carton comes from one firm, so vials from two customers
+        /// arriving on the same morning are two deliveries with two pieces of paper — which is what
+        /// makes #32's reconciliation a per-carton question rather than a daily audit.
+        /// </summary>
+        private DeliveryNote NoteFor(CustomerDef customer)
+        {
+            string key = customer != null ? customer.Id : string.Empty;
+            if (notes.TryGetValue(key, out var existing)) return existing;
+
+            var created = new DeliveryNote(customer, EquipmentTags.JobNumber(customer, ref rng), Day);
+            notes[key] = created;
+            return created;
+        }
+
+        private readonly Dictionary<string, DeliveryNote> notes = new();
+        private readonly List<CustomerDef> candidates = new();
+
+        /// <summary>
+        /// The paperwork that came with this morning's cartons, one per sender. Rebuilt each day —
+        /// a note is a document on a bench for a shift, not a record. What survives the day is the
+        /// job number on each <see cref="SampleState"/>.
+        /// </summary>
+        public IReadOnlyCollection<DeliveryNote> Notes => notes.Values;
 
         // -- Saving and loading (#49) -----------------------------------------------------------------
         //
