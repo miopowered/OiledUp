@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
@@ -16,12 +17,13 @@ namespace Residue.Gameplay.World
     /// </para>
     ///
     /// <para>
-    /// <b>Host-side.</b> It reads <see cref="LabState.Deliveries"/> directly, and a client has no lab
-    /// by construction (<see cref="LabRuntime.SimulatesLocally"/>), so on a joined client this
-    /// component registers the bay's position and then does nothing. Cartons are not on the wire yet —
-    /// they need a view alongside <c>VialView</c> before a second player can see one, which is a
-    /// separate change to <c>Residue.Net</c>. Everything below is written so that when it lands, the
-    /// carton props can be placed by a reconciler and this file does not move.
+    /// <b>Two halves, and only one of them is host-side.</b> Building the props from
+    /// <see cref="LabState.Deliveries"/> and announcing the delivery events are things only a process
+    /// with a lab can do; a client's boxes are placed by <see cref="CartonReconciler"/> instead, from
+    /// the same rows (#80). What is shared is everything a player standing here can see: the standing
+    /// places, and whether the lorry is still outside. Both go through <see cref="CartonFeed"/>, which
+    /// answers from this process's own bay or from the wire, so the truck leaves at the same moment on
+    /// every screen in the session.
     /// </para>
     /// </summary>
     public sealed class DeliveryBayStation : MonoBehaviour, IVialSlots
@@ -77,7 +79,6 @@ namespace Residue.Gameplay.World
             // A continued run opens with boxes already standing in the bay — see
             // DeliveryBay.RebuildFrom — and no arrival will ever be announced for them.
             BuildMissingProps();
-            ShowTruck(lab.Deliveries.TruckAtBay);
         }
 
         private void OnDestroy() => Unsubscribe();
@@ -96,12 +97,14 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// The truck is here while there is anything left to unload, and gone once there is not.
         /// Polled rather than evented because it goes false as a consequence of the player picking a
-        /// box up, which is a command result rather than a delivery event.
+        /// box up, which is a command result rather than a delivery event — and because on a client
+        /// there is no delivery event to hang it on at all.
         /// </summary>
         private void Update()
         {
-            if (lab == null) return;
-            ShowTruck(lab.Deliveries.TruckAtBay);
+            ShowTruck(CartonFeed.TruckAtBay);
+
+            if (lab == null) NoticeArrivals();
         }
 
         // -- Announcements ------------------------------------------------------------------------------
@@ -137,6 +140,54 @@ namespace Residue.Gameplay.World
         /// </summary>
         private void OnDayEnded(IReadOnlyList<ConsequenceReport> reports) => RetireDiscarded();
 
+        // -- Announcements, on a process with no events to hear ------------------------------------------
+
+        private readonly HashSet<string> seen = new(StringComparer.Ordinal);
+        private bool primed;
+
+        /// <summary>
+        /// Tell a joined player the lorry has turned up.
+        /// <para>
+        /// <c>LabState.DeliveryArrived</c> is an event on a lab a client does not have, so without this
+        /// a delivery lands in silence while the player is head-down at an instrument — which is
+        /// exactly the moment #30 wants them to have to choose. Derived from the boxes appearing rather
+        /// than replicated as a message, because the boxes are the fact and a second channel saying the
+        /// same thing is a second channel to keep in step.
+        /// </para>
+        /// <para>
+        /// The first snapshot is swallowed. A client that joins mid-shift is told about boxes that have
+        /// been standing there for ten minutes, and greeting it with "delivery at the bay" would be an
+        /// announcement about the past. <see cref="CartonFeed.HasSpoken"/> is what makes that the
+        /// <i>first</i> snapshot rather than the first frame — the room exists before the session does.
+        /// </para>
+        /// </summary>
+        private void NoticeArrivals()
+        {
+            if (!CartonFeed.HasSpoken) return;
+
+            bool first = !primed;
+            primed = true;
+
+            int arrived = 0;
+            string firstJob = null;
+
+            var known = CartonFeed.Known;
+            for (int i = 0; i < known.Count; i++)
+            {
+                var carton = known[i];
+                if (carton.Stage != CartonStage.Delivered) continue;
+                if (!seen.Add(carton.Id) || first) continue;
+
+                arrived++;
+                firstJob ??= carton.JobNumber;
+            }
+
+            if (arrived == 0) return;
+
+            string rest = arrived == 1 ? string.Empty : $" and {arrived - 1} more";
+            Announce($"Delivery at the bay — carton {firstJob}{rest}. It needs carrying in.");
+        }
+
         /// <summary>
         /// Say something to everyone in this process. Found rather than wired because a lab may have
         /// one player or four and the bay has no business knowing which — the same reason
@@ -152,6 +203,10 @@ namespace Residue.Gameplay.World
         }
 
         // -- Props --------------------------------------------------------------------------------------
+        //
+        // Host-side only. A client's boxes are built by CartonReconciler from the replicated rows, which
+        // is the same argument VialReconciler makes: one prop system with two callers, and the caller is
+        // whichever side actually knows what exists.
 
         /// <summary>
         /// Build a box for every carton the host says has been delivered and has no prop yet.

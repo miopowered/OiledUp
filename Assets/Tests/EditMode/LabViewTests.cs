@@ -722,6 +722,231 @@ namespace Residue.Tests.EditMode
             }
         }
 
+        // -- Delivery cartons (#80) -----------------------------------------------------------------
+        //
+        // The fourth kind of local prop, and the one the day depends on: every sample arrives inside
+        // one. A client with no boxes cannot carry a delivery in, cannot cut one open, and therefore
+        // cannot reach a single vial — so unlike the three above, this is not a hole in one step of the
+        // loop, it is the step that supplies all of them.
+
+        private const string CartonId = "carton:1:KH-04127";
+
+        /// <summary>
+        /// Promise: a box is in one place, and a client that is told where puts it there.
+        /// <para>
+        /// The same three moves the vial reconciler makes — appeared, moved, stopped appearing — with
+        /// the third one carrying the weight it does for a slip: a carton is <b>consumed by being
+        /// flattened</b>, so a stale one is a box standing in the bay that nobody can pick up and that
+        /// blocks a standing place the next delivery needs.
+        /// </para>
+        /// Driven through <see cref="LabRuntime.SlotsFor"/> exactly as the running game is, so a bay
+        /// that forgot to register its standing places fails here rather than in a session.
+        /// </summary>
+        [Test]
+        public void AClientsCartons_FollowTheBoxesItIsToldAbout()
+        {
+            var runtime = NewRuntime();
+            var bay = NewBay();
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
+
+            try
+            {
+                var reconciler = new CartonReconciler(runtime);
+
+                // Still on the lorry. Nothing is built for it: #30's whole point is that a delivery has
+                // to be carried in, and a box that existed in the room before the courier put it down
+                // would be a box somebody could already reach.
+                reconciler.Reconcile(new[] { OnTheTruck() });
+                Assert.IsNull(runtime.CartonPropFor(CartonId),
+                    "A carton the truck has not unloaded yet is standing in the lab.");
+                Assert.IsTrue(CartonFeed.TruckAtBay,
+                    "There is a box left on the lorry and the lorry has already driven off.");
+
+                // Set down in the bay's second standing place.
+                reconciler.Reconcile(new[] { StandingInBay(slot: 1) });
+                var prop = runtime.CartonPropFor(CartonId);
+                Assert.IsNotNull(prop, "A box the host listed has no carton in the room.");
+                Assert.AreSame(bay.Slot(1), prop.transform.parent,
+                    "The bay's second place is where the host says it is; two players have to be able " +
+                    "to talk about the same box.");
+
+                // And the prop reads the row rather than a LabState it does not have.
+                Assert.IsTrue(prop.TryState(out var state),
+                    "The carton prop cannot see its own box, so every prompt on it is dead.");
+                Assert.AreEqual(3, state.VialsRemaining);
+                Assert.IsTrue(state.IsSealed);
+
+                // Carried in and set down on a bench, which on this shelf is a rack hole.
+                reconciler.Reconcile(new[] { OnRack(slot: 2) });
+                Assert.AreSame(rack.Slot(2), runtime.CartonPropFor(CartonId).transform.parent,
+                    "Somebody carried the box in and this client is still showing it in the bay.");
+                Assert.IsFalse(CartonFeed.TruckAtBay,
+                    "Nothing is left to unload and the lorry is still parked outside.");
+
+                // Flattened. The host drops the row rather than tombstoning it.
+                reconciler.Reconcile(System.Array.Empty<CartonPlacement>());
+                Assert.IsNull(runtime.CartonPropFor(CartonId),
+                    "A flattened box is still standing in the room, taking a place the next " +
+                    "delivery needs.");
+            }
+            finally
+            {
+                LabRuntime.ForgetFixture(CartonId, runtime.CartonPropFor(CartonId)?.transform);
+                Retire(bay);
+                Retire(rack);
+                CartonFeed.Reset();
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Promise: the delivery note leaves the box when somebody takes it, and goes back when they
+        /// put it down.
+        /// <para>
+        /// The paper is #32's evidence and it is a <see cref="Carryable"/> in its own right, so a
+        /// client whose note stayed glued inside the carton would be watching another player read a
+        /// page that, from here, never left the box. It is also the one placement that cannot go
+        /// through <see cref="PropSockets"/> unchanged: a note in its box is at
+        /// <c>InCrate(cartonId, -1)</c>, and resolving that as a container would hand back a
+        /// <i>bottle</i> hole and stand the paper in one of the vial slots.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AClientsDeliveryNote_FollowsThePaperItIsToldAbout()
+        {
+            var runtime = NewRuntime();
+            var bay = NewBay();
+            var rack = NewContainer(SampleRack.DefaultRackId, 4);
+
+            try
+            {
+                var reconciler = new CartonReconciler(runtime);
+                reconciler.Reconcile(new[] { StandingInBay(slot: 0) });
+
+                var box = runtime.CartonPropFor(CartonId);
+                Assert.IsNotNull(box);
+
+                // CartonProp builds this the frame the seal goes; Update does not run in edit mode, so
+                // the test does what the open would have done.
+                var note = runtime.SpawnNote(CartonId, "KH-04127", "Werk Nord",
+                                             "DELIVERY NOTE KH-04127", box.NoteSocket);
+                Assert.IsNotNull(note, "No note prefab, so nothing on this client can read a delivery.");
+
+                reconciler.Reconcile(new[] { StandingInBay(slot: 0) });
+                Assert.AreSame(box.NoteSocket, note.transform.parent,
+                    "The note is in a vial hole rather than its own socket, so it is standing where a " +
+                    "bottle should be.");
+
+                // Somebody lifted it out and left it on a rack.
+                reconciler.Reconcile(new[] { StandingInBay(slot: 0, note: OnRackAt(1)) });
+                Assert.AreSame(rack.Slot(1), runtime.NotePropFor(CartonId).transform.parent,
+                    "Another player took the note to a bench and this client still shows it in the box.");
+
+                // And back in the box.
+                reconciler.Reconcile(new[] { StandingInBay(slot: 0) });
+                Assert.AreSame(box.NoteSocket, runtime.NotePropFor(CartonId).transform.parent,
+                    "The note went back in the carton and this client left it on the rack.");
+
+                // The box goes, and its paperwork goes with it.
+                reconciler.Reconcile(System.Array.Empty<CartonPlacement>());
+                Assert.IsNull(runtime.NotePropFor(CartonId),
+                    "A flattened box left its delivery note lying in the room.");
+            }
+            finally
+            {
+                LabRuntime.ForgetFixture(CartonId, runtime.CartonPropFor(CartonId)?.transform);
+                Retire(bay);
+                Retire(rack);
+                CartonFeed.Reset();
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        /// <summary>
+        /// Promise: a box you picked up is in your arms, and stays there.
+        /// <para>
+        /// The bug <see cref="ABottleYouPickedUp_EndsUpInYourHandAndStaysThere"/> guards, written out
+        /// again for cardboard because it is the mistake a new reconciler reintroduces by copying the
+        /// shape and not the reasoning. Between pressing the key and the host's next publish the
+        /// replicated location still names the bay, so the reconciler parents the box back onto its
+        /// standing place; an early return for a locally-held prop then declines to undo it.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ACartonYouPickedUp_EndsUpInYourArmsAndStaysThere()
+        {
+            var runtime = NewRuntime();
+            var bay = NewBay();
+
+            var hands = new GameObject("CarrySocket").transform;
+            var previous = VialFeed.Hands;
+            VialFeed.Hands = new StubHands { LocalClientId = 3UL, Socket = hands };
+
+            try
+            {
+                var reconciler = new CartonReconciler(runtime);
+
+                reconciler.Reconcile(new[] { StandingInBay(slot: 0) });
+                Assert.AreSame(bay.Slot(0), runtime.CartonPropFor(CartonId).transform.parent);
+
+                reconciler.Reconcile(new[] { CarriedBy(3UL) });
+                Assert.AreSame(hands, runtime.CartonPropFor(CartonId).transform.parent,
+                    "The box is still standing in the bay. The interactor thinks it is in your arms, " +
+                    "the host agrees, and the only thing that disagrees is the object you can see.");
+
+                // Idempotent: it runs every frame the box stays there.
+                reconciler.Reconcile(new[] { CarriedBy(3UL) });
+                Assert.AreSame(hands, runtime.CartonPropFor(CartonId).transform.parent);
+            }
+            finally
+            {
+                VialFeed.Hands = previous;
+                LabRuntime.ForgetFixture(CartonId, runtime.CartonPropFor(CartonId)?.transform);
+                Object.DestroyImmediate(hands.gameObject);
+                Retire(bay);
+                CartonFeed.Reset();
+                Object.DestroyImmediate(runtime.gameObject);
+            }
+        }
+
+        private static SampleLocation InTheBox =>
+            SampleLocation.InCrate(CartonId, Carton.InsideSlot);
+
+        private static SampleLocation OnRackAt(int slot) =>
+            SampleLocation.OnSurface(SampleRack.DefaultRackId, slot);
+
+        private static CartonPlacement OnTheTruck() =>
+            new(CartonId, "KH-04127", "Werk Nord", CartonStage.OnTheRoad, true, 3, default,
+                InTheBox, null);
+
+        private static CartonPlacement StandingInBay(int slot, SampleLocation? note = null) =>
+            new(CartonId, "KH-04127", "Werk Nord", CartonStage.Delivered, true, 3,
+                SampleLocation.OnSurface(DeliveryBayStation.FixtureId, slot), note ?? InTheBox, null);
+
+        private static CartonPlacement OnRack(int slot) =>
+            new(CartonId, "KH-04127", "Werk Nord", CartonStage.Delivered, false, 3, OnRackAt(slot),
+                InTheBox, null);
+
+        private static CartonPlacement CarriedBy(ulong holder) =>
+            new(CartonId, "KH-04127", "Werk Nord", CartonStage.Delivered, true, 3,
+                SampleLocation.Held(holder), InTheBox, null);
+
+        /// <summary>The bay's standing places, registered the way its <c>OnEnable</c> would be.</summary>
+        private static DeliveryBayStation NewBay()
+        {
+            var go = new GameObject("DeliveryBay_UnderTest");
+            var station = go.AddComponent<DeliveryBayStation>();
+
+            LabRuntime.RegisterFixture(DeliveryBayStation.FixtureId, go.transform, station);
+            return station;
+        }
+
+        private static void Retire(DeliveryBayStation bay)
+        {
+            LabRuntime.ForgetFixture(DeliveryBayStation.FixtureId, bay.transform);
+            Object.DestroyImmediate(bay.gameObject);
+        }
+
         private sealed class TwoPlayerHands : IPlayerHands
         {
             public ulong LocalClientId { get; set; }
@@ -816,6 +1041,14 @@ namespace Residue.Tests.EditMode
             slipGo.transform.SetParent(go.transform, false);
             slipGo.SetActive(false);
 
+            var cartonGo = new GameObject("CartonPrefab");
+            cartonGo.transform.SetParent(go.transform, false);
+            cartonGo.SetActive(false);
+
+            var noteGo = new GameObject("NotePrefab");
+            noteGo.transform.SetParent(go.transform, false);
+            noteGo.SetActive(false);
+
             // Paper is the one prop whose colliders a test asserts on: whether you may aim at a slip
             // is how "somebody else has it" is expressed in the room. Carryable.AttachTo switches them,
             // so there has to be one to switch.
@@ -825,6 +1058,8 @@ namespace Residue.Tests.EditMode
             so.FindProperty("vialPrefab").objectReferenceValue = vialGo.AddComponent<VialProp>();
             so.FindProperty("bottlePrefab").objectReferenceValue = bottleGo.AddComponent<SolventBottle>();
             so.FindProperty("printoutPrefab").objectReferenceValue = slipGo.AddComponent<PrintoutProp>();
+            so.FindProperty("cartonPrefab").objectReferenceValue = cartonGo.AddComponent<CartonProp>();
+            so.FindProperty("notePrefab").objectReferenceValue = noteGo.AddComponent<DeliveryNoteProp>();
             so.ApplyModifiedPropertiesWithoutUndo();
 
             return runtime;

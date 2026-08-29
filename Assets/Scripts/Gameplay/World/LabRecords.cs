@@ -100,9 +100,10 @@ namespace Residue.Gameplay.World
         /// </para>
         ///
         /// <para>
-        /// Empty on a joined desk until cartons replicate (#80). The panel says so rather than
-        /// pretending the note is blank, and nothing else on the screen depends on it — a client can
-        /// still run, file and read everything it always could.
+        /// Filled on a joined desk too since #80: the lines travel as <c>Residue.Net.Views.NoteLineView</c>
+        /// and a client rebuilds the same <see cref="DeliveryNote"/> objects the paper prop is typed
+        /// from, so the desk and the page in somebody's hand number the rows identically. Every
+        /// rebuilt line comes back with no sample against it, which is what the paper says as well.
         /// </para>
         /// </summary>
         public IReadOnlyList<DeliveryNote> Notes = new List<DeliveryNote>();
