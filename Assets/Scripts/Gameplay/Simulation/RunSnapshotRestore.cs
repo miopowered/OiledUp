@@ -175,6 +175,22 @@ namespace Residue.Gameplay.Simulation
                     return false;
                 }
 
+                // A sender that no longer exists refuses the whole load, like every other content id.
+                // Silently dropping it would leave a sample whose paperwork claims a firm the lab has
+                // never heard of, and #32 reconciles against exactly that paperwork — so a note with
+                // no sender is a discrepancy the player could not have caused and cannot resolve.
+                CustomerDef customer = null;
+                if (!string.IsNullOrEmpty(record.CustomerId))
+                {
+                    customer = catalog.Customer(record.CustomerId);
+                    if (customer == null)
+                    {
+                        refusal = $"{record.EquipmentTag} was sent by “{record.CustomerId}”, which " +
+                                  "this build no longer has on file. The run cannot be continued.";
+                        return false;
+                    }
+                }
+
                 RootCauseDef filedCause = null;
                 if (!string.IsNullOrEmpty(record.FiledRootCauseId))
                 {
@@ -227,6 +243,8 @@ namespace Residue.Gameplay.Simulation
                     Id = new SampleId(record.Id),
                     EquipmentTag = record.EquipmentTag,
                     Profile = profile,
+                    Customer = customer,
+                    JobNumber = record.JobNumber,
                     HoursSinceOilChange = record.HoursSinceOilChange,
                     FieldTechNote = record.FieldTechNote,
                     CollectedDay = record.CollectedDay,

@@ -50,7 +50,7 @@ namespace Residue.Gameplay.Simulation
         /// A reader refuses anything it does not recognise, with both numbers in the message. See
         /// <see cref="RunSnapshotCodec"/> for why refusing beats guessing.
         /// </summary>
-        public const int SchemaVersion = 1;
+        public const int SchemaVersion = 2;
 
         public int Schema = SchemaVersion;
 
@@ -150,6 +150,13 @@ namespace Residue.Gameplay.Simulation
             public int Id;
             public string EquipmentTag;
             public string ProfileId;
+
+            /// <summary>Who sent it (#29), by id. Null for a sample with no sender on file.</summary>
+            public string CustomerId;
+
+            /// <summary>The delivery it arrived on, e.g. KH-04127. Null when there was no paperwork.</summary>
+            public string JobNumber;
+
             public float HoursSinceOilChange;
             public string FieldTechNote;
             public int CollectedDay;

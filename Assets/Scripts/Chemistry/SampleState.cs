@@ -27,6 +27,32 @@ namespace Residue.Chemistry
         public int CollectedDay;
 
         /// <summary>
+        /// The firm that sent this sample, or null for one that arrived without a sender (#29).
+        /// <para>
+        /// A definition reference rather than an id, matching <see cref="Profile"/> beside it — the
+        /// catalog is the one source of truth for what a customer is, and holding the object means a
+        /// renamed firm cannot leave a sample pointing at a name that no longer exists. What
+        /// <i>persists</i> is the id: a save stores <c>Customer.Id</c> and resolves it on load, because
+        /// a save that pinned its own copy of a customer would fork the balance tables the moment they
+        /// were rebuilt.
+        /// </para>
+        /// This is provenance, not chemistry. Nothing about the sender changes what an instrument
+        /// reads (hard rule 1); it changes what the paperwork claims and therefore what is worth
+        /// checking.
+        /// </summary>
+        public CustomerDef Customer;
+
+        /// <summary>
+        /// The delivery this arrived on, e.g. <c>KH-04127</c>. Null for a sample with no paperwork.
+        /// <para>
+        /// Stored on the sample rather than only on the note because a vial outlives the day its
+        /// carton was opened: a re-draw filed three days later still has to be traceable to the job it
+        /// came in on, and the note itself is a runtime object that does not survive the shift.
+        /// </para>
+        /// </summary>
+        public string JobNumber;
+
+        /// <summary>
         /// The earlier sample this is a re-draw of, when the player filed MONITOR and the unit
         /// stayed in service (§5.4). <see cref="SampleId.None"/> for a first draw.
         /// <para>

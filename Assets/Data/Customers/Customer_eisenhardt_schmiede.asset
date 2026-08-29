@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8070e41163e49f54cacfd7401b1ebc88, type: 3}
+  m_Name: Customer_eisenhardt_schmiede
+  m_EditorClassIdentifier: Residue.Data::Residue.Data.CustomerDef
+  id: eisenhardt_schmiede
+  displayName: Eisenhardt Schmiede
+  industry: 2
+  orderPrefix: EH
+  sites:
+  - OF1
+  - OF4
+  oils:
+  - {fileID: 11400000, guid: 4d428588bd3218942bcad06c2ca5ceaa, type: 2}
+  - {fileID: 11400000, guid: e40e0bf63f3d0fa4297d058d32dfe17b, type: 2}
+  - {fileID: 11400000, guid: 5e01bc96f92abde439b9ef54bcf1f516, type: 2}
+  reliability: 1
+  paperworkSlipChance: 0.1
+  sameDrumChance: 0.04

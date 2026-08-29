@@ -85,6 +85,42 @@ namespace Residue.Editor.Content
         }
     }
 
+    /// <summary>
+    /// A firm that sends the lab work (§6.1, #29).
+    /// <para>
+    /// <b>The oils are the identity.</b> A customer that runs everything is a customer whose name
+    /// tells the player nothing, so each of these runs two or three fluids and the sets overlap only
+    /// where the industry makes them overlap. Knowing who sent a vial should narrow what it can be
+    /// before an instrument has run.
+    /// </para>
+    /// <para>
+    /// <b>Sites and the order prefix exist to be misread, not mistyped.</b> There is no transcription
+    /// step since #73, so a tag is never typed — but a delivery note is <i>read</i>, and #32 wants
+    /// duplicate tank ids and illegible labels to be plausible. Sites within one customer are
+    /// deliberately near-neighbours (<c>NW1</c>/<c>NW2</c>, <c>K7</c>/<c>K9</c>) so two lines on a note
+    /// can be conflated at a glance by someone in a hurry.
+    /// </para>
+    /// The two chances are propensities only; nothing reads them until #32.
+    /// </summary>
+    internal readonly struct CustomerRow
+    {
+        public readonly string Id, Name, OrderPrefix;
+        public readonly CustomerIndustry Industry;
+        public readonly CustomerReliability Reliability;
+        public readonly string[] Sites;
+        public readonly string[] Oils;
+        public readonly float PaperworkSlip, SameDrum;
+
+        public CustomerRow(string id, string name, CustomerIndustry industry, string orderPrefix,
+                           string[] sites, string[] oils, CustomerReliability reliability,
+                           float paperworkSlip, float sameDrum)
+        {
+            Id = id; Name = name; Industry = industry; OrderPrefix = orderPrefix;
+            Sites = sites; Oils = oils; Reliability = reliability;
+            PaperworkSlip = paperworkSlip; SameDrum = sameDrum;
+        }
+    }
+
     internal readonly struct MachineRow
     {
         public readonly string Id, Name;
@@ -500,6 +536,58 @@ namespace Residue.Editor.Content
                 daysToFailure: 6, repairCost: 7400f, teardownCostIfWrong: 5600f,
                 rootCauseId: "localised_overheating", validOn: HotBaths,
                 missedConsequence: "The hot spot was never found. The oil coked, the bath had to be dumped and the furnace stripped.")
+        };
+
+        // -- Customers ----------------------------------------------------------------------------
+        //
+        // Six firms, §6.2's four industries. Each runs two or three fluids and no two run the same
+        // set, so the sender narrows the diagnosis before an instrument has: a spring maker's vial is
+        // not going to be vacuum quench oil.
+        //
+        // Reliability rises from Meticulous to CutsCorners across the list on purpose. A contract that
+        // draws from all six gives the player one firm whose paperwork is never wrong and one worth
+        // suspecting, which is what makes the trait learnable rather than random. The two chances are
+        // propensities for #32 and are read by nothing yet.
+
+        public static readonly CustomerRow[] Customers =
+        {
+            // The reference customer. Nothing about Vogel is ever the problem, which is what makes
+            // them useful: a strange reading on a Vogel sample is a strange sample, not a strange
+            // sender, and that is the control the player learns to reason against.
+            new("vogel_getriebe", "Vogel Getriebebau", CustomerIndustry.AutomotiveSupplier, "VG",
+                new[] { "NW1", "NW2" },
+                new[] { "hardening_oil_general", "quench_oil_cold" },
+                CustomerReliability.Meticulous, 0.00f, 0.00f),
+
+            new("halbach_praezision", "Halbach Präzisionsteile", CustomerIndustry.AutomotiveSupplier, "HP",
+                new[] { "K7", "K9" },
+                new[] { "quench_oil_cold", "quench_oil_martempering", "corrosion_protection_oil" },
+                CustomerReliability.Routine, 0.06f, 0.00f),
+
+            new("stern_schrauben", "Stern Schraubenwerk", CustomerIndustry.FastenerWorks, "SS",
+                new[] { "B2", "B3", "B5" },
+                new[] { "quench_oil_accelerated", "corrosion_protection_oil" },
+                CustomerReliability.Routine, 0.08f, 0.02f),
+
+            // A forge runs hot baths and vacuum work, which is the mix nobody else here has.
+            new("eisenhardt_schmiede", "Eisenhardt Schmiede", CustomerIndustry.Forge, "EH",
+                new[] { "OF1", "OF4" },
+                new[] { "quench_oil_martempering", "quench_oil_vacuum", "hardening_oil_general" },
+                CustomerReliability.Routine, 0.10f, 0.04f),
+
+            new("federwerk_lindau", "Federwerk Lindau", CustomerIndustry.SpringMaker, "FL",
+                new[] { "L3", "L8" },
+                new[] { "quench_oil_cold", "corrosion_protection_oil" },
+                CustomerReliability.Careless, 0.22f, 0.08f),
+
+            // §6.1's corner-cutter. Three sites and adjacent tank codes give a note plenty of lines
+            // that look alike, and the same-drum chance is the trap the spec names outright. It stays
+            // fair because the tell is in the readings: several supposedly different baths coming back
+            // identical is not a coincidence a player has to intuit, it is one they can measure.
+            new("kessler_haerterei", "Kessler Härterei", CustomerIndustry.Forge, "KH",
+                new[] { "W1", "W2", "W3" },
+                new[] { "quench_oil_cold", "quench_oil_accelerated", "hardening_oil_general" },
+                CustomerReliability.CutsCorners, 0.30f, 0.25f)
         };
 
         // -- Instruments --------------------------------------------------------------------------
