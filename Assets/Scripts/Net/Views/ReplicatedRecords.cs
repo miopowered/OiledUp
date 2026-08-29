@@ -286,12 +286,21 @@ namespace Residue.Net.Views
         private static SampleState Rebuild(SampleView view, ContentCatalog catalog)
         {
             var note = view.FieldTechNote.ToString();
+            var job = view.JobNumber.ToString();
 
             return new SampleState
             {
                 Id = view.SampleId,
                 EquipmentTag = view.RecordTag.ToString(),
                 Profile = catalog.Profile(view.ProfileId.ToString()),
+
+                // Resolved against the client's own catalog, exactly as the profile above is. Without
+                // these two the sender crosses the wire and is dropped on arrival: the view carries it
+                // and the rebuilt state does not, so a client screen asking who sent a vial gets null
+                // while the host's identical screen answers. That divergence is what this whole layer
+                // exists to prevent.
+                Customer = catalog.Customer(view.CustomerId.ToString()),
+                JobNumber = string.IsNullOrEmpty(job) ? null : job,
                 VolumeMl = view.VolumeMl,
                 HoursSinceOilChange = view.HoursSinceOilChange,
                 FieldTechNote = string.IsNullOrEmpty(note) ? null : note,

@@ -35,6 +35,23 @@ namespace Residue.Net.Views
         /// <summary><see cref="EquipmentProfileDef.Id"/>, so the client can look up thresholds it already ships.</summary>
         public FixedString64Bytes ProfileId;
 
+        /// <summary>
+        /// <see cref="CustomerDef.Id"/>, not the display name.
+        /// <para>
+        /// The id travels because <see cref="ProfileId"/> beside it does, and for the same reason: a
+        /// client resolves it against its own <c>ContentCatalog</c> once, in
+        /// <c>ReplicatedRecords</c>, and ends up holding the real <see cref="CustomerDef"/>. Sending
+        /// the name instead would put a second copy of it on the wire that no client could resolve
+        /// back to a customer — so a screen wanting anything other than the name (the industry, the
+        /// sites a note should be checked against) would have nothing to ask.
+        /// </para>
+        /// Empty when <see cref="SampleState.Customer"/> is null.
+        /// </summary>
+        public FixedString64Bytes CustomerId;
+
+        /// <summary>The delivery's job number, e.g. "KH-04127". Empty when the sample carries none.</summary>
+        public FixedString64Bytes JobNumber;
+
         /// <summary>Millilitres left. §4.5's whole test-ordering decision is about this number.</summary>
         public float VolumeMl;
 
@@ -111,6 +128,8 @@ namespace Residue.Net.Views
                 Id = state.Id.Value,
                 RecordTag = ViewText.Fixed64(state.RecordTag),
                 ProfileId = ViewText.Fixed64(state.Profile != null ? state.Profile.Id : null),
+                CustomerId = ViewText.Fixed64(state.Customer != null ? state.Customer.Id : null),
+                JobNumber = ViewText.Fixed64(state.JobNumber),
                 VolumeMl = state.VolumeMl,
                 HoursSinceOilChange = state.HoursSinceOilChange,
                 FieldTechNote = ViewText.Fixed128(state.FieldTechNote),
@@ -129,6 +148,8 @@ namespace Residue.Net.Views
             serializer.SerializeValue(ref Id);
             serializer.SerializeValue(ref RecordTag);
             serializer.SerializeValue(ref ProfileId);
+            serializer.SerializeValue(ref CustomerId);
+            serializer.SerializeValue(ref JobNumber);
             serializer.SerializeValue(ref VolumeMl);
             serializer.SerializeValue(ref HoursSinceOilChange);
             serializer.SerializeValue(ref FieldTechNote);
@@ -145,6 +166,8 @@ namespace Residue.Net.Views
             Id == other.Id &&
             RecordTag.Equals(other.RecordTag) &&
             ProfileId.Equals(other.ProfileId) &&
+            CustomerId.Equals(other.CustomerId) &&
+            JobNumber.Equals(other.JobNumber) &&
             VolumeMl.Equals(other.VolumeMl) &&
             HoursSinceOilChange.Equals(other.HoursSinceOilChange) &&
             FieldTechNote.Equals(other.FieldTechNote) &&
