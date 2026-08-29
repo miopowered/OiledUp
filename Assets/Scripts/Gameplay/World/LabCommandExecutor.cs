@@ -85,6 +85,8 @@ namespace Residue.Gameplay.World
                 LabCommandKind.OrderSolvent => OrderSolvent(actor, command),
                 LabCommandKind.OrderStandards => OrderStandards(actor, command),
                 LabCommandKind.ReopenSuspect => ReopenSuspect(actor, command),
+                LabCommandKind.RegisterSample => RegisterSample(actor, command),
+                LabCommandKind.CallCustomer => CallCustomer(actor, command),
                 LabCommandKind.EndDay => EndDay(actor),
                 LabCommandKind.StartNextDay => StartNextDay(actor),
 
@@ -681,6 +683,39 @@ namespace Residue.Gameplay.World
 
             return lab.TryReopenSuspect(command.Sample, out string refusal)
                 ? LabCommandResult.Yes(command.Sample)
+                : LabCommandResult.No(refusal);
+        }
+
+        /// <summary>
+        /// Record which line of a delivery note an ambiguous vial answers (#32).
+        /// <para>
+        /// At the terminal, like every other piece of paperwork — the note may be anywhere, but the
+        /// decision is written into the lab's records and the records are at the desk. Reach is the
+        /// only thing established here; whether there is anything to decide at all belongs to
+        /// <see cref="DeliveryBay.TryRegisterSample"/>, which refuses a legible bottle in its own
+        /// words.
+        /// </para>
+        /// </summary>
+        private LabCommandResult RegisterSample(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            return lab.TryRegisterSample(command.Sample, command.Amount, out string refusal)
+                ? LabCommandResult.Yes(command.Sample)
+                : LabCommandResult.No(refusal);
+        }
+
+        /// <summary>
+        /// Ring a customer about a label that cannot be read (#32). Costs shift time, which
+        /// <see cref="LabState.TryCallCustomer"/> charges — the day clock is the lab's, not this
+        /// type's.
+        /// </summary>
+        private LabCommandResult CallCustomer(ILabActor actor, LabCommand command)
+        {
+            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+
+            return lab.TryCallCustomer(command.Text, out _, out string refusal)
+                ? LabCommandResult.Ok
                 : LabCommandResult.No(refusal);
         }
 

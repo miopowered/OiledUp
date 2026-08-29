@@ -87,6 +87,44 @@ namespace Residue.Gameplay.Simulation
         /// </summary>
         public float CalibrationCost = 140f;
 
+        // -- Reconciliation (#32) ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Reputation charged when a verdict goes out against the wrong tank — an unidentified vial,
+        /// a vial registered as something it is not, or two vials off one drum certified as two
+        /// independent draws.
+        ///
+        /// <para>
+        /// Between a false positive (−3) and a missed fault (−12), and deliberately: misattributing a
+        /// report is worse than an over-cautious call, because the customer acts on a tank that was
+        /// never tested — but it is not the catastrophe of passing a failing bath. The payout is
+        /// withheld on top (see <see cref="ConsequenceResolver"/>), which is where most of the sting
+        /// is: correct analysis, wrongly addressed, is work the lab does not get paid for.
+        /// </para>
+        /// </summary>
+        public float MisattributedReputation = -6f;
+
+        /// <summary>
+        /// Paid when the player runs both halves of a duplicated claim, sees identical numbers, and
+        /// records that they cannot be separated — §6.1's same-drum trap, caught.
+        ///
+        /// <para>
+        /// Sized near <see cref="RootCauseBonus"/> because it rewards the same thing: a conclusion
+        /// reached by measuring rather than by guessing. It has to cover the second instrument run it
+        /// takes to earn, or the cheap play is to declare every duplicate inseparable without ever
+        /// loading the second vial — which <see cref="FalseAmbiguityReputation"/> is what stops.
+        /// </para>
+        /// </summary>
+        public float SameDrumCatchBonus = 300f;
+
+        /// <summary>
+        /// Reputation charged for declaring two genuine draws inseparable. Small: the player was
+        /// honest about their uncertainty and the customer lost nothing but confidence. Non-zero,
+        /// because a free "cannot tell" would be the dominant move on every duplicated claim and the
+        /// measurement that makes the trap fair would never be taken.
+        /// </summary>
+        public float FalseAmbiguityReputation = -1.5f;
+
         public float FalsePositiveReputation = -3f;
         public float MonitorOnImminentReputation = -8f;
         public float MissedFaultReputation = -12f;

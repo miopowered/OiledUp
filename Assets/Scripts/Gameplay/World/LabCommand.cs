@@ -95,6 +95,18 @@ namespace Residue.Gameplay.World
         /// <summary>Withdraw a verdict filed on numbers a drifting instrument produced (§5.3).</summary>
         ReopenSuspect,
 
+        /// <summary>
+        /// Record which line of a delivery note an ambiguous vial answers (#32). Refused outright for
+        /// a vial whose label is legible — this is not booking-in coming back.
+        /// </summary>
+        RegisterSample,
+
+        /// <summary>
+        /// Ring a customer's dispatcher about a label that cannot be read (#32). Costs shift time and
+        /// settles nothing else.
+        /// </summary>
+        CallCustomer,
+
         /// <summary>Close the shift and settle everything due.</summary>
         EndDay,
 
@@ -245,6 +257,26 @@ namespace Residue.Gameplay.World
 
         public static LabCommand ReopenSuspect(SampleId sample) =>
             new(LabCommandKind.ReopenSuspect, sample: sample);
+
+        /// <summary>
+        /// Say which line of the note this vial answers, or
+        /// <see cref="Residue.Chemistry.SampleState.CannotTell"/> that you cannot say (#32).
+        /// <para>
+        /// The note is named by nothing: a vial arrived under exactly one delivery and the host knows
+        /// which, so letting a request pick the paperwork would let a client register a bottle against
+        /// somebody else's job.
+        /// </para>
+        /// </summary>
+        public static LabCommand RegisterSample(SampleId sample, int noteLine) =>
+            new(LabCommandKind.RegisterSample, sample: sample, amount: noteLine);
+
+        /// <summary>
+        /// Ring the sender of one delivery (#32). The carton travels in <see cref="Text"/> rather than
+        /// <see cref="FixtureId"/> because the action is aimed at the terminal — you make the call
+        /// from the desk — and the box is its subject, not the thing being operated.
+        /// </summary>
+        public static LabCommand CallCustomer(string cartonId) =>
+            new(LabCommandKind.CallCustomer, text: cartonId);
 
         public static LabCommand EndDay() => new(LabCommandKind.EndDay);
 

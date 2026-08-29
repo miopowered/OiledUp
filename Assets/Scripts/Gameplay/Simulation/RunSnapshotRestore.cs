@@ -213,6 +213,17 @@ namespace Residue.Gameplay.Simulation
                     return false;
                 }
 
+                // Refused rather than defaulted to None, for the reason a missing fault is refused: a
+                // vial that came back "label perfectly legible" would quietly stop being scored
+                // against the tank the player registered it as, and the §5.4 cost of getting that
+                // wrong would vanish over a quit (#32).
+                if (!TryEnum<SampleAmbiguity>(record.Ambiguity, out var ambiguity))
+                {
+                    refusal = $"{record.EquipmentTag} is marked with a kind of ambiguity this build " +
+                              "does not have. The run cannot be continued.";
+                    return false;
+                }
+
                 if (!truths.TryGetValue(record.Id, out var truthRecord))
                 {
                     // A record with no chemistry behind it can never be resolved: the registry would
@@ -261,7 +272,11 @@ namespace Residue.Gameplay.Simulation
                     FiledVerdict = record.FiledVerdict >= 0 ? (Verdict)record.FiledVerdict : (Verdict?)null,
                     FiledRootCause = filedCause,
                     FiledOnDay = record.FiledOnDay,
-                    ConsequenceResolved = record.ConsequenceResolved
+                    ConsequenceResolved = record.ConsequenceResolved,
+
+                    Ambiguity = ambiguity,
+                    RegisteredLine = record.RegisteredLine,
+                    RegisteredTag = record.RegisteredTag
                 };
 
                 foreach (var result in record.Results)
@@ -270,8 +285,7 @@ namespace Residue.Gameplay.Simulation
                     if (restored != null) state.Results.Add(restored);
                 }
 
-                lab.Samples.RestoreSample(state, faults, severities,
-                                          truthRecord.TrueValues, truthRecord.Contamination);
+                lab.Samples.RestoreSample(state, faults, severities, truthRecord);
             }
 
             foreach (var pending in snapshot.Pending)
@@ -320,7 +334,10 @@ namespace Residue.Gameplay.Simulation
                     FaultName = record.FaultName,
                     ActualRootCause = record.ActualRootCause,
                     RequeueSample = record.RequeueSample,
-                    Headline = record.Headline
+                    Headline = record.Headline,
+                    Registration = TryEnum<RegistrationOutcome>(record.Registration, out var registration)
+                        ? registration
+                        : RegistrationOutcome.NotAmbiguous
                 });
             }
         }

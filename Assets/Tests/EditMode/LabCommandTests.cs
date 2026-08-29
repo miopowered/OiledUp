@@ -850,7 +850,10 @@ namespace Residue.Tests.EditMode
             var lab = NewLab();
             var executor = new LabCommandExecutor(lab);
 
-            var sample = lab.OpenSamples().First();
+            // Any bottle whose label survived the post. #32 lets a label arrive unreadable, and that
+            // one vial in a shift is the single case where a name is decided rather than read — the
+            // claim under test is about all the others.
+            var sample = lab.OpenSamples().First(s => s.Ambiguity == SampleAmbiguity.None);
             Assert.IsTrue(SampleLifecycle.TryMove(sample, SampleLocation.OnSurface("bench", 0), out _));
 
             Assert.AreEqual(sample.EquipmentTag, sample.RecordTag,

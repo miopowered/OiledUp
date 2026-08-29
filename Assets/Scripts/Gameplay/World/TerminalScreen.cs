@@ -707,6 +707,8 @@ namespace Residue.Gameplay.World
                 panel.Add(history);
             }
 
+            if (sample.Ambiguity != SampleAmbiguity.None) panel.Add(ReconcilePanel(records, sample));
+
             if (!string.IsNullOrEmpty(sample.FieldTechNote))
             {
                 var note = new Label($"Field note: \"{sample.FieldTechNote}\"");
@@ -725,6 +727,139 @@ namespace Residue.Gameplay.World
 
             panel.Add(VerdictBar(records, sample));
             return panel;
+        }
+
+        /// <summary>
+        /// #32's registration: the one place in the game where a sample is named by hand.
+        ///
+        /// <para>
+        /// <b>It is drawn only for a vial that cannot speak for itself</b> — a label that did not
+        /// survive the post, or two bottles carrying one tag. Fourteen of the day's sixteen samples
+        /// never show this block at all, which is the whole settlement with #73: the typed step exists
+        /// where the interesting failure is and nowhere else, and nothing on this screen or in the room
+        /// waits for it. A player who closes the terminal without touching it has an unidentified
+        /// vial and can still run it, file it and be paid for it — until the report comes due.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>The lines are offered, the reconciliation is not.</b> Rows are printed exactly as the
+        /// customer typed them, in the order they were booked, with no mark against the ones other
+        /// bottles already answer. Working out which line is spare is the player's job and it is done
+        /// with the paper in the box and the rack in front of them; a desk that ticked off the
+        /// answered lines would hand over the reconciliation this whole issue is about.
+        /// </para>
+        /// </summary>
+        private VisualElement ReconcilePanel(LabRecords records, SampleState sample)
+        {
+            var box = new VisualElement();
+            box.style.marginBottom = 8;
+            box.style.paddingTop = 8;
+            box.style.paddingBottom = 8;
+            box.style.paddingLeft = 10;
+            box.style.paddingRight = 10;
+            box.style.backgroundColor = new StyleColor(SignalPalette.PanelSoft);
+            LabHud.Round(box, 3);
+
+            box.Add(SectionTitle("RECONCILE AGAINST THE DELIVERY NOTE"));
+
+            box.Add(Dim(sample.Ambiguity == SampleAmbiguity.UnreadableLabel
+                ? "This bottle's tank tag cannot be read. The note that came in its carton lists the " +
+                  "tanks the sender says they drew — the spare one is this."
+                : "Another bottle in this carton carries the same tag, and the note books that tank " +
+                  "twice. Say which draw this is, or that they cannot be told apart."));
+
+            var note = records.NoteFor(sample);
+            if (note == null || note.Count == 0)
+            {
+                box.Add(Tiny(
+                    $"No delivery note for {sample.JobNumber ?? "this vial"} at this desk. " +
+                    "Paperwork does not reach a joined terminal yet (#80).",
+                    SignalPalette.Caution));
+                return box;
+            }
+
+            box.Add(Tiny(
+                sample.NeedsRegistering
+                    ? $"NOT REGISTERED — note {note.JobNumber}"
+                    : sample.RegisteredLine == SampleState.CannotTell
+                        ? $"RECORDED AS INSEPARABLE — note {note.JobNumber}"
+                        : $"REGISTERED AS {sample.RegisteredTag} — note {note.JobNumber}",
+                sample.NeedsRegistering ? SignalPalette.Dim : SignalPalette.Ink));
+
+            var refusal = Tiny("", SignalPalette.Caution);
+
+            var rows = new VisualElement();
+            rows.style.flexDirection = FlexDirection.Row;
+            rows.style.flexWrap = Wrap.Wrap;
+
+            for (int i = 0; i < note.Count; i++)
+            {
+                int line = i;
+                var claim = note.Lines[i];
+
+                var pick = new Button(() => Ask(LabCommand.RegisterSample(sample.Id, line), refusal))
+                { text = $"{line + 1}. {claim.TankTag ?? "—"}" };
+
+                StyleButton(pick, sample.RegisteredLine == line
+                    ? SignalPalette.Accent
+                    : new Color(0.09f, 0.10f, 0.11f));
+                pick.style.marginLeft = 0;
+                pick.style.marginRight = 4;
+                pick.style.marginBottom = 4;
+                rows.Add(pick);
+            }
+
+            var cannot = new Button(
+                () => Ask(LabCommand.RegisterSample(sample.Id, SampleState.CannotTell), refusal))
+            { text = "CANNOT TELL" };
+
+            StyleButton(cannot, sample.RegisteredLine == SampleState.CannotTell
+                ? SignalPalette.Accent
+                : new Color(0.09f, 0.10f, 0.11f));
+            cannot.style.marginLeft = 0;
+            cannot.style.marginRight = 4;
+            cannot.style.marginBottom = 4;
+            rows.Add(cannot);
+
+            box.Add(rows);
+
+            // The call settles an unreadable label and nothing else, so it is only offered where it
+            // can do something. Asked about a duplicated claim the dispatcher reads their own note
+            // back, and their note is what is in doubt — LabState.TryCallCustomer says so out loud
+            // rather than leaving a button that always refuses.
+            if (sample.Ambiguity == SampleAmbiguity.UnreadableLabel)
+            {
+                var carton = FindCartonId(sample);
+
+                var call = new Button(() => Ask(LabCommand.CallCustomer(carton), refusal))
+                { text = $"RING THE CUSTOMER  ({DeliveryDiscrepancies.CallSeconds:F0} s)" };
+
+                StyleButton(call, SignalPalette.PanelSoft);
+                call.style.marginLeft = 0;
+                box.Add(call);
+            }
+
+            box.Add(refusal);
+            return box;
+        }
+
+        /// <summary>
+        /// The box a vial came in, which is what a call to the customer is about.
+        /// <para>
+        /// Derived from where the host says the sample is when it is still in its carton, and from the
+        /// job number otherwise — a vial lifted out onto a rack still came under one delivery. The
+        /// host re-derives it either way; this only has to name a box the request can be about.
+        /// </para>
+        /// </summary>
+        private static string FindCartonId(SampleState sample)
+        {
+            if (sample.Location.Kind == SampleLocationKind.InCrate &&
+                Carton.IsCartonId(sample.Location.ContainerId))
+            {
+                return sample.Location.ContainerId;
+            }
+
+            return Carton.IdFor(sample.CollectedDay, sample.JobNumber);
         }
 
         /// <summary>

@@ -55,9 +55,26 @@ namespace Residue.Gameplay.Simulation
         /// <summary>MONITOR on a developing fault re-sends the sample next cycle with worse numbers (§5.4).</summary>
         public bool RequeueSample;
 
+        /// <summary>
+        /// How the player's #32 registration turned out. <see cref="RegistrationOutcome.NotAmbiguous"/>
+        /// for the overwhelming majority of samples, whose labels said what they were.
+        /// </summary>
+        public RegistrationOutcome Registration;
+
+        /// <summary>
+        /// The report named a tank this oil did not come from. The diagnosis in
+        /// <see cref="Outcome"/> still stands — it was a real reading of a real vial — but the
+        /// customer cannot act on it, so the payout does not land.
+        /// </summary>
+        public bool Misattributed => DeliveryReconciliation.IsMisattributed(Registration);
+
         public string Headline;
 
-        public bool IsGood => Outcome is ConsequenceOutcome.CorrectCritical
+        /// <summary>
+        /// Work the lab should be pleased with. A misattributed report never qualifies however good
+        /// the analysis was: a correct diagnosis of the wrong tank is not a service anyone received.
+        /// </summary>
+        public bool IsGood => !Misattributed && Outcome is ConsequenceOutcome.CorrectCritical
             or ConsequenceOutcome.CorrectNormal
             or ConsequenceOutcome.MonitorDeveloping;
     }
@@ -158,7 +175,76 @@ namespace Residue.Gameplay.Simulation
                     break;
             }
 
+            ScoreRegistration(state, truth, tuning, report);
             return report;
+        }
+
+        /// <summary>
+        /// Settle #32's half of the same verdict: was the report addressed to the right tank?
+        ///
+        /// <para>
+        /// <b>Layered on top of §5.4 rather than beside it.</b> The diagnosis is scored first and
+        /// keeps its outcome, its fault name and its sentence; this adjusts what the lab is paid for
+        /// it and adds a second sentence saying why. Two separate reports — one for the chemistry, one
+        /// for the paperwork — would arrive at the end-of-day screen as two rows about one vial, and
+        /// the player would have to join them up themselves.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>A misattributed report loses its payout and keeps its penalty.</b> Zeroing a positive
+        /// <see cref="ConsequenceReport.MoneyDelta"/> is the whole of the money side: correct work
+        /// sent to the wrong address earns nothing. A negative one is left alone, because a missed
+        /// fault does not get cheaper for having been misfiled — the bath still failed.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Nothing here is reachable without the note.</b> Every branch scores a decision the player
+        /// made from evidence that arrived in the box, which is hard rule 3 and the reason this issue
+        /// is a keystone. A vial whose label was legible never reaches any of it.
+        /// </para>
+        /// </summary>
+        private static void ScoreRegistration(SampleState state, SampleGroundTruth truth,
+                                              EconomyTuning tuning, ConsequenceReport report)
+        {
+            report.Registration = DeliveryReconciliation.Score(state, truth.TrueTankTag,
+                                                               truth.DrawnFromOneDrum);
+
+            switch (report.Registration)
+            {
+                case RegistrationOutcome.Unregistered:
+                    if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
+                    report.ReputationDelta += tuning.MisattributedReputation;
+                    report.Headline += " The vial it came from was never identified, so the report " +
+                                       "went out against no tank at all. Unbillable.";
+                    break;
+
+                case RegistrationOutcome.WrongTank:
+                    if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
+                    report.ReputationDelta += tuning.MisattributedReputation;
+                    report.Headline += $" Filed against {state.RegisteredTag}. The oil was drawn from " +
+                                       $"{truth.TrueTankTag}. They have acted on the wrong bath.";
+                    break;
+
+                case RegistrationOutcome.MissedSplitDraw:
+                    if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
+                    report.ReputationDelta += tuning.MisattributedReputation;
+                    report.Headline += " Both vials were bottled from one drum and you certified them " +
+                                       "as two draws. They paid for a cross-check and got one sample " +
+                                       "counted twice.";
+                    break;
+
+                case RegistrationOutcome.ImaginedSplitDraw:
+                    report.ReputationDelta += tuning.FalseAmbiguityReputation;
+                    report.Headline += " You would not separate the two draws. Their dispatch log says " +
+                                       "the tank was drawn twice, and the numbers agree with them.";
+                    break;
+
+                case RegistrationOutcome.Correct when truth.DrawnFromOneDrum:
+                    report.MoneyDelta += tuning.SameDrumCatchBonus;
+                    report.Headline += " Both vials read the same because they were the same oil — " +
+                                       "one drum, booked as two draws. Called, and charged for.";
+                    break;
+            }
         }
     }
 }

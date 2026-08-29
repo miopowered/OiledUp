@@ -311,6 +311,22 @@ namespace Residue.Gameplay.Simulation
             return n;
         }
 
+        /// <summary>
+        /// The box a delivery went out under, wherever it has got to since — including one that has
+        /// been flattened, because its note is still the paper the day's records were filed against.
+        /// </summary>
+        public Carton ByJobNumber(string jobNumber)
+        {
+            if (string.IsNullOrEmpty(jobNumber)) return null;
+
+            for (int i = 0; i < cartons.Count; i++)
+            {
+                if (string.Equals(cartons[i].JobNumber, jobNumber, StringComparison.Ordinal))
+                    return cartons[i];
+            }
+            return null;
+        }
+
         /// <summary>The carton a sample is sitting in, or null if it is not in one.</summary>
         public Carton CartonHolding(SampleState sample) =>
             sample != null && sample.Location.Kind == SampleLocationKind.InCrate
@@ -457,6 +473,90 @@ namespace Residue.Gameplay.Simulation
             return true;
         }
 
+        // -- Reconciliation (#32) -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Record which line of its delivery note the player says an ambiguous vial answers.
+        ///
+        /// <para>
+        /// <b>It is not a gate and it is not booking-in.</b> Nothing waits on it: the vial agitates,
+        /// loads, runs and files exactly the same whether or not this was ever called, and a player
+        /// who ignores an ambiguous bottle simply has an ambiguous bottle. #73 removed a step that
+        /// stopped the loop dead at a keyboard before any analysis could begin; this is a decision
+        /// recorded at whatever point the player has worked it out, or never. The first refusal below
+        /// is what keeps it that way — a vial whose label is perfectly legible has nothing to decide
+        /// and is turned away, so the step cannot creep back onto every bottle.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Nothing here checks the answer.</b> The registry knows which tank the oil really came
+        /// from and this deliberately does not ask it. A gateway that refused a wrong registration
+        /// would be doing the reconciliation for the player and telling them the answer in a refusal;
+        /// §5.4 already has the right place for a decision to turn out badly, which is the day it
+        /// comes due.
+        /// </para>
+        ///
+        /// <para>
+        /// Two vials may be registered against the same line. That is a claim the player is entitled
+        /// to make and it is one of the ways they can be wrong.
+        /// </para>
+        /// </summary>
+        /// <param name="noteLine">
+        /// A row on the note, or <see cref="SampleState.CannotTell"/> to record that they looked and
+        /// could not say.
+        /// </param>
+        /// <param name="refusal">Player-facing reason when this returns false. Never null then.</param>
+        public bool TryRegisterSample(SampleId id, int noteLine, out string refusal)
+        {
+            refusal = null;
+
+            if (samples == null || !samples.TryGet(id, out var sample))
+            {
+                refusal = "No such sample.";
+                return false;
+            }
+
+            if (sample.Ambiguity == SampleAmbiguity.None)
+            {
+                refusal = $"{sample.RecordTag} says on the label which tank it came from. " +
+                          "There is nothing to decide.";
+                return false;
+            }
+
+            if (sample.FiledVerdict.HasValue)
+            {
+                refusal = $"The report on {sample.RecordTag} has already gone out.";
+                return false;
+            }
+
+            var carton = ByJobNumber(sample.JobNumber);
+            var note = carton != null ? carton.Note : null;
+
+            if (note == null || note.Count == 0)
+            {
+                refusal = $"There is no delivery note on file for {sample.JobNumber ?? "that vial"}.";
+                return false;
+            }
+
+            if (noteLine == SampleState.CannotTell)
+            {
+                sample.RegisteredLine = SampleState.CannotTell;
+                sample.RegisteredTag = null;
+                return true;
+            }
+
+            if (noteLine < 0 || noteLine >= note.Count)
+            {
+                refusal = $"Note {note.JobNumber} has {note.Count} line(s); there is no line " +
+                          $"{noteLine + 1} on it.";
+                return false;
+            }
+
+            sample.RegisteredLine = noteLine;
+            sample.RegisteredTag = note.Lines[noteLine].TankTag;
+            return true;
+        }
+
         private bool TryReach(string cartonId, out Carton carton, out string refusal)
         {
             refusal = null;
@@ -539,6 +639,17 @@ namespace Residue.Gameplay.Simulation
         /// sample can end up in a container this scene has no prop for. A box with nothing left in it
         /// is not rebuilt at all — it was cardboard by then.
         /// </para>
+        ///
+        /// <para>
+        /// <b>A rebuilt note reconciles perfectly, and #32's discrepancies do not come back with it.</b>
+        /// The page is derived from the vials, so a claim nothing answered has nothing left to derive
+        /// it from. That is survivable because reconciliation is a same-day activity and a save is
+        /// taken at a day boundary — and because the parts that outlive the shift do survive: what the
+        /// player registered is on the sample, where the oil really came from is in the vault, and the
+        /// verdict is scored against the <i>tank tag</i> rather than a row number, so a page that
+        /// renumbers itself on load cannot change anybody's answer. A vial still waiting to be
+        /// identified can be settled by ringing the customer, which does not read the note at all.
+        /// </para>
         /// </summary>
         internal void RebuildFrom(IReadOnlyCollection<SampleState> all)
         {
@@ -585,7 +696,15 @@ namespace Residue.Gameplay.Simulation
                     if (!string.Equals(carton.JobNumber, sample.JobNumber, StringComparison.Ordinal)) continue;
 
                     carton.Add(sample.Id);
-                    carton.Note.Add(sample.EquipmentTag, sample.Profile, sample.Id);
+
+                    // A vial whose label was unreadable has no tag to print. The name the player
+                    // registered stands in where there is one; otherwise the line goes on the page
+                    // unnamed, which is exactly what the carton looks like to them.
+                    carton.Note.Add(
+                        string.IsNullOrEmpty(sample.EquipmentTag)
+                            ? sample.RegisteredTag
+                            : sample.EquipmentTag,
+                        sample.Profile, sample.Id);
                     break;
                 }
             }
