@@ -6,7 +6,7 @@
 |---|---|
 | M0 Grey box · M2 Verdict loop · M3 Contamination · M5 Day cycle | Complete |
 | M1 Chemistry + tests | Complete bar debug tooling and CI ([#3](https://github.com/miopowered/OiledUp/issues/3), [#18](https://github.com/miopowered/OiledUp/issues/18)) |
-| M4 Co-op | Complete host-side; **a joined client cannot see delivery cartons** ([#80](https://github.com/miopowered/OiledUp/issues/80)) |
+| M4 Co-op | Complete; not yet played in a real two-instance session |
 | D1 Heat-treatment domain · D2 Deliveries and customers | Complete |
 | F1 Frontend, options, accessibility | Menu, lobby, settings, rebinds and colourblind support done; polish outstanding |
 | M6 Art · M7 Content and balance · M8 Weird layer | Not started |
@@ -31,13 +31,12 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 
 ## Still missing
 
-### Blocking co-op
-
-- **[#80](https://github.com/miopowered/OiledUp/issues/80) Cartons are not replicated.** A joined
-  client sees the bay and the truck but no boxes, so it cannot start the day. Single player and the
-  host are complete; this is the one thing standing between the current build and a co-op session.
-
 ### Verification debt
+
+- **Co-op has never been played.** Cartons, notes and slips all replicate as of
+  [#80](https://github.com/miopowered/OiledUp/issues/80), and the host-only boundary is enforced by
+  the reflection sweep in `NetworkViewTests` — but no two-instance session has actually been run.
+  Build a player, join the Editor, and watch a guest carry a carton in and open it.
 
 - **The EditMode suite is not routinely run.** [#76](https://github.com/miopowered/OiledUp/issues/76)
   fixed the deadlock that made it unrunnable, but that fix is itself unvalidated, and roughly sixty
