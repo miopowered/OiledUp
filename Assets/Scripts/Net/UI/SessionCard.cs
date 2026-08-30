@@ -34,47 +34,55 @@ namespace Residue.Net.UI
         private readonly Slider volumeSlider;
         private readonly Label volumeLabel;
 
+        /// <summary>
+        /// How wide the card is allowed to get. It sizes to its own text, and every line on it is
+        /// roughly a third longer in German — without a ceiling the voice hint would push a card
+        /// anchored to the right edge halfway across the player's view. With one, the line wraps
+        /// inside a card that keeps its shape.
+        /// </summary>
+        private const float MaxWidth = 260f;
+
         public SessionCard(LabConnection connection)
         {
             this.connection = connection;
 
-            Root = new VisualElement();
+            // A stack, so the kit owns the spacing between the three lines. They used to carry their
+            // own 4, 4 and 3 point top margins, which is a rhythm nobody chose.
+            Root = UiKit.Column(4f);
             Root.pickingMode = PickingMode.Ignore;
             Root.style.position = Position.Absolute;
             Root.style.right = 16;
             Root.style.top = 12;
-            Root.style.paddingTop = 8;
-            Root.style.paddingBottom = 8;
+            Root.style.maxWidth = MaxWidth;
+            Root.style.paddingTop = UiKit.Gap;
+            Root.style.paddingBottom = UiKit.Gap;
             Root.style.paddingLeft = 12;
             Root.style.paddingRight = 12;
             Root.style.backgroundColor = new StyleColor(UiPalette.Surface);
-            UiKit.Round(Root, 3f);
+            UiKit.Round(Root);
 
+            // On the type scale rather than beside it: this card was drawn at 15, 10, 9 and 12
+            // points, none of which is one of the kit's five sizes, so the one piece of UI that sits
+            // over live play was the one piece that did not match the menus behind it.
             codeLabel = UiKit.Body(string.Empty);
-            codeLabel.style.fontSize = 15;
             codeLabel.style.letterSpacing = 3;
             codeLabel.style.color = new StyleColor(ConnectPalette.Code);
             Root.Add(codeLabel);
 
             voiceLabel = UiKit.Hint(string.Empty);
-            voiceLabel.style.fontSize = 10;
-            voiceLabel.style.marginTop = 4;
             voiceLabel.style.color = new StyleColor(UiPalette.InkDim);
             Root.Add(voiceLabel);
 
-            volumeRow = new VisualElement();
-            volumeRow.style.flexDirection = FlexDirection.Row;
-            volumeRow.style.alignItems = Align.Center;
-            volumeRow.style.marginTop = 4;
+            volumeRow = UiKit.Row(4f);
 
             volumeLabel = UiKit.Hint(string.Empty);
-            volumeLabel.style.width = 106;
-            volumeLabel.style.fontSize = 9;
+            volumeLabel.style.flexShrink = 1f;
             volumeLabel.style.color = new StyleColor(UiPalette.InkDim);
             volumeRow.Add(volumeLabel);
 
             volumeSlider = new Slider(0f, 100f);
-            volumeSlider.style.width = 110;
+            volumeSlider.style.width = 88;
+            volumeSlider.style.flexShrink = 0f;
 
             // Not made focusable, and deliberately not routed through UiKit.SliderField. This card is
             // drawn over first-person play, where a tab stop the player cannot see is a control that
@@ -96,8 +104,7 @@ namespace Residue.Net.UI
             Root.Add(volumeRow);
 
             speakingLabel = UiKit.Body(string.Empty);
-            speakingLabel.style.fontSize = 12;
-            speakingLabel.style.marginTop = 3;
+            speakingLabel.style.fontSize = UiKit.LabelSize;
             speakingLabel.style.color = new StyleColor(ConnectPalette.Code);
             Root.Add(speakingLabel);
         }

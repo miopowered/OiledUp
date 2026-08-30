@@ -26,8 +26,13 @@ namespace Residue.Net.UI
     /// </summary>
     public sealed class CreditsPanel
     {
-        private const float PanelWidth = 620f;
-        private const float SectionMaxHeight = 260f;
+        /// <summary>
+        /// The same wide card the settings screen uses, taken from <see cref="UiKit"/> rather than
+        /// picked again. This was 620 against settings' 560, so stepping between the two pages of
+        /// this shell that have long content in them visibly resized the card for no reason a player
+        /// could name.
+        /// </summary>
+        private const float PanelWidth = UiKit.PanelWidthWide;
 
         public CreditsPanel(Action back)
         {
@@ -73,7 +78,7 @@ namespace Residue.Net.UI
         private static VisualElement Section(string text)
         {
             var scroller = new ScrollView(ScrollViewMode.Vertical);
-            scroller.style.maxHeight = SectionMaxHeight;
+            scroller.style.maxHeight = UiKit.ScrollMaxHeight;
             scroller.style.flexShrink = 1f;
             scroller.Add(UiKit.Body(text));
             return scroller;
@@ -90,7 +95,7 @@ namespace Residue.Net.UI
         private static VisualElement PackageNoticesSection()
         {
             var scroller = new ScrollView(ScrollViewMode.Vertical);
-            scroller.style.maxHeight = SectionMaxHeight;
+            scroller.style.maxHeight = UiKit.ScrollMaxHeight;
             scroller.style.flexShrink = 1f;
 
             var list = UiKit.Column();

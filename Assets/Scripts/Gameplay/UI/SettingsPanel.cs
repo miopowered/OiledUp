@@ -55,9 +55,12 @@ namespace Residue.Gameplay.UI
         /// </summary>
         private const float RebindTimeoutSeconds = 8f;
 
-        private const float PanelWidth = 560f;
-        private const float RebindLabelColumn = 168f;
-        private const float BindingListMaxHeight = 236f;
+        /// <summary>
+        /// The wide card, shared with the credits screen through <see cref="UiKit"/> rather than
+        /// restated here. Two panel widths exist in the whole shell; a third picked locally is how a
+        /// front end ends up looking like several.
+        /// </summary>
+        private const float PanelWidth = UiKit.PanelWidthWide;
 
         /// <summary>
         /// Resolved once, at static construction, rather than per show. The tab strip is built once
@@ -588,7 +591,13 @@ namespace Residue.Gameplay.UI
             page.Add(UiKit.Divider());
 
             resetAll = null;
-            status = UiKit.Hint(string.Empty);
+
+            // Body and not Hint. This line is the only report a rebind produces — including the
+            // refusal when the key is already spoken for — and Hint is documented as the size for
+            // things that are never load-bearing. Say() sets its colour on every write, so it never
+            // draws in Body's default ink.
+            status = UiKit.Body(string.Empty);
+            status.style.color = new StyleColor(UiPalette.InkFaint);
 
             if (asset == null)
             {
@@ -632,7 +641,7 @@ namespace Residue.Gameplay.UI
             if (anyHeld) page.Add(UiKit.Hint(MenuStrings.HoldNote));
 
             var scroller = new ScrollView(ScrollViewMode.Vertical);
-            scroller.style.maxHeight = BindingListMaxHeight;
+            scroller.style.maxHeight = UiKit.ScrollMaxHeight;
             scroller.style.flexShrink = 1f;
             scroller.Add(list);
             page.Add(scroller);
@@ -881,7 +890,11 @@ namespace Residue.Gameplay.UI
                     : binding.Label);
                 label.style.fontSize = UiKit.LabelSize;
                 label.style.color = new StyleColor(UiPalette.InkDim);
-                label.style.width = RebindLabelColumn;
+
+                // The same column the sliders and dropdowns above use. This row used to carry its
+                // own wider one, so the CONTROLS tab had two left edges — the settings above the
+                // divider started at one, the key list below it at another.
+                label.style.width = UiKit.LabelColumn;
                 label.style.flexShrink = 0f;
                 Root.Add(label);
 

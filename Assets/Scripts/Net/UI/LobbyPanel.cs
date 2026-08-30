@@ -37,6 +37,14 @@ namespace Residue.Net.UI
         /// </summary>
         private const long CopiedMilliseconds = 1600;
 
+        /// <summary>
+        /// The code, the copy button and the line under them. Held as one element because a client
+        /// shows none of the three: hiding them individually leaves the container behind at zero
+        /// height, and <c>UiKit</c>'s stack still pays it a gap — so a joiner's lobby opened with an
+        /// unexplained band of nothing between LOBBY and the first seat.
+        /// </summary>
+        private readonly VisualElement codeBlock;
+
         private readonly Label codeLabel;
         private readonly Label codeHint;
         private readonly Label countdownLabel;
@@ -62,7 +70,7 @@ namespace Residue.Net.UI
 
             column.Add(UiKit.Heading(MenuStrings.LobbyHeading));
 
-            var code = UiKit.Column(4f);
+            codeBlock = UiKit.Column(4f);
 
             var codeRow = UiKit.Row();
 
@@ -74,12 +82,13 @@ namespace Residue.Net.UI
             codeRow.Add(UiKit.Spacer());
 
             copyButton = UiKit.QuietButton(MenuStrings.Copy, CopyCode);
+            copyButton.style.flexShrink = 0f;
             codeRow.Add(copyButton);
-            code.Add(codeRow);
+            codeBlock.Add(codeRow);
 
             codeHint = UiKit.Hint(MenuStrings.CodeHint);
-            code.Add(codeHint);
-            column.Add(code);
+            codeBlock.Add(codeHint);
+            column.Add(codeBlock);
 
             var roster = UiKit.Column(4f);
             int capacity = connection != null ? connection.Lobby.Capacity : 4;
@@ -131,9 +140,10 @@ namespace Residue.Net.UI
             string code = connection.JoinCodeText;
             bool showCode = host && !string.IsNullOrEmpty(code);
             codeLabel.text = showCode ? JoinCode.ForReading(code) : string.Empty;
-            codeLabel.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
-            copyButton.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
-            codeHint.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
+
+            // The block, not its three children: see the field. Hiding the contents of a stacked
+            // container leaves the container's own gap standing.
+            codeBlock.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
 
             // Left alone while the copy confirmation is up; it owns both of these until it expires.
             if (!copied) codeHint.text = MenuStrings.CodeHint;

@@ -47,8 +47,36 @@ namespace Residue.Gameplay.UI
         /// <summary>Padding inside a <see cref="Panel"/>, and the inset a screen aligns to.</summary>
         public const float PanelPadding = 24f;
 
-        /// <summary>Width of the label column in a <see cref="Field"/>, so stacked fields line up.</summary>
-        public const float LabelColumn = 148f;
+        /// <summary>
+        /// A card carrying a short page: the front door, co-op, the lobby, pause, the disconnect
+        /// notice. Two widths exist and no more — a shell whose card resizes on every navigation
+        /// reads as several screens rather than one.
+        /// </summary>
+        public const float PanelWidth = 460f;
+
+        /// <summary>The other width: a page with tabs or licence text on it. Settings and credits
+        /// share it rather than each picking a number.</summary>
+        public const float PanelWidthWide = 560f;
+
+        /// <summary>
+        /// How tall a scrolling section inside a panel is allowed to get, so the panel keeps its
+        /// footer on screen. One number, because the binding list and the credits sections are the
+        /// same thing — a long list inside a card — and two hand-picked heights are just two
+        /// different-looking cards.
+        /// </summary>
+        public const float ScrollMaxHeight = 260f;
+
+        /// <summary>
+        /// Width of the label column in a <see cref="Field"/>, so stacked fields line up.
+        /// <para>
+        /// Sized for the longest label plus the room a translation needs, not for the English:
+        /// German runs roughly 30% longer, and every label here wraps rather than clips, so a column
+        /// cut to the English turns a one-line settings page into a two-line one. This was 148,
+        /// which the rebind list had already privately overridden to 168 for exactly that reason —
+        /// the wider of the two is now the only one.
+        /// </para>
+        /// </summary>
+        public const float LabelColumn = 168f;
 
         /// <summary>Width of the readout column in a <see cref="SliderField"/>.</summary>
         public const float ValueColumn = 58f;
@@ -94,10 +122,15 @@ namespace Residue.Gameplay.UI
 
         /// <summary>A card: the only container that draws a surface. Nesting two of them is a sign
         /// the screen wants a <see cref="Divider"/>.</summary>
-        public static VisualElement Panel(float width = 460f)
+        public static VisualElement Panel(float width = PanelWidth)
         {
             var element = new VisualElement();
             element.style.width = width;
+
+            // A card is authored at a fixed width, but the window is not: a PanelWidthWide card on a
+            // small or heavily scaled display would otherwise run off both edges, taking its buttons
+            // with it. Percent of the backdrop, which is the screen.
+            element.style.maxWidth = Length.Percent(92f);
             element.style.paddingTop = PanelPadding;
             element.style.paddingBottom = PanelPadding;
             element.style.paddingLeft = PanelPadding;
@@ -123,13 +156,16 @@ namespace Residue.Gameplay.UI
             return element;
         }
 
-        /// <summary>A hairline rule.</summary>
+        /// <summary>
+        /// A hairline rule. Carries no margin of its own: it is always added to a
+        /// <see cref="Column"/>, which owns the space around it like it owns the space around
+        /// everything else. The two it used to set were overwritten by <see cref="ApplyGap"/> on the
+        /// first layout pass, so they read as the spacing rule while having no effect on it.
+        /// </summary>
         public static VisualElement Divider()
         {
             var element = new VisualElement();
             element.style.height = 1;
-            element.style.marginTop = Gap;
-            element.style.marginBottom = Gap;
             element.style.flexShrink = 0f;
             element.style.backgroundColor = new StyleColor(UiPalette.Line);
             element.pickingMode = PickingMode.Ignore;
@@ -286,14 +322,46 @@ namespace Residue.Gameplay.UI
         public static Button DangerButton(string text, Action onClick)
         {
             var button = MakeButton(text, onClick, UiPalette.SurfaceRaised, UiPalette.Warn);
-            Hover(button, UiPalette.SurfaceRaised, QuietHover);
+            Hover(button, UiPalette.SurfaceRaised, QuietHover, danger: true);
             return button;
+        }
+
+        /// <summary>
+        /// Move a button between <see cref="ActionButton"/>'s face and <see cref="QuietButton"/>'s,
+        /// after it has been built.
+        /// <para>
+        /// This exists because "the one action the screen wants" is sometimes only known at refresh
+        /// time. The title screen is the case: CONTINUE appears only when there is a run to continue,
+        /// and while it is there <i>it</i> is the primary path, not SINGLE PLAYER. Two accent faces
+        /// side by side is the same as none — nothing reads first — and rebuilding the page to fix
+        /// that is what every panel in this shell is written not to do.
+        /// </para>
+        /// <para>
+        /// Has no effect on a <see cref="DangerButton"/>: its ink is what marks it, and promoting one
+        /// would put <see cref="UiPalette.Warn"/> on an accent face, which reads as an alarm.
+        /// </para>
+        /// </summary>
+        public static void SetPrimary(Button button, bool primary)
+        {
+            if (button?.userData is not ButtonFace face) return;
+            if (face.Danger) return;
+
+            face.Rest = primary ? UiPalette.Accent : UiPalette.SurfaceRaised;
+            face.Hover = primary ? UiPalette.AccentSoft : QuietHover;
+            button.style.backgroundColor = new StyleColor(face.Hovered ? face.Hover : face.Rest);
         }
 
         /// <summary>
         /// Strips Unity's default runtime theme off a button. Without this every screen inherits the
         /// theme's borders and 4px margins, and a kit-built panel stops matching a hand-built one —
         /// which is the failure this whole file exists to prevent.
+        /// <para>
+        /// <b>The label wraps.</b> The default theme puts <c>white-space: nowrap</c> on a button, so
+        /// a label sized to the English silently runs out past the face — and every string here is
+        /// roughly 30% longer in German, on controls that are already the widest thing in their row.
+        /// Wrapping plus a shrinkable box means a row of buttons that no longer fits gets taller
+        /// instead of losing its last word off the edge of the panel.
+        /// </para>
         /// </summary>
         private static Button MakeButton(string text, Action onClick, Color face, Color ink)
         {
@@ -306,18 +374,43 @@ namespace Residue.Gameplay.UI
             button.style.paddingBottom = 10;
             button.style.paddingLeft = 14;
             button.style.paddingRight = 14;
+            button.style.whiteSpace = WhiteSpace.Normal;
+            button.style.unityTextAlign = TextAnchor.MiddleCenter;
+            button.style.flexShrink = 1f;
             ZeroMargins(button);
             Round(button);
 
             return Focusable(button);
         }
 
-        private static void Hover(Button button, Color rest, Color hover)
+        /// <summary>
+        /// The two colours a button is currently wearing, kept on the element so
+        /// <see cref="SetPrimary"/> can change them without the hover handlers having captured the
+        /// old pair. <c>userData</c> on a kit-built button belongs to the kit for this reason.
+        /// </summary>
+        private sealed class ButtonFace
         {
+            internal Color Rest;
+            internal Color Hover;
+            internal bool Danger;
+            internal bool Hovered;
+        }
+
+        private static void Hover(Button button, Color rest, Color hover, bool danger = false)
+        {
+            var face = new ButtonFace { Rest = rest, Hover = hover, Danger = danger };
+            button.userData = face;
+
             button.RegisterCallback<PointerEnterEvent>(_ =>
-                button.style.backgroundColor = new StyleColor(hover));
+            {
+                face.Hovered = true;
+                button.style.backgroundColor = new StyleColor(face.Hover);
+            });
             button.RegisterCallback<PointerLeaveEvent>(_ =>
-                button.style.backgroundColor = new StyleColor(rest));
+            {
+                face.Hovered = false;
+                button.style.backgroundColor = new StyleColor(face.Rest);
+            });
         }
 
         // -- Fields ------------------------------------------------------------------------------------
@@ -357,6 +450,29 @@ namespace Residue.Gameplay.UI
             label.style.width = LabelColumn;
             label.style.flexShrink = 0f;
             return label;
+        }
+
+        /// <summary>
+        /// The empty half of the readout column, for a field that has no readout.
+        /// <para>
+        /// Without it a slider row stops <see cref="ValueColumn"/> short of the panel edge and every
+        /// dropdown and toggle beside it runs the whole way, so a settings page has two right-hand
+        /// edges. Reserving the column on the rows that do not use it is what makes the controls line
+        /// up as a column rather than as a list of rows that happen to be stacked.
+        /// </para>
+        /// <para>
+        /// Deliberately not applied by <see cref="TextEntry"/>: a text field is the one control a
+        /// screen routinely puts a button next to — the join code is the case — and that button is
+        /// what occupies the column there.
+        /// </para>
+        /// </summary>
+        private static VisualElement ValueGutter()
+        {
+            var element = new VisualElement();
+            element.style.width = ValueColumn;
+            element.style.flexShrink = 0f;
+            element.pickingMode = PickingMode.Ignore;
+            return element;
         }
 
         /// <summary>Unity's default theme puts margins on every control; spacing is the container's
@@ -420,7 +536,7 @@ namespace Residue.Gameplay.UI
             ZeroMargins(toggle);
             toggle.RegisterValueChangedCallback(evt => changed?.Invoke(evt.newValue));
 
-            Field(label, toggle);
+            Field(label, toggle).Add(ValueGutter());
             return toggle;
         }
 
@@ -442,7 +558,7 @@ namespace Residue.Gameplay.UI
             ZeroMargins(dropdown);
             dropdown.RegisterValueChangedCallback(_ => changed?.Invoke(dropdown.index));
 
-            Field(label, dropdown);
+            Field(label, dropdown).Add(ValueGutter());
             return dropdown;
         }
 

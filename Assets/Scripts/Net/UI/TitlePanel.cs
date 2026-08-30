@@ -59,6 +59,9 @@ namespace Residue.Net.UI
                 () => this.connection?.ContinueSinglePlayer());
             actions.Add(continueButton);
 
+            // Accent-faced at construction, and demoted by RefreshContinue the moment CONTINUE turns
+            // out to exist. Two accent buttons stacked is the same as none: the page stops having a
+            // first thing to read, which is the whole job of the front door.
             soloButton = UiKit.ActionButton(MenuStrings.SinglePlayer,
                 () => this.connection?.StartSinglePlayer());
             actions.Add(soloButton);
@@ -141,6 +144,12 @@ namespace Residue.Net.UI
         /// 14 that their run is simply gone, which is both alarming and — since the file is still on
         /// disk and a matching build could still open it — untrue.
         /// </para>
+        /// <para>
+        /// Whichever of the two is the way back into the game is the one wearing the accent face.
+        /// With a run to continue that is CONTINUE and SINGLE PLAYER steps back; with none — or with
+        /// one this build cannot open, where CONTINUE is present but dead — it is SINGLE PLAYER. The
+        /// page always has exactly one primary action, and it is always the one that works.
+        /// </para>
         /// </summary>
         private void RefreshContinue()
         {
@@ -152,12 +161,15 @@ namespace Residue.Net.UI
                 loadable = false;
                 continueButton.style.display = DisplayStyle.None;
                 continueHint.style.display = DisplayStyle.None;
+                UiKit.SetPrimary(soloButton, true);
                 return;
             }
 
             loadable = headline.IsLoadable;
             continueButton.style.display = DisplayStyle.Flex;
             continueHint.style.display = DisplayStyle.Flex;
+            UiKit.SetPrimary(continueButton, loadable);
+            UiKit.SetPrimary(soloButton, !loadable);
 
             continueHint.text = loadable
                 ? MenuStrings.ContinueSaved.Format(
