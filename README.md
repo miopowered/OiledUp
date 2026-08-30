@@ -8,7 +8,7 @@
 | M1 Chemistry + tests | Complete bar debug tooling and CI ([#3](https://github.com/miopowered/OiledUp/issues/3), [#18](https://github.com/miopowered/OiledUp/issues/18)) |
 | M4 Co-op | Complete; not yet played in a real two-instance session |
 | D1 Heat-treatment domain · D2 Deliveries and customers | Complete |
-| F1 Frontend, options, accessibility | Menu, lobby, settings, rebinds and colourblind support done; polish outstanding |
+| F1 Frontend, options, accessibility | Complete |
 | M6 Art · M7 Content and balance · M8 Weird layer | Not started |
 
 A single player can play a full contract end to end: samples arrive by truck, are
@@ -51,11 +51,14 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 
 ### Polish and accessibility ([F1](https://github.com/miopowered/OiledUp/milestone/12))
 
-- [#55](https://github.com/miopowered/OiledUp/issues/55) Every player-facing string is a literal at
-  its use site, so localisation is not yet possible. The last F1 item still open.
 - [#46](https://github.com/miopowered/OiledUp/issues/46) Audio is in but unheard — room tone,
   per-instrument run-finished chimes, machine loops and interaction feedback all ship, and the volume
   sliders route. Nobody has actually listened to it yet.
+- **No language ships but English.** [#55](https://github.com/miopowered/OiledUp/issues/55) made
+  translation possible, not done: ~500 strings now carry ids and named arguments, and a test fails
+  any new literal reaching a draw call. Actually translating is a separate job, and so is the font —
+  the in-world screens raster a pixel font with no glyph coverage past Latin, and a 32-column CRT is
+  its own problem.
 
 ### Not started
 
