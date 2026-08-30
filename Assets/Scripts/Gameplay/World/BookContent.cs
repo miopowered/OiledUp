@@ -36,16 +36,24 @@ namespace Residue.Gameplay.World
     /// </para>
     /// Generated rather than hand-written so a balance change updates the manual automatically. A
     /// book that disagrees with the chemistry is worse than no book.
+    /// <para>
+    /// The prose is in <see cref="LabStrings"/> under <c>book.</c> (#55); the figures, element
+    /// names, faults and root causes are not, because they come out of the content tables and are
+    /// balance data with their own pipeline. What is localised here is the connective tissue — the
+    /// words around the numbers — never a number.
+    /// </para>
     /// </summary>
     public static class BookContent
     {
         public static string TitleFor(BookKind kind, MachineDef machine) => kind switch
         {
-            BookKind.MachineManual => machine != null ? $"{machine.DisplayName} — Operator Manual" : "Operator Manual",
-            BookKind.ElementIndex => "Elements & Sources",
-            BookKind.DiagnosticGuide => "Diagnostic Guide",
-            BookKind.ThresholdTables => "Threshold Tables",
-            _ => "Reference"
+            BookKind.MachineManual => machine != null
+                ? LabStrings.BookOperatorManualFor.Format(("instrument", machine.DisplayName))
+                : LabStrings.BookOperatorManual.Text,
+            BookKind.ElementIndex => LabStrings.BookElementIndex.Text,
+            BookKind.DiagnosticGuide => LabStrings.BookDiagnosticGuide.Text,
+            BookKind.ThresholdTables => LabStrings.BookThresholdTables.Text,
+            _ => LabStrings.BookReference.Text
         };
 
         public static List<BookPage> Build(BookKind kind, MachineDef machine, ContentCatalog catalog)
@@ -66,14 +74,15 @@ namespace Residue.Gameplay.World
         // -- Shift brief -----------------------------------------------------------------------------
 
         /// <summary>Heading on the brief. Standing orders, not a tutorial: the lab's own words.</summary>
-        public const string ShiftBriefTitle = "STANDING ORDERS";
+        public static string ShiftBriefTitle => LabStrings.BookShiftBriefTitle.Text;
 
         /// <summary>
         /// The last line of the brief, and the line that decides whether the rest of it is allowed to
-        /// exist. Kept next to the pages it closes so nobody edits one without seeing the other.
+        /// exist. It reads as the closing of the pages below because it is stored beside them, in the
+        /// <c>book.shift_brief_</c> block of <see cref="LabStrings"/> — that block carries the rule
+        /// nobody may edit one of these lines without.
         /// </summary>
-        public const string ShiftBriefClosing =
-            "None of the above tells you what any sample is. That part is the job.";
+        public static string ShiftBriefClosing => LabStrings.BookShiftBriefClosing.Text;
 
         /// <summary>
         /// The procedure the lab expects of you, and nothing else (#47).
@@ -85,6 +94,11 @@ namespace Residue.Gameplay.World
         /// second vocabulary for them. What it is <i>not</i> is a second copy of the manuals: it holds
         /// no numbers, because <see cref="BuildManual"/> already prints the real ones per instrument,
         /// and a duplicated figure is a figure that will eventually disagree with the chemistry.
+        /// </para>
+        /// <para>
+        /// The words themselves are the <c>book.shift_brief_</c> block of <see cref="LabStrings"/>
+        /// (#55), and that block repeats the rule below at the point of editing, because the rule is
+        /// about the sentences rather than about this method.
         /// </para>
         /// <para>
         /// <b>Every line says where to look. No line says what you will find.</b> Not one element,
@@ -107,56 +121,36 @@ namespace Residue.Gameplay.World
         {
             new BookPage
             {
-                Title = "The manuals are not decoration",
-                Body =
-                    "Every instrument has its operator manual lying on the bench beside it, and the " +
-                    $"rack by the terminal holds {TitleFor(BookKind.ElementIndex, null)}, " +
-                    $"{TitleFor(BookKind.DiagnosticGuide, null)} and " +
-                    $"{TitleFor(BookKind.ThresholdTables, null)}. A manual says what its instrument " +
-                    "reports and — the part that matters — what it cannot see. Look at one and press " +
-                    "[E] to pick it up."
+                Title = LabStrings.BookShiftBriefManualsTitle.Text,
+                Body = LabStrings.BookShiftBriefManualsBody.Format(
+                    ("elements", TitleFor(BookKind.ElementIndex, null)),
+                    ("diagnostics", TitleFor(BookKind.DiagnosticGuide, null)),
+                    ("thresholds", TitleFor(BookKind.ThresholdTables, null)))
             },
             new BookPage
             {
-                Title = "Loading is a hold, and the hold is the shake",
-                Body =
-                    "Hold [E] at an instrument to load a vial. That hold is where the sample gets " +
-                    "shaken, so it costs seconds you do not get back. A vial that came in cold has to " +
-                    "be warmed first; the instrument will say so when it refuses."
+                Title = LabStrings.BookShiftBriefLoadingTitle.Text,
+                Body = LabStrings.BookShiftBriefLoadingBody.Text
             },
             new BookPage
             {
-                Title = "Nothing files itself",
-                Body =
-                    "A finished run prints a slip into the tray on the instrument. The reading joins " +
-                    "the record only when you carry that slip to the terminal. A slip left on a bench " +
-                    "is a test you paid for and cannot use."
+                Title = LabStrings.BookShiftBriefFilingTitle.Text,
+                Body = LabStrings.BookShiftBriefFilingBody.Text
             },
             new BookPage
             {
-                Title = "An instrument is dirty until you prove it clean",
-                Body =
-                    "Some of the last sample stays behind and turns up in the next one. Pushing a " +
-                    "solvent blank through reads back what is in there. To clear it, fill a bottle at " +
-                    "the wash station and hold FLUSH at the instrument. The terminal marks every " +
-                    "instrument that has had no blank today."
+                Title = LabStrings.BookShiftBriefDirtyTitle.Text,
+                Body = LabStrings.BookShiftBriefDirtyBody.Text
             },
             new BookPage
             {
-                Title = "An instrument drifts until you prove it has not",
-                Body =
-                    "Calibration wanders a little every run, in a direction re-rolled each day, and it " +
-                    "quietly scales everything the instrument tells you. A certified reference " +
-                    "standard is what measures it. The terminal marks every instrument that has had " +
-                    "no standard today."
+                Title = LabStrings.BookShiftBriefDriftTitle.Text,
+                Body = LabStrings.BookShiftBriefDriftBody.Text
             },
             new BookPage
             {
-                Title = "A verdict is a bill that arrives later",
-                Body =
-                    "Filing closes a sample, but the consequence lands days afterwards. Both " +
-                    "directions cost: condemning a serviceable tank is expensive, and passing a bad " +
-                    "one is worse. Naming the cause correctly is what pays."
+                Title = LabStrings.BookShiftBriefVerdictTitle.Text,
+                Body = LabStrings.BookShiftBriefVerdictBody.Text
             }
         };
 
@@ -166,48 +160,59 @@ namespace Residue.Gameplay.World
         {
             if (machine == null) return;
 
+            // Each paragraph is appended whole rather than a line at a time. The page is fixed-width
+            // paper, so the breaks are part of the text — but a translator handed "in a direction
+            // that is re-rolled each day. Run a certified" has been handed half a sentence and no way
+            // to re-wrap it (#55). The breaks therefore live inside the line, not between appends.
             var sb = new StringBuilder();
-            sb.AppendLine($"Run time      {machine.RunTimeSeconds:F0} s");
-            sb.AppendLine($"Sample used   {machine.SampleVolumeMl:F0} ml");
-            sb.AppendLine($"Cost per run  £{machine.CostPerRun:F0}");
+            sb.AppendLine(LabStrings.BookManualRunTime.Format(
+                ("seconds", machine.RunTimeSeconds.ToString("F0"))));
+            sb.AppendLine(LabStrings.BookManualSampleUsed.Format(
+                ("millilitres", machine.SampleVolumeMl.ToString("F0"))));
+            sb.AppendLine(LabStrings.BookManualCostPerRun.Format(
+                ("cost", machine.CostPerRun.ToString("F0"))));
             sb.AppendLine();
-            sb.AppendLine($"Typical spread on a reading is about {machine.BaseNoisePercent * 100f:F0}%.");
-            sb.AppendLine($"Calibration drifts roughly {machine.CalibrationDriftPerRun * 100f:F1}% per run,");
-            sb.AppendLine("in a direction that is re-rolled each day. Run a certified");
-            sb.AppendLine("reference sample if you suspect it.");
+            sb.AppendLine(LabStrings.BookManualNoise.Format(
+                ("percent", (machine.BaseNoisePercent * 100f).ToString("F0"))));
+            sb.AppendLine(LabStrings.BookManualDrift.Format(
+                ("percent", (machine.CalibrationDriftPerRun * 100f).ToString("F1"))));
             sb.AppendLine();
-            sb.AppendLine($"Carryover: about {machine.ContaminationCarryoverPercent * 100f:F0}% of whatever went");
-            sb.AppendLine("through last stays behind. Push a solvent blank to see it.");
-            sb.AppendLine("To clear it, fill a bottle at the wash station and hold");
-            sb.AppendLine("the FLUSH button here. One charge per instrument.");
-            if (machine.RequiresFumeHood) sb.AppendLine().Append("Requires a fume hood.");
-            if (machine.RequiresPreheat) sb.AppendLine().Append($"Requires preheat to {machine.PreheatTargetC:F0} C.");
+            sb.AppendLine(LabStrings.BookManualCarryover.Format(
+                ("percent", (machine.ContaminationCarryoverPercent * 100f).ToString("F0"))));
+            if (machine.RequiresFumeHood) sb.AppendLine().Append(LabStrings.BookManualFumeHood.Text);
+            if (machine.RequiresPreheat)
+            {
+                sb.AppendLine().Append(LabStrings.BookManualPreheat.Format(
+                    ("celsius", machine.PreheatTargetC.ToString("F0"))));
+            }
 
-            pages.Add(new BookPage { Title = "Operation", Body = sb.ToString() });
+            pages.Add(new BookPage
+            {
+                Title = LabStrings.BookManualOperationTitle.Text, Body = sb.ToString()
+            });
 
             var measures = new StringBuilder();
-            measures.AppendLine("This instrument reports:");
+            measures.AppendLine(LabStrings.BookManualReportsIntro.Text);
             measures.AppendLine();
             foreach (var e in machine.Measures)
             {
                 if (e == null) continue;
                 measures.AppendLine($"  {e.Id,-8} {e.DisplayName} ({e.Unit})");
             }
-            pages.Add(new BookPage { Title = "Reports", Body = measures.ToString() });
+            pages.Add(new BookPage
+            {
+                Title = LabStrings.BookManualReportsTitle.Text, Body = measures.ToString()
+            });
 
             // The blind-spot page is the whole reason these manuals exist.
             var blind = new StringBuilder();
             if (machine.CannotDetect.Count == 0)
             {
-                blind.AppendLine("No known blind spots for the quantities this instrument reports.");
-                blind.AppendLine();
-                blind.AppendLine("That does not mean a clean result clears the sample. It only");
-                blind.AppendLine("clears what this instrument measures. Check what it does NOT");
-                blind.AppendLine("report on the previous page.");
+                blind.AppendLine(LabStrings.BookManualNoBlindSpots.Text);
             }
             else
             {
-                blind.AppendLine("CANNOT DETECT");
+                blind.AppendLine(LabStrings.BookManualCannotDetect.Text);
                 blind.AppendLine();
                 foreach (var e in machine.CannotDetect)
                 {
@@ -216,10 +221,12 @@ namespace Residue.Gameplay.World
                     if (!string.IsNullOrEmpty(e.SourceHint)) blind.AppendLine($"      {e.SourceHint}");
                     blind.AppendLine();
                 }
-                blind.AppendLine("These will be absent from the report even when present in");
-                blind.AppendLine("the sample. A clean result here is not a clean sample.");
+                blind.AppendLine(LabStrings.BookManualCannotDetectClosing.Text);
             }
-            pages.Add(new BookPage { Title = "Blind spots", Body = blind.ToString() });
+            pages.Add(new BookPage
+            {
+                Title = LabStrings.BookManualBlindSpotsTitle.Text, Body = blind.ToString()
+            });
         }
 
         // -- Element index ---------------------------------------------------------------------------
@@ -260,10 +267,10 @@ namespace Residue.Gameplay.World
         /// <summary>Display name for a category. Shared with the terminal for the reason above.</summary>
         public static string Readable(ElementCategory c) => c switch
         {
-            ElementCategory.WearMetal => "Wear metals",
-            ElementCategory.Contaminant => "Contaminants",
-            ElementCategory.Additive => "Additives",
-            _ => "Fluid properties"
+            ElementCategory.WearMetal => LabStrings.BookCategoryWearMetals.Text,
+            ElementCategory.Contaminant => LabStrings.BookCategoryContaminants.Text,
+            ElementCategory.Additive => LabStrings.BookCategoryAdditives.Text,
+            _ => LabStrings.BookCategoryFluidProperties.Text
         };
 
         // -- Diagnostic guide ------------------------------------------------------------------------
@@ -288,9 +295,11 @@ namespace Residue.Gameplay.World
                 if (profile == null) continue;
 
                 var sb = new StringBuilder();
-                sb.AppendLine($"Oil grade {profile.BaseOilGrade}   change interval {profile.DefaultOilChangeHours:F0} h");
+                sb.AppendLine(LabStrings.BookThresholdsGrade.Format(
+                    ("grade", profile.BaseOilGrade),
+                    ("hours", profile.DefaultOilChangeHours.ToString("F0"))));
                 sb.AppendLine();
-                sb.AppendLine("ELEMENT   NORMAL          CRITICAL");
+                sb.AppendLine(LabStrings.BookThresholdsColumns.Text);
                 sb.AppendLine();
 
                 foreach (var t in profile.Thresholds)
@@ -318,8 +327,7 @@ namespace Residue.Gameplay.World
                 }
 
                 sb.AppendLine();
-                sb.AppendLine("Limits are per equipment type. The same iron figure can be");
-                sb.AppendLine("routine on one unit and cause to pull another.");
+                sb.AppendLine(LabStrings.BookThresholdsFooter.Text);
 
                 pages.Add(new BookPage { Title = profile.DisplayName, Body = sb.ToString() });
             }

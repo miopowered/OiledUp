@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 
 namespace Residue.Gameplay.World
 {
@@ -45,7 +46,8 @@ namespace Residue.Gameplay.World
         /// rather than a null, so a gateway that forgets to fill one in still says something.
         /// </summary>
         public static LabCommandResult No(string refusal) =>
-            new(false, string.IsNullOrEmpty(refusal) ? "The lab will not do that right now." : refusal,
+            new(false,
+                string.IsNullOrEmpty(refusal) ? LabStrings.RefusedWithoutAReason.Text : refusal,
                 SampleId.None);
 
         public override string ToString() => Accepted ? "accepted" : $"refused: {Refusal}";

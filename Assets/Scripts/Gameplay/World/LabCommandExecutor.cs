@@ -53,8 +53,8 @@ namespace Residue.Gameplay.World
 
         public LabCommandResult Execute(ILabActor actor, LabCommand command)
         {
-            if (actor == null) return LabCommandResult.No("No such player.");
-            if (lab == null) return LabCommandResult.No("The lab is not running.");
+            if (actor == null) return LabCommandResult.No(LabStrings.NoSuchPlayer);
+            if (lab == null) return LabCommandResult.No(LabStrings.LabNotRunning);
 
             return command.Kind switch
             {
@@ -90,7 +90,7 @@ namespace Residue.Gameplay.World
                 LabCommandKind.EndDay => EndDay(actor),
                 LabCommandKind.StartNextDay => StartNextDay(actor),
 
-                _ => LabCommandResult.No("The lab did not understand that.")
+                _ => LabCommandResult.No(LabStrings.CommandNotUnderstood)
             };
         }
 
@@ -104,9 +104,9 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult TakeVial(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
             if (!lab.Samples.TryGet(command.Sample, out var sample))
-                return LabCommandResult.No("No such sample.");
+                return LabCommandResult.No(LabStrings.NoSuchSample);
 
             // A vial in a box is only reachable once somebody has carried the box in, put it down and
             // cut it open (#30, #31). Checked here rather than left to the prop, because the prop for
@@ -117,15 +117,17 @@ namespace Residue.Gameplay.World
             switch (sample.Location.Kind)
             {
                 case SampleLocationKind.InMachine:
-                    return LabCommandResult.No(
-                        $"{sample.RecordTag} is inside {DisplayNameOf(sample.Location.ContainerId)}. " +
-                        "Take it out at the instrument.");
+                    return LabCommandResult.No(LabStrings.VialIsInAnInstrument.Format(
+                        ("tag", sample.RecordTag),
+                        ("instrument", DisplayNameOf(sample.Location.ContainerId))));
 
                 case SampleLocationKind.Held when sample.Location.HolderClientId != actor.ClientId:
-                    return LabCommandResult.No($"Someone else is holding {sample.RecordTag}.");
+                    return LabCommandResult.No(
+                        LabStrings.VialHeldBySomeoneElse.Format(("tag", sample.RecordTag)));
 
                 case SampleLocationKind.Consumed:
-                    return LabCommandResult.No($"{sample.RecordTag} is spent — there is nothing left to carry.");
+                    return LabCommandResult.No(
+                        LabStrings.VialIsSpent.Format(("tag", sample.RecordTag)));
             }
 
             if (!SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out string refusal))
@@ -137,10 +139,10 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult TakeSlip(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
 
             if (!lab.Slips.TryGet(command.Amount, out var slip))
-                return LabCommandResult.No("That slip has already been filed.");
+                return LabCommandResult.No(LabStrings.SlipAlreadyFiled);
 
             // Reach is checked against where the paper IS, not against the instrument that printed
             // it. While a slip could only ever sit in the tray it came out of, those were the same
@@ -151,9 +153,12 @@ namespace Residue.Gameplay.World
                            string.IsNullOrEmpty(slip.Location.ContainerId);
 
             string standingAt = inATray ? slip.MachineInstanceId : slip.Location.ContainerId;
-            string what = inATray ? DisplayNameOf(slip.MachineInstanceId) : "that slip";
+            string tooFar = inATray
+                ? LabStrings.NotStandingAtInstrument.Format(
+                    ("instrument", DisplayNameOf(slip.MachineInstanceId)))
+                : LabStrings.NotStandingAtSlip.Text;
 
-            if (OutOfReach(actor, standingAt, what, out var far)) return far;
+            if (OutOfReach(actor, standingAt, tooFar, out var far)) return far;
 
             if (!lab.Slips.TryClaim(slip.Ticket, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
@@ -168,7 +173,7 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult TakeBook(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
             Store(actor, string.IsNullOrEmpty(command.FixtureId)
                 ? LabGrip.OnBook
                 : LabGrip.OnBookItem(command.FixtureId));
@@ -188,13 +193,13 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult TakeBottle(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
 
             var bottle = lab.Solvent.Find(command.FixtureId);
-            if (bottle == null) return LabCommandResult.No("No such solvent bottle.");
+            if (bottle == null) return LabCommandResult.No(LabStrings.NoSuchBottle);
 
             if (bottle.Location.Kind == SampleLocationKind.OnSurface &&
-                OutOfReach(actor, bottle.Location.ContainerId, "that shelf", out var far))
+                OutOfReach(actor, bottle.Location.ContainerId, LabStrings.NotStandingAtShelf, out var far))
             {
                 return far;
             }
@@ -232,14 +237,14 @@ namespace Residue.Gameplay.World
             if (carton.Stage == CartonStage.OnTheRoad)
             {
                 refused = LabCommandResult.No(
-                    $"{sample.RecordTag} is still on the truck — the delivery has not been unloaded yet.");
+                    LabStrings.VialStillOnTheTruck.Format(("tag", sample.RecordTag)));
                 return false;
             }
 
             if (carton.IsSealed)
             {
                 refused = LabCommandResult.No(
-                    $"Carton {carton.JobNumber} is still sealed. Open it before taking anything out.");
+                    LabStrings.CartonStillSealed.Format(("job", carton.JobNumber)));
                 return false;
             }
 
@@ -250,25 +255,25 @@ namespace Residue.Gameplay.World
             {
                 refused = LabCommandResult.No(
                     carton.Location.HolderClientId == actor.ClientId
-                        ? "Set the carton down before taking vials out of it."
-                        : $"Someone else is carrying carton {carton.JobNumber}.");
+                        ? LabStrings.CartonIsInYourArms.Text
+                        : LabStrings.CartonCarriedBySomeoneElse.Format(("job", carton.JobNumber)));
                 return false;
             }
 
             // Reach is checked against the box rather than the shelf it is standing on: a carton is a
             // registered fixture in its own right, and the bay is 4 m of floor rather than a point.
-            return !OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out refused);
+            return !OutOfReach(actor, carton.Id, NotAtCarton(carton), out refused);
         }
 
         private LabCommandResult TakeCarton(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
 
             var carton = lab.Deliveries.Find(command.FixtureId);
-            if (carton == null) return LabCommandResult.No("No such carton.");
+            if (carton == null) return LabCommandResult.No(LabStrings.NoSuchCarton);
 
             if (carton.Location.Kind == SampleLocationKind.OnSurface &&
-                OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far))
+                OutOfReach(actor, carton.Id, NotAtCarton(carton), out var far))
             {
                 return far;
             }
@@ -283,9 +288,9 @@ namespace Residue.Gameplay.World
         private LabCommandResult OpenCarton(ILabActor actor, LabCommand command)
         {
             var carton = lab.Deliveries.Find(command.FixtureId);
-            if (carton == null) return LabCommandResult.No("No such carton.");
+            if (carton == null) return LabCommandResult.No(LabStrings.NoSuchCarton);
 
-            if (OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far)) return far;
+            if (OutOfReach(actor, carton.Id, NotAtCarton(carton), out var far)) return far;
 
             return lab.Deliveries.TryOpen(carton.Id, actor.ClientId, out string refusal)
                 ? LabCommandResult.Ok
@@ -294,15 +299,16 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult TakeDeliveryNote(ILabActor actor, LabCommand command)
         {
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
 
             var carton = lab.Deliveries.Find(command.FixtureId);
-            if (carton == null) return LabCommandResult.No("No such carton.");
+            if (carton == null) return LabCommandResult.No(LabStrings.NoSuchCarton);
 
             // Against whatever the paper is sitting in — the box, or the bench somebody left it on —
             // for the reason TakeSlip checks the slip's own container rather than the printer.
             string standingAt = carton.NoteIsInside ? carton.Id : carton.NoteLocation.ContainerId;
-            if (OutOfReach(actor, standingAt, "that delivery note", out var far)) return far;
+            if (OutOfReach(actor, standingAt, LabStrings.NotStandingAtDeliveryNote, out var far))
+                return far;
 
             if (!lab.Deliveries.TryTakeNote(carton.Id, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
@@ -314,10 +320,10 @@ namespace Residue.Gameplay.World
         private LabCommandResult DiscardCarton(ILabActor actor, LabCommand command)
         {
             var carton = lab.Deliveries.Find(command.FixtureId);
-            if (carton == null) return LabCommandResult.No("No such carton.");
+            if (carton == null) return LabCommandResult.No(LabStrings.NoSuchCarton);
 
             if (carton.Location.Kind == SampleLocationKind.OnSurface &&
-                OutOfReach(actor, carton.Id, $"carton {carton.JobNumber}", out var far))
+                OutOfReach(actor, carton.Id, NotAtCarton(carton), out var far))
             {
                 return far;
             }
@@ -346,10 +352,10 @@ namespace Residue.Gameplay.World
         private static LabCommandResult SelectInventory(ILabActor actor, LabCommand command)
         {
             if (!(actor is ILabInventoryActor inventory))
-                return LabCommandResult.No("This player has no inventory.");
+                return LabCommandResult.No(LabStrings.PlayerHasNoInventory);
             if (!int.TryParse(command.FixtureId, out int rawKind) ||
                 !System.Enum.IsDefined(typeof(GripKind), rawKind))
-                return LabCommandResult.No("No such inventory item.");
+                return LabCommandResult.No(LabStrings.NoSuchInventoryItem);
 
             var kind = (GripKind)rawKind;
             var grip = kind switch
@@ -364,24 +370,25 @@ namespace Residue.Gameplay.World
             };
             return inventory.SelectGrip(grip)
                 ? LabCommandResult.Ok
-                : LabCommandResult.No("That item is not in your inventory.");
+                : LabCommandResult.No(LabStrings.ItemNotInInventory);
         }
 
         private LabCommandResult PutDown(ILabActor actor, LabCommand command)
         {
             var grip = actor.Grip;
-            if (grip.IsEmpty) return LabCommandResult.No("You are not carrying anything.");
+            if (grip.IsEmpty) return LabCommandResult.No(LabStrings.CarryingNothing);
 
             string surface = command.FixtureId;
-            if (string.IsNullOrEmpty(surface)) return LabCommandResult.No("Nowhere to put that down.");
-            if (OutOfReach(actor, surface, "that shelf", out var far)) return far;
+            if (string.IsNullOrEmpty(surface))
+                return LabCommandResult.No(LabStrings.NowhereToPutThatDown);
+            if (OutOfReach(actor, surface, LabStrings.NotStandingAtShelf, out var far)) return far;
 
             switch (grip.Kind)
             {
                 case GripKind.Vial:
                 {
                     if (!lab.Samples.TryGet(grip.Sample, out var sample))
-                        return LabCommandResult.No("No such sample.");
+                        return LabCommandResult.No(LabStrings.NoSuchSample);
 
                     // Every move after the delivery crate is a shelf change rather than progress, so
                     // this cannot refuse on stage — see SampleLifecycle.TryMove.
@@ -442,9 +449,9 @@ namespace Residue.Gameplay.World
         private LabCommandResult Agitate(ILabActor actor)
         {
             var grip = actor.Grip;
-            if (grip.Kind != GripKind.Vial) return LabCommandResult.No("You are not holding a sample.");
+            if (grip.Kind != GripKind.Vial) return LabCommandResult.No(LabStrings.NotHoldingASample);
             if (!lab.Samples.TryGet(grip.Sample, out var sample))
-                return LabCommandResult.No("No such sample.");
+                return LabCommandResult.No(LabStrings.NoSuchSample);
 
             return SampleLifecycle.TryPrep(sample, out string refusal)
                 ? LabCommandResult.Yes(sample.Id)
@@ -458,11 +465,11 @@ namespace Residue.Gameplay.World
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
             var grip = actor.Grip;
-            if (grip.Kind != GripKind.Vial) return LabCommandResult.No("You are not holding a sample.");
+            if (grip.Kind != GripKind.Vial) return LabCommandResult.No(LabStrings.NotHoldingASample);
             if (!lab.Samples.TryGet(grip.Sample, out var sample))
-                return LabCommandResult.No("No such sample.");
+                return LabCommandResult.No(LabStrings.NoSuchSample);
 
-            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+            if (lab.ShiftOver) return LabCommandResult.No(LabStrings.ShiftOverNoNewRuns);
 
             var verdict = machine.TryLoad(sample);
             if (verdict != LoadRefusal.Accepted)
@@ -476,12 +483,13 @@ namespace Residue.Gameplay.World
         {
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
-            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
-            if (machine.IsEmpty) return LabCommandResult.No($"{Name(machine)} is empty.");
-            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+            if (machine.IsRunning) return LabCommandResult.No(IsBusy(machine));
+            if (machine.IsEmpty) return LabCommandResult.No(IsEmpty(machine));
+            if (lab.ShiftOver) return LabCommandResult.No(LabStrings.ShiftOverNoNewRuns);
 
             if (!machine.TryBeginRun())
-                return LabCommandResult.No($"{Name(machine)} will not start a run right now.");
+                return LabCommandResult.No(LabStrings.InstrumentWillNotStart.Format(
+                    ("instrument", Name(machine))));
 
             return LabCommandResult.Yes(machine.LoadedSample);
         }
@@ -490,11 +498,11 @@ namespace Residue.Gameplay.World
         {
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
-            if (!CanStore(actor)) return LabCommandResult.No("Your inventory is full.");
-            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
+            if (!CanStore(actor)) return LabCommandResult.No(LabStrings.InventoryFull);
+            if (machine.IsRunning) return LabCommandResult.No(IsBusy(machine));
 
             var id = machine.Unload();
-            if (!id.IsValid) return LabCommandResult.No($"{Name(machine)} is empty.");
+            if (!id.IsValid) return LabCommandResult.No(IsEmpty(machine));
 
             if (lab.Samples.TryGet(id, out var sample))
                 SampleLifecycle.TryMove(sample, SampleLocation.Held(actor.ClientId), out _);
@@ -522,13 +530,11 @@ namespace Residue.Gameplay.World
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
             if (machine.IsRunning)
-                return LabCommandResult.No($"Cannot flush {Name(machine)} while it is running.");
+                return LabCommandResult.No(LabStrings.CannotFlushWhileRunning.Format(
+                    ("instrument", Name(machine))));
 
             if (actor.Grip.Kind != GripKind.Bottle)
-            {
-                return LabCommandResult.No(
-                    "You need a solvent bottle in your hands. Fill one at the wash station.");
-            }
+                return LabCommandResult.No(LabStrings.FlushNeedsABottle);
 
             if (!lab.Solvent.TryConsumeCharge(actor.Grip.ItemId, actor.ClientId, out string refusal))
                 return LabCommandResult.No(refusal);
@@ -541,13 +547,15 @@ namespace Residue.Gameplay.World
         {
             if (!TryReachMachine(actor, command.FixtureId, out var machine, out var refused)) return refused;
 
-            if (machine.IsRunning) return LabCommandResult.No($"{Name(machine)} is busy.");
-            if (!machine.IsEmpty) return LabCommandResult.No("Take the vial out before running a blank.");
-            if (lab.ShiftOver) return LabCommandResult.No("Shift over — no new runs.");
+            if (machine.IsRunning) return LabCommandResult.No(IsBusy(machine));
+            if (!machine.IsEmpty)
+                return LabCommandResult.No(LabStrings.BlankNeedsAnEmptyInstrument);
+            if (lab.ShiftOver) return LabCommandResult.No(LabStrings.ShiftOverNoNewRuns);
 
             return machine.TryBeginBlank()
                 ? LabCommandResult.Ok
-                : LabCommandResult.No($"{Name(machine)} will not take a blank right now.");
+                : LabCommandResult.No(LabStrings.InstrumentWillNotTakeABlank.Format(
+                    ("instrument", Name(machine))));
         }
 
         private LabCommandResult RunReference(ILabActor actor, LabCommand command)
@@ -588,10 +596,10 @@ namespace Residue.Gameplay.World
                 ? SolventStore.StationId
                 : command.FixtureId;
 
-            if (OutOfReach(actor, station, "the wash station", out var far)) return far;
+            if (OutOfReach(actor, station, LabStrings.NotStandingAtWashStation, out var far)) return far;
 
             if (actor.Grip.Kind != GripKind.Bottle)
-                return LabCommandResult.No("You are not carrying a solvent bottle.");
+                return LabCommandResult.No(LabStrings.NotCarryingABottle);
 
             return lab.Solvent.TryFill(actor.Grip.ItemId, actor.ClientId, out _, out string refusal)
                 ? LabCommandResult.Ok
@@ -602,14 +610,15 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult FileSlip(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
 
             var grip = actor.Grip;
             if (grip.Kind != GripKind.Slip || grip.Ticket != command.Amount)
-                return LabCommandResult.No("You are not carrying that slip.");
+                return LabCommandResult.No(LabStrings.NotCarryingThatSlip);
 
             if (!lab.Slips.TryGet(grip.Ticket, out var slip))
-                return LabCommandResult.No("That slip has already been filed.");
+                return LabCommandResult.No(LabStrings.SlipAlreadyFiled);
 
             // A solvent blank or a certified standard belongs to the instrument, not to a sample. Both
             // are already readable in the terminal's INSTRUMENTS panel, so filing one just discards
@@ -636,13 +645,14 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult FileVerdict(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
 
             // Cast from the wire, so it has to be checked rather than trusted. An out-of-range value
             // would otherwise be scored by ConsequenceResolver as whichever verdict happened to share
             // its number.
             if (!System.Enum.IsDefined(typeof(Verdict), command.Amount))
-                return LabCommandResult.No("That is not a verdict.");
+                return LabCommandResult.No(LabStrings.NotAVerdict);
 
             var cause = string.IsNullOrEmpty(command.Text) ? null : lab.Content?.Cause(command.Text);
 
@@ -654,32 +664,34 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult OrderSolvent(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
-            if (command.Amount <= 0) return LabCommandResult.No("Order at least one unit.");
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
+            if (command.Amount <= 0) return LabCommandResult.No(LabStrings.OrderAtLeastOneUnit);
 
             return lab.Economy.TryBuySolvent(command.Amount)
                 ? LabCommandResult.Ok
-                : LabCommandResult.No(
-                    $"A {command.Amount}-unit restock costs " +
-                    $"£{lab.Economy.SolventCost(command.Amount):N0}, and the account will not cover it.");
+                : LabCommandResult.No(LabStrings.CannotAffordSolvent.Format(
+                    ("units", command.Amount),
+                    ("cost", lab.Economy.SolventCost(command.Amount).ToString("N0"))));
         }
 
         private LabCommandResult OrderStandards(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
-            if (command.Amount <= 0) return LabCommandResult.No("Order at least one ampoule.");
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
+            if (command.Amount <= 0) return LabCommandResult.No(LabStrings.OrderAtLeastOneAmpoule);
 
             return lab.Economy.TryBuyReferenceStandards(command.Amount)
                 ? LabCommandResult.Ok
-                : LabCommandResult.No(
-                    $"{command.Amount} certified ampoules cost " +
-                    $"£{lab.Economy.ReferenceStandardCost(command.Amount):N0}, and the account will " +
-                    "not cover it.");
+                : LabCommandResult.No(LabStrings.CannotAffordStandards.Format(
+                    ("count", command.Amount),
+                    ("cost", lab.Economy.ReferenceStandardCost(command.Amount).ToString("N0"))));
         }
 
         private LabCommandResult ReopenSuspect(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
 
             return lab.TryReopenSuspect(command.Sample, out string refusal)
                 ? LabCommandResult.Yes(command.Sample)
@@ -698,7 +710,8 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult RegisterSample(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
 
             return lab.TryRegisterSample(command.Sample, command.Amount, out string refusal)
                 ? LabCommandResult.Yes(command.Sample)
@@ -712,7 +725,8 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult CallCustomer(ILabActor actor, LabCommand command)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
 
             return lab.TryCallCustomer(command.Text, out _, out string refusal)
                 ? LabCommandResult.Ok
@@ -726,8 +740,9 @@ namespace Residue.Gameplay.World
         /// </summary>
         private LabCommandResult EndDay(ILabActor actor)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
-            if (!lab.DayInProgress) return LabCommandResult.No("The day is already over.");
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
+            if (!lab.DayInProgress) return LabCommandResult.No(LabStrings.DayAlreadyOver);
 
             lab.EndDay();
             return LabCommandResult.Ok;
@@ -735,12 +750,13 @@ namespace Residue.Gameplay.World
 
         private LabCommandResult StartNextDay(ILabActor actor)
         {
-            if (OutOfReach(actor, TerminalStation.FixtureId, "the terminal", out var far)) return far;
-            if (lab.DayInProgress) return LabCommandResult.No("The shift is still running.");
+            if (OutOfReach(actor, TerminalStation.FixtureId, LabStrings.NotStandingAtTerminal, out var far))
+                return far;
+            if (lab.DayInProgress) return LabCommandResult.No(LabStrings.ShiftStillRunning);
 
             return lab.BeginDay()
                 ? LabCommandResult.Ok
-                : LabCommandResult.No("The run is over — there is no next day.");
+                : LabCommandResult.No(LabStrings.RunIsOver);
         }
 
         // -- Shared checks ---------------------------------------------------------------------------
@@ -752,17 +768,35 @@ namespace Residue.Gameplay.World
 
             if (machine == null)
             {
-                refused = LabCommandResult.No("No such instrument.");
+                refused = LabCommandResult.No(LabStrings.NoSuchInstrument);
                 return false;
             }
 
-            if (OutOfReach(actor, instanceId, Name(machine), out refused)) return false;
+            if (OutOfReach(actor, instanceId,
+                           LabStrings.NotStandingAtInstrument.Format(("instrument", Name(machine))),
+                           out refused))
+            {
+                return false;
+            }
 
             refused = default;
             return true;
         }
 
-        private bool OutOfReach(ILabActor actor, string fixtureId, string what, out LabCommandResult refused)
+        /// <summary>
+        /// Whether the player is too far off to operate <paramref name="fixtureId"/>, with the whole
+        /// refusal supplied by the caller.
+        /// <para>
+        /// The sentence arrives finished rather than being assembled from a template plus a noun
+        /// here (#55). "You are not standing at " + <c>what</c> reads correctly in English and is
+        /// untranslatable: a language that puts the place first is unreachable to a translator who
+        /// was handed the fragment. Every caller therefore owns a complete
+        /// <c>refusal.not_at_…</c> line, which is also why the carton's job number is a named
+        /// argument rather than something glued on the front.
+        /// </para>
+        /// </summary>
+        private bool OutOfReach(ILabActor actor, string fixtureId, string tooFar,
+                                out LabCommandResult refused)
         {
             refused = default;
 
@@ -771,15 +805,26 @@ namespace Residue.Gameplay.World
 
             if ((position - actor.Position).sqrMagnitude <= ReachMetres * ReachMetres) return false;
 
-            refused = LabCommandResult.No($"You are not standing at {what}.");
+            refused = LabCommandResult.No(tooFar);
             return true;
         }
 
+        private static string NotAtCarton(Carton carton) =>
+            LabStrings.NotStandingAtCarton.Format(("job", carton.JobNumber));
+
+        private static string IsBusy(MachineInstance machine) =>
+            LabStrings.InstrumentIsBusy.Format(("instrument", Name(machine)));
+
+        private static string IsEmpty(MachineInstance machine) =>
+            LabStrings.InstrumentIsEmpty.Format(("instrument", Name(machine)));
+
         private static string Name(MachineInstance machine) =>
-            machine?.Def != null ? machine.Def.DisplayName : "the instrument";
+            machine?.Def != null ? machine.Def.DisplayName : LabStrings.TheInstrument.Text;
 
         private string DisplayNameOf(string machineInstanceId) =>
-            string.IsNullOrEmpty(machineInstanceId) ? "an instrument" : Name(lab.FindMachine(machineInstanceId));
+            string.IsNullOrEmpty(machineInstanceId)
+                ? LabStrings.AnInstrument.Text
+                : Name(lab.FindMachine(machineInstanceId));
 
         /// <summary>
         /// Turn a <see cref="LoadRefusal"/> into the sentence the station used to say in its prompt.
@@ -789,17 +834,22 @@ namespace Residue.Gameplay.World
         private static string Describe(LoadRefusal refusal, MachineInstance machine, SampleState sample) =>
             refusal switch
             {
-                LoadRefusal.MachineBusy => $"{Name(machine)} is busy.",
-                LoadRefusal.MachineOccupied => $"{Name(machine)} already has a vial in it.",
-                LoadRefusal.NotEnoughVolume =>
-                    $"{Name(machine)} needs {machine.Def.SampleVolumeMl:F0} ml and " +
-                    $"{sample.RecordTag} has {sample.VolumeMl:F1} ml left.",
-                LoadRefusal.NeedsPreheat =>
-                    $"{sample.RecordTag} is at {sample.TemperatureC:F0} °C — " +
-                    $"{Name(machine)} needs it near {machine.Def.PreheatTargetC:F0} °C.",
+                LoadRefusal.MachineBusy => IsBusy(machine),
+                LoadRefusal.MachineOccupied =>
+                    LabStrings.InstrumentAlreadyLoaded.Format(("instrument", Name(machine))),
+                LoadRefusal.NotEnoughVolume => LabStrings.NotEnoughVolume.Format(
+                    ("instrument", Name(machine)),
+                    ("needed", machine.Def.SampleVolumeMl.ToString("F0")),
+                    ("tag", sample.RecordTag),
+                    ("left", sample.VolumeMl.ToString("F1"))),
+                LoadRefusal.NeedsPreheat => LabStrings.NeedsPreheat.Format(
+                    ("tag", sample.RecordTag),
+                    ("actual", sample.TemperatureC.ToString("F0")),
+                    ("instrument", Name(machine)),
+                    ("target", machine.Def.PreheatTargetC.ToString("F0"))),
                 LoadRefusal.NotSettled =>
-                    $"{sample.RecordTag} has settled out. Agitate it before running it (§4.5).",
-                _ => $"{Name(machine)} will not take that."
+                    LabStrings.HasSettledOut.Format(("tag", sample.RecordTag)),
+                _ => LabStrings.InstrumentWillNotTakeThat.Format(("instrument", Name(machine)))
             };
     }
 }
