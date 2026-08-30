@@ -1,4 +1,6 @@
+using Residue.Gameplay.Settings;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UIElements;
 using System.Collections.Generic;
 
@@ -42,6 +44,8 @@ namespace Residue.Gameplay.World
         private Label inspectionTitle;
         private Label inspectionBody;
         private Label inspectionHelp;
+        private VisualElement briefCard;
+        private bool briefOpen;
         private VisualElement root;
 
         private void Awake()
@@ -50,6 +54,12 @@ namespace Residue.Gameplay.World
             // scene set it, but a player prefab has no build step left to do the wiring at M4.
             if (interactor == null) interactor = GetComponentInParent<PlayerInteractor>();
             if (interactionDebug == null) interactionDebug = GetComponentInParent<InteractionDebug>();
+
+            // Read once, here, rather than in Build(). The tree is rebuilt whenever the panel's root
+            // element changes identity, and a card that re-opened on every rebuild would keep coming
+            // back at a player who had already put it away. GameSettings.Load() runs at
+            // BeforeSceneLoad, so the answer is already on disk by now.
+            briefOpen = !GameSettings.ShiftBriefSeen;
         }
 
         private void OnEnable() => EnsureUi();
@@ -157,7 +167,7 @@ namespace Residue.Gameplay.World
             // up occupies a slot for the rest of the shift and nothing on screen suggests otherwise.
             var controls = new Label(
                 "[WASD] move    [E] interact    [1–3] select    [G] set down    [Space] inspect    " +
-                "[LMB drag] rotate    [Wheel] zoom");
+                "[LMB drag] rotate    [Wheel] zoom    [Tab] standing orders");
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
@@ -175,6 +185,7 @@ namespace Residue.Gameplay.World
 
             BuildInventory();
             BuildInspectionOverlay();
+            BuildShiftBrief();
 
             // Interaction diagnostics. Deliberately monospaced-ish and magenta-tinted so it can
             // never be mistaken for game UI.
@@ -225,6 +236,7 @@ namespace Residue.Gameplay.World
 
             UpdateInventory();
             UpdateInspection();
+            UpdateShiftBrief();
 
             // Tell the player what the thing in their hands does, since a carried item cannot be
             // looked at and therefore never shows a prompt of its own.
@@ -397,6 +409,107 @@ namespace Residue.Gameplay.World
             inspectionHelp.text = "Hold LMB + move mouse to rotate    Wheel to zoom    " +
                 (string.IsNullOrEmpty(view.Item.InspectionHelp) ? "" : view.Item.InspectionHelp + "    ") +
                 "Space / Esc to close";
+        }
+
+        /// <summary>
+        /// The standing orders card (#47): the one thing in the lab that appears without being asked
+        /// for.
+        /// <para>
+        /// Its words come from <see cref="BookContent.ShiftBrief"/>, so this method knows nothing
+        /// about the lab and cannot teach a diagnosis even by accident. It exists at all because the
+        /// manuals — which already explain everything this room runs on — are objects you have to
+        /// notice, pick up and open, and nothing in an untextured grey room suggests doing that. A
+        /// book cannot solve "nobody knows the books are there".
+        /// </para>
+        /// <para>
+        /// Drawn in <see cref="SignalPalette.Accent"/> and <see cref="SignalPalette.Dim"/>, never in
+        /// the verdict set (hard rule 4). It is a card in the corner rather than a modal because it
+        /// must gate nothing: the player can walk, look, carry and run an instrument with it up, and
+        /// in co-op nobody else can tell it is open. See #73 in CLAUDE.md for what a mandatory first
+        /// step did to the pacing last time.
+        /// </para>
+        /// </summary>
+        private void BuildShiftBrief()
+        {
+            briefCard = new VisualElement { pickingMode = PickingMode.Ignore };
+            briefCard.style.position = Position.Absolute;
+            briefCard.style.left = 16;
+            briefCard.style.top = 96;
+            briefCard.style.width = 372;
+            briefCard.style.paddingTop = 14;
+            briefCard.style.paddingBottom = 14;
+            briefCard.style.paddingLeft = 16;
+            briefCard.style.paddingRight = 16;
+            briefCard.style.backgroundColor = new StyleColor(SignalPalette.Panel);
+            briefCard.style.borderLeftWidth = 2;
+            briefCard.style.borderLeftColor = new StyleColor(SignalPalette.Accent);
+            briefCard.style.display = DisplayStyle.None;
+            Round(briefCard, 3);
+            root.Add(briefCard);
+
+            var heading = new Label(BookContent.ShiftBriefTitle);
+            Style(heading, 14, SignalPalette.Ink);
+            heading.style.unityFontStyleAndWeight = FontStyle.Bold;
+            briefCard.Add(heading);
+
+            foreach (var page in BookContent.ShiftBrief())
+            {
+                var step = new Label(page.Title);
+                Style(step, 12, SignalPalette.Accent);
+                step.style.marginTop = 11;
+                step.style.whiteSpace = WhiteSpace.Normal;
+                briefCard.Add(step);
+
+                var body = new Label(page.Body);
+                Style(body, 12, SignalPalette.Dim);
+                body.style.marginTop = 2;
+                body.style.whiteSpace = WhiteSpace.Normal;
+                briefCard.Add(body);
+            }
+
+            var closing = new Label(
+                BookContent.ShiftBriefClosing + "\n[Tab] puts this away — [Tab] brings it back.");
+            Style(closing, 11, SignalPalette.Off);
+            closing.style.marginTop = 14;
+            closing.style.whiteSpace = WhiteSpace.Normal;
+            briefCard.Add(closing);
+        }
+
+        /// <summary>
+        /// Toggles the card and records the first time it is put away.
+        /// <para>
+        /// No timer anywhere: the pause menu stops <see cref="Time.timeScale"/> in single player, so
+        /// anything counting down would freeze behind it and a card that dismissed itself would
+        /// either never leave or leave while the player was reading. The player closes it, or it
+        /// stays.
+        /// </para>
+        /// <para>
+        /// <paramref name="screenUp"/> is read off <c>interactor.enabled</c> because that is the one
+        /// signal every screen in the game already produces — the terminal, item inspection and the
+        /// pause menu all disable the interactor while they hold the keyboard. Watching it lets
+        /// <c>Residue.Gameplay</c> notice a <c>Residue.Net</c> menu without referencing the assembly
+        /// it must not reference.
+        /// </para>
+        /// </summary>
+        private void UpdateShiftBrief()
+        {
+            if (briefCard == null) return;
+
+            bool screenUp = !interactor.enabled
+                            || (interactor.Inspection != null && interactor.Inspection.IsOpen)
+                            || (interactor.Terminal != null && interactor.Terminal.IsOpen);
+
+            var keyboard = Keyboard.current;
+            if (!screenUp && keyboard != null && keyboard.tabKey.wasPressedThisFrame)
+            {
+                briefOpen = !briefOpen;
+
+                // Written on dismissal, not on display: a brief nobody acknowledged has not been
+                // read, and quitting halfway through it should not cost the player the rest.
+                if (!briefOpen) GameSettings.ShiftBriefSeen = true;
+            }
+
+            briefCard.style.display = briefOpen && !screenUp ? DisplayStyle.Flex : DisplayStyle.None;
         }
 
         /// <summary>

@@ -63,6 +63,103 @@ namespace Residue.Gameplay.World
             return pages;
         }
 
+        // -- Shift brief -----------------------------------------------------------------------------
+
+        /// <summary>Heading on the brief. Standing orders, not a tutorial: the lab's own words.</summary>
+        public const string ShiftBriefTitle = "STANDING ORDERS";
+
+        /// <summary>
+        /// The last line of the brief, and the line that decides whether the rest of it is allowed to
+        /// exist. Kept next to the pages it closes so nobody edits one without seeing the other.
+        /// </summary>
+        public const string ShiftBriefClosing =
+            "None of the above tells you what any sample is. That part is the job.";
+
+        /// <summary>
+        /// The procedure the lab expects of you, and nothing else (#47).
+        /// <para>
+        /// This lives in <see cref="BookContent"/> because it is the same material as the manuals and
+        /// must not drift from them — it names the reference books through
+        /// <see cref="TitleFor(BookKind, MachineDef)"/> so renaming one renames it here too, and it
+        /// repeats the manual's own wording for blanks, flushes and drift rather than inventing a
+        /// second vocabulary for them. What it is <i>not</i> is a second copy of the manuals: it holds
+        /// no numbers, because <see cref="BuildManual"/> already prints the real ones per instrument,
+        /// and a duplicated figure is a figure that will eventually disagree with the chemistry.
+        /// </para>
+        /// <para>
+        /// <b>Every line says where to look. No line says what you will find.</b> Not one element,
+        /// fault or root cause is named anywhere in it, and
+        /// <c>OnboardingTests.TheShiftBrief_NamesNoElementFaultOrRootCause</c> holds that shut against
+        /// the real content tables — because hard rule 1 says a player who understands cause must beat
+        /// one who memorised a table, and a brief that started listing symptoms would hand out the
+        /// table on day one. Hard rule 3 is the other half: contamination and drift are only fair
+        /// because a blank and a standard reveal them, and this is where the player is told those two
+        /// tools exist at all.
+        /// </para>
+        /// <para>
+        /// Deliberately free, unlike a <c>ReferenceBook</c>, which occupies your hands and costs shift
+        /// time on purpose. That exemption is affordable only because there is no chemistry in here to
+        /// look up — the moment a line of this would save someone a trip to the rack, it belongs in
+        /// the rack instead.
+        /// </para>
+        /// </summary>
+        public static List<BookPage> ShiftBrief() => new()
+        {
+            new BookPage
+            {
+                Title = "The manuals are not decoration",
+                Body =
+                    "Every instrument has its operator manual lying on the bench beside it, and the " +
+                    $"rack by the terminal holds {TitleFor(BookKind.ElementIndex, null)}, " +
+                    $"{TitleFor(BookKind.DiagnosticGuide, null)} and " +
+                    $"{TitleFor(BookKind.ThresholdTables, null)}. A manual says what its instrument " +
+                    "reports and — the part that matters — what it cannot see. Look at one and press " +
+                    "[E] to pick it up."
+            },
+            new BookPage
+            {
+                Title = "Loading is a hold, and the hold is the shake",
+                Body =
+                    "Hold [E] at an instrument to load a vial. That hold is where the sample gets " +
+                    "shaken, so it costs seconds you do not get back. A vial that came in cold has to " +
+                    "be warmed first; the instrument will say so when it refuses."
+            },
+            new BookPage
+            {
+                Title = "Nothing files itself",
+                Body =
+                    "A finished run prints a slip into the tray on the instrument. The reading joins " +
+                    "the record only when you carry that slip to the terminal. A slip left on a bench " +
+                    "is a test you paid for and cannot use."
+            },
+            new BookPage
+            {
+                Title = "An instrument is dirty until you prove it clean",
+                Body =
+                    "Some of the last sample stays behind and turns up in the next one. Pushing a " +
+                    "solvent blank through reads back what is in there. To clear it, fill a bottle at " +
+                    "the wash station and hold FLUSH at the instrument. The terminal marks every " +
+                    "instrument that has had no blank today."
+            },
+            new BookPage
+            {
+                Title = "An instrument drifts until you prove it has not",
+                Body =
+                    "Calibration wanders a little every run, in a direction re-rolled each day, and it " +
+                    "quietly scales everything the instrument tells you. A certified reference " +
+                    "standard is what measures it. The terminal marks every instrument that has had " +
+                    "no standard today."
+            },
+            new BookPage
+            {
+                Title = "A verdict is a bill that arrives later",
+                Body =
+                    "Filing closes a sample, but the consequence lands days afterwards. Both " +
+                    "directions cost: condemning a serviceable tank is expensive, and passing a bad " +
+                    "one is worse. Naming the cause correctly is what pays."
+            }
+        };
+
         // -- Machine manual --------------------------------------------------------------------------
 
         private static void BuildManual(List<BookPage> pages, MachineDef machine, ContentCatalog catalog)

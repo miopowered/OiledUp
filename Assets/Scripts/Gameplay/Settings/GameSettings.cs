@@ -59,6 +59,8 @@ namespace Residue.Gameplay.Settings
         private const string KeyHeadBobScale = Prefix + "controls.headbobscale";
         private const string KeyCameraShake = Prefix + "controls.camerashake";
 
+        private const string KeyShiftBrief = Prefix + "help.shiftbrief";
+
         // -- Ranges ------------------------------------------------------------------------------
 
         /// <summary>
@@ -105,6 +107,8 @@ namespace Residue.Gameplay.Settings
         private static bool invertLook;
         private static float headBobScale = 1f;
         private static float cameraShakeScale = 1f;
+
+        private static bool shiftBriefSeen;
 
         private static float defaultLookSensitivity = FallbackLookSensitivity;
         private static float defaultFieldOfView = FallbackFieldOfView;
@@ -168,6 +172,8 @@ namespace Residue.Gameplay.Settings
             headBobScale = ReadHeadBobScale();
             cameraShakeScale = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyCameraShake, 1f));
 
+            shiftBriefSeen = ReadShiftBriefSeen();
+
             Apply();
         }
 
@@ -192,6 +198,8 @@ namespace Residue.Gameplay.Settings
             PlayerPrefs.SetInt(KeyInvertLook, invertLook ? 1 : 0);
             PlayerPrefs.SetFloat(KeyHeadBobScale, headBobScale);
             PlayerPrefs.SetFloat(KeyCameraShake, cameraShakeScale);
+
+            PlayerPrefs.SetInt(KeyShiftBrief, shiftBriefSeen ? 1 : 0);
 
             hasSavedLookSensitivity = true;
             hasSavedFieldOfView = true;
@@ -233,7 +241,7 @@ namespace Residue.Gameplay.Settings
                          KeyWidth, KeyHeight, KeyRefreshHz, KeyScreenMode, KeyVSync, KeyQuality,
                          KeyFieldOfView, KeyMaster, KeyEffects, KeyAmbience, KeyVoice,
                          KeySensitivity, KeyInvertLook, KeyHeadBob, KeyHeadBobScale,
-                         KeyCameraShake
+                         KeyCameraShake, KeyShiftBrief
                      })
             {
                 PlayerPrefs.DeleteKey(key);
@@ -262,6 +270,10 @@ namespace Residue.Gameplay.Settings
             invertLook = false;
             headBobScale = 1f;
             cameraShakeScale = 1f;
+
+            // Deliberately part of the reset: someone who has wiped their profile is being handed a
+            // first run, and the shift brief is what a first run is owed (#47).
+            shiftBriefSeen = false;
 
             Apply();
         }
@@ -611,6 +623,44 @@ namespace Residue.Gameplay.Settings
                 Raise();
             }
         }
+
+        // -- Onboarding --------------------------------------------------------------------------
+
+        /// <summary>
+        /// Whether this player has put the shift brief away at least once (#47).
+        /// <para>
+        /// Local and per-profile, exactly like the comfort settings above, and for the same reason:
+        /// onboarding is a fact about a person, not about a lab. Nothing here goes on the wire, so a
+        /// veteran hosting for a newcomer sees no card and the newcomer's card pauses nobody.
+        /// </para>
+        /// <para>
+        /// False is the honest default for a key that does not exist yet, which is what makes a fresh
+        /// install and a wiped profile both count as a first run. It is written when the player
+        /// <i>dismisses</i> the card rather than when it first appears: a brief nobody acknowledged
+        /// has not been read, and quitting mid-sentence should not cost it.
+        /// </para>
+        /// </summary>
+        public static bool ShiftBriefSeen
+        {
+            get => shiftBriefSeen;
+            set
+            {
+                if (shiftBriefSeen == value) return;
+                shiftBriefSeen = value;
+                PlayerPrefs.SetInt(KeyShiftBrief, value ? 1 : 0);
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// The stored answer, defaulted. Public and called by <see cref="Load"/> rather than inlined
+        /// so <c>OnboardingTests</c> exercises the real default instead of a copy of it — the same
+        /// arrangement, and the same reason, as <see cref="ReadHeadBobScale"/>.
+        /// </summary>
+        public static bool ReadShiftBriefSeen() => PlayerPrefs.GetInt(KeyShiftBrief, 0) != 0;
+
+        /// <summary>The PlayerPrefs key behind <see cref="ReadShiftBriefSeen"/>, for that test.</summary>
+        public static string ShiftBriefKey => KeyShiftBrief;
 
         // -- Internals ---------------------------------------------------------------------------
 
