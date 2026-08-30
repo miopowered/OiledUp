@@ -58,6 +58,14 @@ namespace Residue.Net.UI
         private CreditsPanel creditsPage;
         private SessionCard card;
 
+        /// <summary>
+        /// The fade over a scene change (#51). It lives here for the same reason everything else on
+        /// this object does — <c>LabConnection.Awake</c> marks this <c>DontDestroyOnLoad</c>, so it
+        /// survives the load it is covering. A veil rebuilt per scene would be destroyed halfway
+        /// through the load and reappear on the other side, which is the cut with extra steps.
+        /// </summary>
+        private LoadingVeil veil;
+
         /// <summary>Where the player navigated. Overruled by <see cref="Route"/> whenever the
         /// connection disagrees — see <see cref="MenuPage"/>.</summary>
         private MenuPage requested = MenuPage.Title;
@@ -151,6 +159,11 @@ namespace Residue.Net.UI
             card = new SessionCard(connection);
             root.Add(card.Root);
 
+            // Last, so it covers every page and the session card alike. There is nothing in this
+            // shell that should stay legible through a fade to black.
+            veil = new LoadingVeil();
+            root.Add(veil.Root);
+
             shown = MenuPage.None;
         }
 
@@ -176,8 +189,19 @@ namespace Residue.Net.UI
 
             if (InGame)
             {
-                if (!suspension.Active) return MenuPage.None;
-                return requested == MenuPage.Settings ? MenuPage.Settings : MenuPage.Pause;
+                if (suspension.Active)
+                    return requested == MenuPage.Settings ? MenuPage.Settings : MenuPage.Pause;
+
+                // Keep whatever is on screen until the veil has actually covered it (#51). START is
+                // pressed on the title page and the state changes in that same frame, a second before
+                // the lab exists — tearing the menu down there shows the empty Boot scene through the
+                // half-finished fade, which is the flash the fade is there to remove. Read off the
+                // transition rather than tracked here, so there is still exactly one thing that knows
+                // whether we are in the lab.
+                bool stillFading = connection.Transition.Covers &&
+                                   !connection.Transition.FullyCovered;
+
+                return stillFading ? shown : MenuPage.None;
             }
 
             if (connection.InLobby) return MenuPage.Lobby;
@@ -316,6 +340,8 @@ namespace Residue.Net.UI
 
         private void Update()
         {
+            TickVeil();
+
             // The cursor is the only reliable signal that nothing else owns the screen, and it has to
             // be read over *two* frames. TerminalScreen and ItemInspectionView both consume Escape and
             // re-lock the cursor as they close; depending on script execution order this component can
@@ -359,6 +385,32 @@ namespace Residue.Net.UI
 
             if (keyboard.escapeKey.wasPressedThisFrame) BeginPause();
             else if (keyboard.vKey.wasPressedThisFrame && connection.IsLive) OpenVoiceControls();
+        }
+
+        /// <summary>
+        /// Redraw the fade, every frame and outside the routing (#51).
+        /// <para>
+        /// Not driven off <c>Changed</c> like everything else on this screen: the opacity moves every
+        /// frame, and an event per frame would re-run <see cref="Refresh"/> — a page repaint, a save
+        /// slot read, a roster rebuild — for a number. Polling is the cheaper direction here, and it
+        /// keeps the veil drawing during the frames a scene load spends replacing the world under it.
+        /// </para>
+        /// <para>
+        /// <c>Time.unscaledTime</c> for the reason <see cref="TickCountdown"/> gives below, and with
+        /// more at stake: a pause menu holds the timescale at zero, LEAVE is pressed from behind it,
+        /// and the one screen whose job is to prove the game is alive must not be the one that
+        /// freezes.
+        /// </para>
+        /// </summary>
+        private void TickVeil()
+        {
+            if (veil == null) return;
+            veil.Refresh(connection, Time.unscaledTime);
+
+            // The page underneath can change without anything raising Changed — the fade reaching
+            // full black is what releases the title screen, and the host's first publish landing is
+            // what releases the lab.
+            if (connection != null && connection.Transition.Covers) Refresh();
         }
 
         /// <summary>

@@ -63,6 +63,16 @@ namespace Residue.Net.Connect
     /// after it, because the unwind waits on the network that has just failed and until it lands the
     /// player is still walking around a lab that has stopped answering.
     /// </para>
+    /// <para>
+    /// <b>Nothing this class loads is a cut, and nothing it loads blocks a frame</b> (#51). Both of
+    /// the plain loads are <c>LoadSceneAsync</c> and both are queued behind <see cref="Transition"/>,
+    /// which is also what <see cref="HoldReason"/> keeps covered through the parts of the wait that
+    /// are <i>not</i> a scene load at all — a Relay allocation, a lobby create, and a client sitting
+    /// on a connection whose host has not sent it a lab yet. The netcode load in
+    /// <see cref="StartShift"/> stays NGO's and is only <i>deferred</i> behind the fade: it is the
+    /// one that replicates, and a plain Unity load in its place would spawn no scene-placed
+    /// <c>NetworkObject</c> and hand a joining client nothing.
+    /// </para>
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class LabConnection : MonoBehaviour
@@ -72,6 +82,33 @@ namespace Residue.Net.Connect
 
         /// <summary>How long a quit will wait for the lobby to close before giving up on it.</summary>
         private const float QuitGraceSeconds = 3f;
+
+        /// <summary>
+        /// How long a wait may run before the screen starts saying more than the step name. Long
+        /// enough that a normal load never sees it, short enough to land before the player has
+        /// decided the game is hung — which on a client waiting for a host is the point at which
+        /// they quit and rejoin, and make the wait longer for everybody.
+        /// </summary>
+        private const float PatienceSeconds = 6f;
+
+        /// <summary>
+        /// The longest anything will be held behind a black screen.
+        /// <para>
+        /// A safety valve, and it is deliberately generous. Every wait here ends on something
+        /// arriving — a scene, a host's first publish — and none of those has a timeout of its own,
+        /// so a load that silently never completes would otherwise be a black screen with a line of
+        /// text on it and no way out. Giving up shows the player a room they can at least walk out
+        /// of, which is a bug report rather than a hang.
+        /// </para>
+        /// </summary>
+        private const float MaxHoldSeconds = 30f;
+
+        private const string GenericLoadStep = "Loading…";
+        private const string WaitingForHostStep = "Waiting for the host to start the shift…";
+        private const string WaitingForLabStep = "Waiting for the host to send the lab…";
+        private const string OpeningLabStep = "Opening the lab…";
+        private const string LoadingLabStep = "Loading the lab…";
+        private const string ReturningStep = "Returning to the menu…";
 
         public static LabConnection Instance { get; private set; }
 
@@ -90,10 +127,42 @@ namespace Residue.Net.Connect
         private readonly LobbyHeartbeat heartbeat = new();
         private readonly VoiceChat voice = new();
         private readonly LobbyRoom lobbyRoom = new();
+        private readonly SceneFade fade = new();
 
         private UgsLobby lobby;
         private bool ownsLobby;
         private bool quitting;
+
+        /// <summary>
+        /// A scene that has been asked for and not arrived in, with the line to show while waiting.
+        /// <para>
+        /// This is what keeps the screen covered across the load itself, which no
+        /// <see cref="ConnectState"/> describes: single player is <see cref="ConnectState.SinglePlayer"/>
+        /// from the moment START is pressed, and the lab does not exist for another second after that.
+        /// Cleared by <see cref="OnActiveSceneChanged"/> — by arriving, not by a callback that a
+        /// failed load would never fire.
+        /// </para>
+        /// </summary>
+        private string awaitingScene;
+
+        private string awaitingStep;
+
+        /// <summary>Guards <see cref="StartShift"/> across the frames its load spends queued.</summary>
+        private bool shiftLoadQueued;
+
+        /// <summary>
+        /// How long <see cref="HoldReason"/> has wanted the screen covered, without a break. Reset by
+        /// the wait ending rather than by the cover lifting, so <see cref="MaxHoldSeconds"/> latches
+        /// instead of flickering the veil once it has given up.
+        /// </summary>
+        private float holdSeconds;
+
+        /// <summary>
+        /// <see cref="MaxHoldSeconds"/> has been passed and the cover has been lifted. Latched,
+        /// because the reason for it is still true on the next frame and an unlatched cap would
+        /// flicker the veil once a second forever.
+        /// </summary>
+        private bool holdGaveUp;
 
         /// <summary>
         /// The code this client actually joined with, kept for <see cref="RejoinAsync"/>. Cleared by
@@ -175,6 +244,51 @@ namespace Residue.Net.Connect
         /// </summary>
         public bool InLobby => IsLive && !ShiftStarted && lobbyRoom.IsOpen;
 
+        /// <summary>
+        /// The black over a scene change and the step being waited on (#51). Read by
+        /// <c>LoadingVeil</c>, which draws it and decides nothing.
+        /// <para>
+        /// Driven from <see cref="Update"/> so it keeps running with no screen attached at all — see
+        /// <see cref="SceneFade"/> for why the load is queued on this rather than called next to it.
+        /// </para>
+        /// </summary>
+        public SceneFade Transition => fade;
+
+        /// <summary>
+        /// A second line for a wait that has gone on long enough to be mistaken for a hang, or null.
+        /// <para>
+        /// Only ever reassurance, never a step: the step is <see cref="SceneFade.Step"/> and is
+        /// already on screen. This exists for the client waiting on a host, which is the longest wait
+        /// the game has and the one where "looks hung" turns into a player quitting and rejoining —
+        /// which drops their seat, restarts the handshake, and makes it longer still.
+        /// </para>
+        /// </summary>
+        public string LoadingNote { get; private set; }
+
+        /// <summary>
+        /// The lab is not merely loaded but furnished: on a client, the host's first publish has
+        /// landed and the racks have something in them.
+        /// <para>
+        /// <b>Not a second answer to "are we in the lab"</b> — that is <see cref="ShiftStarted"/>,
+        /// and this is built on it. A client's scene finishes loading a beat before
+        /// <c>LabNetwork</c> spawns and publishes, and revealing on the scene alone drops the player
+        /// into a room with no instruments and no boxes, which is the exact reading behind the
+        /// empty-lab bug this milestone has already chased once. The machine list is the tell: the
+        /// lab always has instruments, so a non-empty one is the first publish having arrived.
+        /// </para>
+        /// <para>
+        /// A host and single player have nothing to wait for — <c>LabRuntime</c> builds the state as
+        /// the scene loads — which is what <see cref="LabRuntime.SimulatesLocally"/> is answering
+        /// here rather than anything about the network.
+        /// </para>
+        /// </summary>
+        public bool LabReady =>
+            ShiftStarted &&
+            (LabRuntime.SimulatesLocally ||
+             (LabNetwork.Instance != null &&
+              LabNetwork.Instance.Machines != null &&
+              LabNetwork.Instance.Machines.Count > 0));
+
         /// <summary>The scene a shift runs in. Exposed so a screen can name it in a diagnostic.</summary>
         public string LabSceneName => labSceneName;
 
@@ -217,6 +331,11 @@ namespace Residue.Net.Connect
             // Unscaled, and deliberately: a pause menu that sets Time.timeScale to zero must not stop
             // a countdown. A countdown that stops is a hang with a number on it.
             lobbyRoom.Tick(Time.realtimeSinceStartup);
+
+            // Same clock, same reason, and here it is worse than a stopped number: LEAVE is pressed
+            // from behind a pause menu with the timescale at zero, and the fade holding that scene
+            // load would never reach the point where it runs it.
+            TickTransition(Time.unscaledDeltaTime);
         }
 
         private void OnDestroy()
@@ -375,6 +494,15 @@ namespace Residue.Net.Connect
         /// </summary>
         private void OnActiveSceneChanged(Scene from, Scene to)
         {
+            // Cleared by arriving somewhere, not by arriving at the right place: a load that ends up
+            // in a scene nobody asked for is still a load that finished, and holding the veil on for
+            // it would be a black screen over a game that is running fine.
+            AbandonSceneChange();
+
+            // Whatever the fade was holding for has landed. Cleared here rather than in StartShift so
+            // a shift that is left and started again in one process still works.
+            shiftLoadQueued = false;
+
             bool started = to.IsValid() && to.name == labSceneName;
             if (started == ShiftStarted) return;
 
@@ -386,6 +514,137 @@ namespace Residue.Net.Connect
             if (started) lobbyRoom.Seal();
 
             Changed?.Invoke();
+        }
+
+        // -- Scene transitions -------------------------------------------------------------------------
+
+        /// <summary>
+        /// Decide what the screen should be covering, then advance the fade over it.
+        /// <para>
+        /// A predicate re-read every frame rather than a state machine with its own transitions. The
+        /// waits it covers overlap and hand over to each other — a client goes from Connecting to
+        /// connected-with-no-lab to a scene load to waiting for the first publish without a break —
+        /// and one predicate is how that stays a single unbroken cover instead of four fades that
+        /// each blink at the seam.
+        /// </para>
+        /// </summary>
+        private void TickTransition(float seconds)
+        {
+            string step = HoldReason();
+
+            // Accumulated against the reason, not against the cover, so giving up latches: once the
+            // cap is passed this keeps climbing and the cover does not come back.
+            if (step != null)
+            {
+                holdSeconds += Mathf.Max(seconds, 0f);
+            }
+            else
+            {
+                holdSeconds = 0f;
+                holdGaveUp = false;
+            }
+
+            if (step != null && holdSeconds >= MaxHoldSeconds)
+            {
+                // Once, not every frame: the reason is still true on the next one, which is the whole
+                // point of the latch.
+                if (!holdGaveUp)
+                {
+                    holdGaveUp = true;
+                    Debug.LogWarning($"[LabConnection] Gave up waiting on '{step}' after " +
+                                     $"{MaxHoldSeconds:0} s and lifted the loading screen. Whatever " +
+                                     "it was waiting for has not arrived.", this);
+                }
+
+                step = null;
+            }
+
+            if (step != null) fade.Cover(step);
+            else fade.Release();
+
+            LoadingNote = step != null && holdSeconds >= PatienceSeconds ? PatienceNote() : null;
+
+            fade.Tick(seconds);
+        }
+
+        /// <summary>
+        /// The line to hold the screen on, or null when there is nothing to wait for.
+        /// <para>
+        /// Ordered by which answer is most specific. The connect steps come near the top because
+        /// they are the half a loading screen over the scene load would miss entirely: a host spends
+        /// a Relay allocation and a lobby create before there is any scene to load, and that is the
+        /// wait #51 is actually about.
+        /// </para>
+        /// </summary>
+        private string HoldReason()
+        {
+            // First, and it is a refusal rather than an ordering. A session that ended has a sentence
+            // on screen that the player is in the middle of reading; black over it takes away the one
+            // thing telling them what happened. ReturnToBoot skips the fade on that path for the same
+            // reason, so nothing here is left holding a load it will never run.
+            if (Ended.HasValue) return null;
+
+            // Signing in, reserving a relay, opening the lobby, connecting. Status is already written
+            // to be read by a player, so the veil names the step by showing it.
+            if (ConnectStates.IsBusy(State)) return Status;
+
+            // A scene asked for and not arrived in — including the netcode one, which a client is
+            // pulled into without asking (see OnNetworkSceneLoad).
+            if (awaitingScene != null) return awaitingStep;
+
+            // Connected, no lobby, no lab. NGO has this client and the host has not pushed a scene at
+            // it yet, which is the longest wait in the game: the lobby room stays shut for anyone
+            // joining a shift already in progress, so there is nothing else on screen to look at.
+            if (IsLive && !InLobby && !ShiftStarted) return WaitingForHostStep;
+
+            // Arrived, but the room is not furnished. See LabReady.
+            if (ShiftStarted && !LabReady)
+                return LabRuntime.SimulatesLocally ? OpeningLabStep : WaitingForLabStep;
+
+            return null;
+        }
+
+        /// <summary>
+        /// What to add once a wait has outlived <see cref="PatienceSeconds"/>. Answers the question
+        /// the player is about to act on — "is it me, and should I restart?" — because the action
+        /// they would take is the one that makes it worse.
+        /// </summary>
+        private string PatienceNote()
+        {
+            if (IsLive && !ShiftStarted)
+                return "Still connected. The host has not started the shift yet — you do not need " +
+                       "to rejoin.";
+
+            if (ShiftStarted && !LabRuntime.SimulatesLocally)
+                return "The lab is still arriving from the host. Leaving now would put you back in " +
+                       "the queue behind it.";
+
+            return "Still working. This can take a moment on a slow connection.";
+        }
+
+        /// <summary>
+        /// Cover the screen, then load. The queued half runs from <see cref="SceneFade.Tick"/> the
+        /// moment the black is opaque — see <see cref="SceneFade"/> for why it is not simply called
+        /// on the next line.
+        /// </summary>
+        private void BeginSceneChange(string scene, string step, Action load)
+        {
+            awaitingScene = scene;
+            awaitingStep = step;
+            holdSeconds = 0f;
+            holdGaveUp = false;
+            fade.Cover(step, load);
+        }
+
+        /// <summary>
+        /// Stop waiting on a scene that is not coming. Called by every load that could not be
+        /// started, because the cover is held by <see cref="awaitingScene"/> and nothing else would
+        /// ever clear it.
+        /// </summary>
+        private void AbandonSceneChange()
+        {
+            awaitingScene = null;
+            awaitingStep = null;
         }
 
         // -- Single player -----------------------------------------------------------------------------
@@ -432,7 +691,23 @@ namespace Residue.Net.Connect
             Ended = null;
             LabRuntime.SimulatesLocally = true;
             Set(ConnectState.SinglePlayer);
-            SceneManager.LoadScene(labSceneName);
+
+            // Was a blocking LoadScene, which froze the last frame of the menu for the length of the
+            // load and then cut straight into a first-person camera at a spawn point (#51). Async and
+            // behind the fade: the menu stays drawn and alive until the black is up, and the black
+            // stays up until LabReady says there is a room to look at.
+            BeginSceneChange(labSceneName, LoadingLabStep, LoadLabLocally);
+        }
+
+        /// <summary>Single player's own load. No netcode, exactly as before — only asynchronous.</summary>
+        private void LoadLabLocally()
+        {
+            if (quitting || !Application.isPlaying) return;
+
+            if (SceneManager.LoadSceneAsync(labSceneName) != null) return;
+
+            AbandonSceneChange();
+            Fail($"Could not load '{labSceneName}'. Is it in Build Settings?");
         }
 
         // -- Host --------------------------------------------------------------------------------------
@@ -535,6 +810,9 @@ namespace Residue.Net.Connect
                 return;
             }
 
+            // The scene manager exists from here and not before.
+            HookScenes(manager);
+
             // Before the next await, and that is not an accident. NGO auto-approves the host's own
             // local client inside StartHost — there was no callback installed yet — and then queues
             // every remote connection request for its next update. Opening the room here means our
@@ -560,6 +838,13 @@ namespace Residue.Net.Connect
         /// among them — only spawn for a scene the netcode layer loaded, and a client joining later is
         /// handed this same load as part of its connection.
         /// </para>
+        /// <para>
+        /// <b>The fade defers this load; it does not replace it</b> (#51). NGO's own
+        /// <c>LoadScene</c> already runs on <c>LoadSceneAsync</c> underneath and reports through
+        /// <c>OnSceneEvent</c>, so there is nothing to make non-blocking here — what was missing was
+        /// the black in front of it, and the host being the one that starts it means the host is
+        /// already covered when every client receives the message.
+        /// </para>
         /// </summary>
         public void StartShift()
         {
@@ -567,17 +852,45 @@ namespace Residue.Net.Connect
             if (manager == null || !manager.IsServer || !manager.IsListening) return;
             if (ShiftStarted) return;
 
-            var progress = manager.SceneManager.LoadScene(labSceneName, LoadSceneMode.Single);
-            if (progress != SceneEventProgressStatus.Started)
-            {
-                Debug.LogError($"[LabConnection] Could not load '{labSceneName}' over the network " +
-                               $"({progress}). Is it in Build Settings?", this);
-                return;
-            }
+            // The load now sits queued behind the fade for a few frames, during which ShiftStarted is
+            // still false and a second press — or a second countdown ending — would queue it twice.
+            if (shiftLoadQueued) return;
+            shiftLoadQueued = true;
 
             Set(ConnectState.Hosting, string.IsNullOrEmpty(JoinCodeText)
                 ? "Starting the shift…"
                 : $"Starting the shift — join code {JoinCode.ForReading(JoinCodeText)}");
+
+            BeginSceneChange(labSceneName, LoadingLabStep, PushLabOverTheNetwork);
+        }
+
+        /// <summary>
+        /// The netcode load, unchanged and deliberately so: it replicates to every client and it is
+        /// the only kind of load that spawns the scene-placed <c>NetworkObject</c>s the lab is made
+        /// of. Swapping it for a plain Unity load to make a fade easier would leave every client in
+        /// an empty room with no <c>LabNetwork</c> to fill it.
+        /// </summary>
+        private void PushLabOverTheNetwork()
+        {
+            var manager = NetworkManager.Singleton;
+            if (manager == null || !manager.IsServer || !manager.IsListening ||
+                manager.SceneManager == null)
+            {
+                // The session went away while the screen was going black.
+                shiftLoadQueued = false;
+                AbandonSceneChange();
+                return;
+            }
+
+            var progress = manager.SceneManager.LoadScene(labSceneName, LoadSceneMode.Single);
+            if (progress == SceneEventProgressStatus.Started) return;
+
+            Debug.LogError($"[LabConnection] Could not load '{labSceneName}' over the network " +
+                           $"({progress}). Is it in Build Settings?", this);
+
+            // Nothing is coming, so lift the black rather than holding the lobby behind it.
+            shiftLoadQueued = false;
+            AbandonSceneChange();
         }
 
         // -- Join --------------------------------------------------------------------------------------
@@ -678,7 +991,13 @@ namespace Residue.Net.Connect
             {
                 await TearDownAsync();
                 Fail("Netcode refused to start the client. See the console for the transport error.");
+                return;
             }
+
+            // Before the handshake finishes, and that matters: a client joining a shift already in
+            // progress is sent the lab scene as part of its synchronisation, which can land before
+            // OnClientConnected does.
+            HookScenes(manager);
         }
 
         // -- Leaving -----------------------------------------------------------------------------------
@@ -719,6 +1038,13 @@ namespace Residue.Net.Connect
         /// its own teardown, and the thing that throws when that goes wrong is the scene manager.
         /// There is also nobody left to read the menu it would be loading.
         /// </para>
+        /// <para>
+        /// <b>Faded on the way out, except when something is being read.</b> A session that ended
+        /// already has its notice up over the lab and the same notice will be up over the menu, so
+        /// there is no cut to hide — and a fade to black there would black out the sentence
+        /// mid-read. That path still gets the asynchronous load, which is the half that stops the
+        /// game looking hung.
+        /// </para>
         /// </summary>
         private void ReturnToBoot()
         {
@@ -726,7 +1052,25 @@ namespace Residue.Net.Connect
             if (string.IsNullOrWhiteSpace(bootSceneName)) return;
             if (SceneManager.GetActiveScene().name == bootSceneName) return;
 
-            SceneManager.LoadScene(bootSceneName);
+            if (Ended.HasValue)
+            {
+                LoadBoot();
+                return;
+            }
+
+            BeginSceneChange(bootSceneName, ReturningStep, LoadBoot);
+        }
+
+        private void LoadBoot()
+        {
+            if (quitting || !Application.isPlaying) return;
+            if (SceneManager.GetActiveScene().name == bootSceneName) return;
+
+            if (SceneManager.LoadSceneAsync(bootSceneName) != null) return;
+
+            AbandonSceneChange();
+            Debug.LogError($"[LabConnection] Could not load '{bootSceneName}'. Is it in Build " +
+                           "Settings? The player is stranded in the lab with no menu.", this);
         }
 
         private async Task TearDownAsync()
@@ -747,6 +1091,9 @@ namespace Residue.Net.Connect
                 RequestShutdown(manager);
                 manager.NetworkConfig.ConnectionData = Array.Empty<byte>();
             }
+
+            // A shift that never loaded must not leave the next one refused by its own guard.
+            shiftLoadQueued = false;
 
             // joinedWithCode deliberately survives this. Teardown runs *before* the player has read
             // the notice, so clearing it here would take the code away from the RECONNECT button on
@@ -805,6 +1152,7 @@ namespace Residue.Net.Connect
         // -- Netcode callbacks -------------------------------------------------------------------------
 
         private bool hooked;
+        private bool sceneHooked;
 
         private void Hook(NetworkManager manager)
         {
@@ -816,10 +1164,61 @@ namespace Residue.Net.Connect
 
         private void Unhook(NetworkManager manager)
         {
+            if (sceneHooked)
+            {
+                // Null once NGO has shut down: it disposes its scene manager and nulls the field.
+                // Every caller runs this before RequestShutdown, so in practice it is still there.
+                if (manager.SceneManager != null) manager.SceneManager.OnLoad -= OnNetworkSceneLoad;
+                sceneHooked = false;
+            }
+
             if (!hooked) return;
             manager.OnClientConnectedCallback -= OnClientConnected;
             manager.OnClientDisconnectCallback -= OnClientDisconnected;
             hooked = false;
+        }
+
+        /// <summary>
+        /// Listen for scene loads this process did not ask for.
+        /// <para>
+        /// This is how a client in the lobby gets a fade at all: the host starts the shift, NGO
+        /// replicates the load, and the client is dragged into the lab with no local call to hang a
+        /// cover on. <c>OnLoad</c> is raised on both ends as the load begins — it is handed the
+        /// <c>AsyncOperation</c>, which is also the answer to whether NGO's own path blocks: it does
+        /// not, and never did.
+        /// </para>
+        /// <para>
+        /// Hooked after the start call rather than in <see cref="Hook"/>, because
+        /// <c>NetworkManager.SceneManager</c> does not exist until then.
+        /// </para>
+        /// </summary>
+        private void HookScenes(NetworkManager manager)
+        {
+            if (sceneHooked || manager == null || manager.SceneManager == null) return;
+
+            manager.SceneManager.OnLoad += OnNetworkSceneLoad;
+            sceneHooked = true;
+        }
+
+        private void OnNetworkSceneLoad(ulong clientId, string sceneName, LoadSceneMode mode,
+                                        AsyncOperation operation)
+        {
+            if (mode != LoadSceneMode.Single) return;
+
+            // The host's own load, already covered by StartShift — and re-entering BeginSceneChange
+            // here would queue a second one.
+            if (awaitingScene == sceneName) return;
+
+            awaitingScene = sceneName;
+            awaitingStep = sceneName == labSceneName ? LoadingLabStep : GenericLoadStep;
+            holdSeconds = 0f;
+            holdGaveUp = false;
+
+            // Not BeginSceneChange: there is no load to queue. This one is already running, which is
+            // why the cover here starts mid-load rather than in front of it. The host has been black
+            // since before it sent the message, so what a client is catching up with is the tail of a
+            // fade rather than a cut.
+            fade.Cover(awaitingStep);
         }
 
         private void OnClientConnected(ulong clientId)
