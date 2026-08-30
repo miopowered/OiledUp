@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -17,14 +18,13 @@ namespace Residue.Gameplay.World
         private AudioClip ballastClip;
         private AudioClip relayClip;
         private AudioSource relaySource;
+        private readonly List<AudioSource> loops = new();
         private float nextRelayAt;
         private uint randomState = 0x6c61626fu; // "labo"
 
         private void Awake()
         {
-            ventilationClip = BuildVentilationLoop();
-            ballastClip = BuildBallastLoop();
-            relayClip = BuildRelayClick();
+            BuildClips();
 
             CreateLoop("Lueftungsanlage", ventilationClip, 0.16f, 780f);
             CreateLoop("Leuchtstoffroehren", ballastClip, 0.035f, 2400f);
@@ -34,20 +34,64 @@ namespace Residue.Gameplay.World
             relay.transform.localPosition = new Vector3(0f, 1.1f, -3.25f);
             relaySource = ConfigureSource(relay, 0.11f, true);
             relaySource.clip = relayClip;
+            AudioBus.Register(relaySource, AudioCategory.Ambience, 0.11f);
             nextRelayAt = Time.unscaledTime + 7f + Next01() * 9f;
         }
 
+        /// <summary>
+        /// Build the three loops, and say so if any of them does not come back.
+        /// <para>
+        /// Separated from <see cref="Awake"/> so <c>AudioTests</c> can assert the clips exist without
+        /// a scene, a listener or a play mode. A silent lab is the failure this project is least
+        /// likely to notice from a screenshot, and Unity's own complaint about it arrives once per
+        /// relay tick rather than once at the cause.
+        /// </para>
+        /// <para>
+        /// Public rather than internal because <c>Residue.Tests.EditMode</c> is its own assembly and
+        /// this project has no <c>InternalsVisibleTo</c>. The headless compile check does not enforce
+        /// asmdef boundaries, so an internal here compiles and then fails only in the Editor.
+        /// </para>
+        /// </summary>
+        public void BuildClips()
+        {
+            ventilationClip = BuildVentilationLoop();
+            ballastClip = BuildBallastLoop();
+            relayClip = BuildRelayClick();
+
+            if (ventilationClip != null && ballastClip != null && relayClip != null) return;
+
+            Debug.LogError(
+                "[LabAmbience] AudioClip.Create returned nothing, so the lab will be silent. This is " +
+                "the cause behind any 'PlayOneShot was called with a null AudioClip' that follows. " +
+                "Check that Unity audio is not disabled in Project Settings > Audio.", this);
+        }
+
+        /// <summary>
+        /// The occasional relay somewhere in the rack. Deliberately sparse — see the interval below.
+        /// <para>
+        /// The <see cref="relayClip"/> guard is not defensive noise. Unity's
+        /// "PlayOneShot was called with a null AudioClip" was firing on schedule here, once per
+        /// interval, which means the clip was already null when <see cref="Awake"/> handed it to the
+        /// source rather than being lost later. <see cref="BuildClips"/> now reports a build that
+        /// fails instead of leaving a silent source to warn once every half minute for the rest of
+        /// the session, and <c>LabAmbienceTests</c> pins the clips being built at all. This skips the
+        /// tick rather than the sound, so a failed build costs one quiet lab and not a log flood.
+        /// </para>
+        /// </summary>
         private void Update()
         {
-            if (relaySource == null || Time.unscaledTime < nextRelayAt) return;
+            if (relaySource == null || relayClip == null || Time.unscaledTime < nextRelayAt) return;
 
             relaySource.pitch = 0.92f + Next01() * 0.12f;
-            relaySource.PlayOneShot(relayClip);
+            AudioBus.PlayOneShot(relaySource, relayClip, AudioCategory.Ambience);
             nextRelayAt = Time.unscaledTime + 18f + Next01() * 27f;
         }
 
         private void OnDestroy()
         {
+            AudioBus.Unregister(relaySource);
+            foreach (var source in loops) AudioBus.Unregister(source);
+
             if (ventilationClip != null) Destroy(ventilationClip);
             if (ballastClip != null) Destroy(ballastClip);
             if (relayClip != null) Destroy(relayClip);
@@ -61,6 +105,8 @@ namespace Residue.Gameplay.World
             var source = ConfigureSource(go, volume, false);
             source.clip = clip;
             source.loop = true;
+            AudioBus.Register(source, AudioCategory.Ambience, volume);
+            loops.Add(source);
             source.Play();
 
             var filter = go.AddComponent<AudioLowPassFilter>();

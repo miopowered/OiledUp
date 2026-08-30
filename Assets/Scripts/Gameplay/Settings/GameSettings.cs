@@ -444,10 +444,14 @@ namespace Residue.Gameplay.Settings
         }
 
         /// <summary>
-        /// Stored and raised, but routed nowhere yet: there is no <c>AudioMixer</c> in this project
-        /// and #46 says so — the lab is silent. The slider is here so the value survives the sessions
-        /// before the sources land, and so that the machine loops arriving under #46 have a mixer
-        /// group to bind to rather than a settings migration to write. Not broken; early.
+        /// Everything the player or a machine causes. Reaches Unity through <c>AudioBus</c>, which
+        /// listens to <see cref="Changed"/> and re-applies the multiplier to every registered source
+        /// — so nothing is pushed from here, and this stays the class that only stores and raises.
+        /// <para>
+        /// There is deliberately no <c>AudioMixer</c> behind it. Unity exposes no scripting API that
+        /// creates one, so a mixer would have to be authored by hand and committed as opaque YAML;
+        /// see <c>AudioBus</c> for why a four-entry gain table does not earn that exception.
+        /// </para>
         /// </summary>
         public static float EffectsVolume
         {
