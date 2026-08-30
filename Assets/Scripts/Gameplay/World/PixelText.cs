@@ -69,6 +69,12 @@ namespace Residue.Gameplay.World
         public static string Truncate(string text, int columns)
         {
             if (string.IsNullOrEmpty(text)) return "";
+
+            // Cut what will actually be drawn, not what was passed in: an umlaut becomes two
+            // characters on this font (see PixelFont.Transliterate), so measuring the original would
+            // let a German caption overrun the column it was cut to fit (#55).
+            text = PixelFont.Transliterate(text);
+
             return text.Length <= columns ? text : text.Substring(0, Math.Max(1, columns));
         }
 
@@ -91,6 +97,10 @@ namespace Residue.Gameplay.World
         public static void Wrap(string text, int columns, List<string> output)
         {
             if (output == null || string.IsNullOrEmpty(text)) return;
+
+            // Wrap the drawn spelling, so a German word that grows by a character still breaks in the
+            // right place rather than one column late (#55).
+            text = PixelFont.Transliterate(text);
 
             foreach (string paragraph in text.Replace("\r", string.Empty).Split('\n'))
             {

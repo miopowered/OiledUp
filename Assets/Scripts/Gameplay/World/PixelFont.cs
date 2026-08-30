@@ -53,8 +53,92 @@ namespace Residue.Gameplay.World
 
         public static bool IsOn(string glyph, int x, int y) => glyph[y * GlyphWidth + x] == '1';
 
-        /// <summary>Width in pixels of a string at the given scale, excluding the trailing gap.</summary>
-        public static int MeasureWidth(string text, int scale) =>
-            text == null || text.Length == 0 ? 0 : (text.Length * Advance - 1) * scale;
+        /// <summary>
+        /// Spell text in the characters this font actually has (#55).
+        ///
+        /// <para>
+        /// <b>Why this exists.</b> The glyph table is <c>0-9 A-Z</c> and a handful of symbols, and
+        /// <see cref="Glyph"/> falls back to a space — so before this, German drew "MESSGERÄT" as
+        /// <c>MESSGER T</c>, a hole in the middle of the word. That is not a translation problem and
+        /// it must not be solved in the translation: asking every translator to avoid the letters of
+        /// their own language, for ever, to suit a font they cannot see is a rule nobody will
+        /// remember and one that quietly deforms the German.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Why transliterate rather than add glyphs.</b> The cell is three pixels by five. There is
+        /// no room above a five-row capital for the dots of an umlaut, so Ä and A would have to be the
+        /// same picture — which is worse than AE, because it is silently wrong rather than visibly
+        /// old-fashioned. Raising <see cref="GlyphHeight"/> would re-lay-out every instrument screen
+        /// and the reference book with it.
+        /// </para>
+        ///
+        /// <para>
+        /// AE/OE/UE/SS is also what the fiction wants. Telex, early industrial terminals and label
+        /// printers all did exactly this, and a lab CRT that spells it that way reads as period
+        /// hardware rather than as a bug. Everywhere with a real font — the terminal, the menus, the
+        /// HUD — keeps the umlauts, because those draw through UI Toolkit and never come past here.
+        /// </para>
+        ///
+        /// <para>
+        /// Applied before any width is measured, so a word that grows by a character still wraps and
+        /// truncates correctly. Idempotent, and returns the original instance when there is nothing to
+        /// change — which is every English string, on every frame an instrument screen redraws.
+        /// </para>
+        /// </summary>
+        public static string Transliterate(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+
+            bool needed = false;
+            foreach (char c in text)
+            {
+                if (Replacement(c) == null) continue;
+                needed = true;
+                break;
+            }
+
+            if (!needed) return text;
+
+            var built = new System.Text.StringBuilder(text.Length + 4);
+            foreach (char c in text)
+            {
+                string replacement = Replacement(c);
+                if (replacement != null) built.Append(replacement);
+                else built.Append(c);
+            }
+
+            return built.ToString();
+        }
+
+        /// <summary>
+        /// What a character outside the glyph table should be spelled as, or null to leave it.
+        /// <para>
+        /// Only the letters a German build actually produces. An unknown character still falls back
+        /// to a space in <see cref="Glyph"/>, which is right for a font this small — inventing a
+        /// spelling for every accent in Europe would be guessing at languages nobody has translated.
+        /// </para>
+        /// </summary>
+        private static string Replacement(char c) => c switch
+        {
+            'Ä' => "AE", 'ä' => "AE",
+            'Ö' => "OE", 'ö' => "OE",
+            'Ü' => "UE", 'ü' => "UE",
+            'ß' => "SS",
+            _ => null
+        };
+
+        /// <summary>
+        /// Width in pixels of a string at the given scale, excluding the trailing gap.
+        /// <para>
+        /// Measured after <see cref="Transliterate"/>, or a word containing an umlaut would be
+        /// measured one character narrower than it draws and would overrun its column.
+        /// </para>
+        /// </summary>
+        public static int MeasureWidth(string text, int scale)
+        {
+            string drawn = Transliterate(text);
+            return string.IsNullOrEmpty(drawn) ? 0 : (drawn.Length * Advance - 1) * scale;
+        }
     }
 }

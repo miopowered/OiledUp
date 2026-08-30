@@ -74,6 +74,11 @@ namespace Residue.Gameplay.World
         {
             if (string.IsNullOrEmpty(text)) return;
 
+            // Spell it in the characters the font has before drawing, or a German line loses a letter
+            // to the space fallback mid-word (#55). Idempotent, and free for text with nothing to
+            // change — see PixelFont.Transliterate.
+            text = PixelFont.Transliterate(text);
+
             foreach (char ch in text)
             {
                 string glyph = PixelFont.Glyph(ch);
