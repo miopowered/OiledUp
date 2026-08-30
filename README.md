@@ -51,11 +51,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 
 ### Polish and accessibility ([F1](https://github.com/miopowered/OiledUp/milestone/12))
 
-- [#47](https://github.com/miopowered/OiledUp/issues/47) No first-run onboarding; nothing tells a new
-  player the lab has rules.
-- [#51](https://github.com/miopowered/OiledUp/issues/51) Scene transitions hard-cut.
 - [#55](https://github.com/miopowered/OiledUp/issues/55) Every player-facing string is a literal at
-  its use site, so localisation is not yet possible.
+  its use site, so localisation is not yet possible. The last F1 item still open.
 - [#46](https://github.com/miopowered/OiledUp/issues/46) Audio is in but unheard — room tone,
   per-instrument run-finished chimes, machine loops and interaction feedback all ship, and the volume
   sliders route. Nobody has actually listened to it yet.
