@@ -112,16 +112,19 @@ namespace Residue.Gameplay.Simulation
                     if (report.RootCauseCorrect)
                     {
                         report.MoneyDelta += tuning.RootCauseBonus;
-                        report.Headline = $"{state.RecordTag}: taken out of service in time. Cause confirmed " +
-                                          $"as {report.ActualRootCause}. Full payout plus diagnostic bonus.";
+                        report.Headline = ConsequenceStrings.CorrectCriticalCauseConfirmed.Format(
+                            ("tag", state.RecordTag), ("cause", report.ActualRootCause));
                     }
                     else
                     {
-                        report.Headline = $"{state.RecordTag}: taken out of service in time — " +
-                                          $"{fault.DisplayName}. " +
-                                          (state.FiledRootCause != null
-                                              ? $"Filed cause was wrong; it was {report.ActualRootCause}."
-                                              : "No root cause filed, so no diagnostic bonus.");
+                        // Naming the wrong cause and naming none are different mistakes, so they are
+                        // two whole sentences rather than one stem with a swapped tail (#55).
+                        report.Headline = state.FiledRootCause != null
+                            ? ConsequenceStrings.CorrectCriticalWrongCause.Format(
+                                ("tag", state.RecordTag), ("fault", fault.DisplayName),
+                                ("cause", report.ActualRootCause))
+                            : ConsequenceStrings.CorrectCriticalNoCause.Format(
+                                ("tag", state.RecordTag), ("fault", fault.DisplayName));
                     }
                     break;
 
@@ -129,31 +132,33 @@ namespace Residue.Gameplay.Simulation
                     report.Outcome = ConsequenceOutcome.FalsePositive;
                     report.MoneyDelta = -tuning.UnnecessaryTeardownCost;
                     report.ReputationDelta = tuning.FalsePositiveReputation;
-                    report.Headline = $"{state.RecordTag}: tank dumped and recharged on your call. " +
-                                      "The oil tested serviceable. Line downtime and the fresh charge are ours.";
+                    report.Headline = ConsequenceStrings.FalsePositive.Format(
+                        ("tag", state.RecordTag));
                     break;
 
                 case Verdict.Monitor when hasFault && truth.WorstSeverity == FaultSeverity.Imminent:
                     report.Outcome = ConsequenceOutcome.MonitorOnImminent;
                     report.MoneyDelta = -fault.RepairCost * tuning.MonitorOnImminentMultiplier;
                     report.ReputationDelta = tuning.MonitorOnImminentReputation;
-                    report.Headline = $"{state.RecordTag}: kept quenching on your advice and it should not " +
-                                      $"have been. {fault.DisplayName}. {fault.MissedConsequence}";
+                    report.Headline = ConsequenceStrings.MonitorOnImminent.Format(
+                        ("tag", state.RecordTag), ("fault", fault.DisplayName),
+                        ("consequence", fault.MissedConsequence));
                     break;
 
                 case Verdict.Monitor when hasFault:
                     report.Outcome = ConsequenceOutcome.MonitorDeveloping;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.RequeueSample = true;
-                    report.Headline = $"{state.RecordTag}: kept in service and scheduled for another draw. " +
-                                      "The numbers are worse this cycle.";
+                    report.Headline = ConsequenceStrings.MonitorDeveloping.Format(
+                        ("tag", state.RecordTag));
                     break;
 
                 case Verdict.Monitor:
                     report.Outcome = ConsequenceOutcome.MonitorUnnecessary;
                     report.MoneyDelta = tuning.BasePayout * tuning.MonitorPartialFraction;
                     report.ReputationDelta = -0.5f;
-                    report.Headline = $"{state.RecordTag}: redrawn at your request, still within spec.";
+                    report.Headline = ConsequenceStrings.MonitorUnnecessary.Format(
+                        ("tag", state.RecordTag));
                     break;
 
                 case Verdict.Normal when hasFault:
@@ -163,15 +168,17 @@ namespace Residue.Gameplay.Simulation
 
                     // The consequence text lives on the fault, so the worst outcome in the game is a
                     // data value someone can find rather than a branch someone has to remember.
-                    report.Headline = $"{state.RecordTag}: PASSED AS FIT TO QUENCH. {fault.DisplayName}. " +
-                                      $"{fault.MissedConsequence} Named in the incident file.";
+                    report.Headline = ConsequenceStrings.MissedFault.Format(
+                        ("tag", state.RecordTag), ("fault", fault.DisplayName),
+                        ("consequence", fault.MissedConsequence));
                     break;
 
                 default:
                     report.Outcome = ConsequenceOutcome.CorrectNormal;
                     report.MoneyDelta = tuning.BasePayout;
                     report.ReputationDelta = tuning.CorrectNormalReputation;
-                    report.Headline = $"{state.RecordTag}: cleared as fit for service. Routine payout.";
+                    report.Headline = ConsequenceStrings.CorrectNormal.Format(
+                        ("tag", state.RecordTag));
                     break;
             }
 
@@ -214,37 +221,46 @@ namespace Residue.Gameplay.Simulation
                 case RegistrationOutcome.Unregistered:
                     if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
                     report.ReputationDelta += tuning.MisattributedReputation;
-                    report.Headline += " The vial it came from was never identified, so the report " +
-                                       "went out against no tank at all. Unbillable.";
+                    Append(report, ConsequenceStrings.RegistrationUnregistered);
                     break;
 
                 case RegistrationOutcome.WrongTank:
                     if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
                     report.ReputationDelta += tuning.MisattributedReputation;
-                    report.Headline += $" Filed against {state.RegisteredTag}. The oil was drawn from " +
-                                       $"{truth.TrueTankTag}. They have acted on the wrong bath.";
+                    Append(report, ConsequenceStrings.RegistrationWrongTank.Format(
+                        ("filed", state.RegisteredTag), ("actual", truth.TrueTankTag)));
                     break;
 
                 case RegistrationOutcome.MissedSplitDraw:
                     if (report.MoneyDelta > 0f) report.MoneyDelta = 0f;
                     report.ReputationDelta += tuning.MisattributedReputation;
-                    report.Headline += " Both vials were bottled from one drum and you certified them " +
-                                       "as two draws. They paid for a cross-check and got one sample " +
-                                       "counted twice.";
+                    Append(report, ConsequenceStrings.RegistrationMissedSplitDraw);
                     break;
 
                 case RegistrationOutcome.ImaginedSplitDraw:
                     report.ReputationDelta += tuning.FalseAmbiguityReputation;
-                    report.Headline += " You would not separate the two draws. Their dispatch log says " +
-                                       "the tank was drawn twice, and the numbers agree with them.";
+                    Append(report, ConsequenceStrings.RegistrationImaginedSplitDraw);
                     break;
 
                 case RegistrationOutcome.Correct when truth.DrawnFromOneDrum:
                     report.MoneyDelta += tuning.SameDrumCatchBonus;
-                    report.Headline += " Both vials read the same because they were the same oil — " +
-                                       "one drum, booked as two draws. Called, and charged for.";
+                    Append(report, ConsequenceStrings.RegistrationSameDrumCaught);
                     break;
             }
         }
+
+        /// <summary>
+        /// Put the paperwork sentence after the diagnosis one.
+        /// <para>
+        /// Through a template rather than <c>+=</c> (#55). Appending with a leading space bakes three
+        /// decisions into English that belong to the language: the separator, the order, and whether
+        /// there is a break between them at all. A translation that wants the paperwork failure first
+        /// — which is arguably the more important half, since it is what makes the report unbillable —
+        /// can now say so.
+        /// </para>
+        /// </summary>
+        private static void Append(ConsequenceReport report, string note) =>
+            report.Headline = ConsequenceStrings.HeadlineWithNote.Format(
+                ("diagnosis", report.Headline), ("note", note));
     }
 }
