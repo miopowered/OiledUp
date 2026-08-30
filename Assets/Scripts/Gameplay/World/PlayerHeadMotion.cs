@@ -75,11 +75,13 @@ namespace Residue.Gameplay.World
 
         private void ApplyBob()
         {
-            // Head bob is the usual motion-sickness trigger, so it is a switch rather than a taste
-            // (#43). Off is expressed as zero amplitude through the same filter below, not as an
-            // early return: bailing out would freeze the rig wherever the last step left it and
-            // leave the camera permanently off-centre, which looks like the toggle broke something.
-            bool bob = GameSettings.HeadBob;
+            // Head bob is the usual motion-sickness trigger, so it is an accessibility control rather
+            // than a taste (#43), and a scale rather than a switch since #54. Off is expressed as
+            // zero amplitude through the same filter below, not as an early return: bailing out would
+            // freeze the rig wherever the last step left it and leave the camera permanently
+            // off-centre, which looks like the setting broke something.
+            float bobScale = GameSettings.HeadBobScale;
+            bool bob = bobScale > 0f;
 
             float speed = bob ? player.SpeedFraction : 0f;
 
@@ -90,7 +92,7 @@ namespace Residue.Gameplay.World
             else
                 bobPhase = Mathf.MoveTowards(bobPhase % (Mathf.PI * 2f), 0f, Time.deltaTime * 6f);
 
-            float amount = bob && player.IsGrounded ? speed : 0f;
+            float amount = bob && player.IsGrounded ? speed * bobScale : 0f;
 
             // Vertical runs at double frequency: one dip per footfall, two per stride.
             float y = Mathf.Sin(bobPhase * 2f) * bobVertical * amount;
@@ -107,14 +109,26 @@ namespace Residue.Gameplay.World
         private Vector3 currentBob;
         private float currentRoll;
 
+        /// <summary>
+        /// The dip on landing, scaled by <see cref="GameSettings.CameraShakeScale"/> (#54).
+        /// <para>
+        /// The impact is consumed whatever the scale, and before the scale is looked at. It is a
+        /// one-shot the controller hands over exactly once, so a frame that skipped the read because
+        /// the player had shake off would leave the impact queued for whenever they turned it back
+        /// on — a landing from ten minutes ago arriving as a dip while standing still.
+        /// </para>
+        /// The existing decay still runs at zero, so turning shake off mid-fall settles the view
+        /// smoothly rather than snapping it level.
+        /// </summary>
         private void ApplyLanding()
         {
             float impact = player.ConsumeLandingImpact();
+            float shake = GameSettings.CameraShakeScale;
 
             // The controller holds a constant -2 m/s downward bias to stay welded to the floor, so
             // anything at or below that is just walking over a threshold, not a landing.
-            if (impact > 2.5f)
-                dip = Mathf.Min(dip + impact * landingDipPerSpeed, maxLandingDip);
+            if (shake > 0f && impact > 2.5f)
+                dip = Mathf.Min(dip + impact * landingDipPerSpeed * shake, maxLandingDip * shake);
 
             dip = Mathf.Lerp(dip, 0f, Time.deltaTime * landingRecovery);
         }
@@ -125,7 +139,12 @@ namespace Residue.Gameplay.World
 
             // GameSettings owns the base; the sprint kick modulates it rather than replacing it, so
             // a player who chose 90 gets 96 while sprinting instead of being yanked back to 70.
-            float target = GameSettings.FieldOfView + (player.IsSprinting ? sprintFovBonus : 0f);
+            //
+            // The kick is camera motion nobody asked for, so it rides the same scale as the landing
+            // dip (#54). A player who turned shake off and still got a lens punch every time they ran
+            // would rightly call the setting broken.
+            float kick = player.IsSprinting ? sprintFovBonus * GameSettings.CameraShakeScale : 0f;
+            float target = GameSettings.FieldOfView + kick;
             eyeCamera.fieldOfView = Mathf.Lerp(eyeCamera.fieldOfView, target, Time.deltaTime * fovLerp);
         }
     }

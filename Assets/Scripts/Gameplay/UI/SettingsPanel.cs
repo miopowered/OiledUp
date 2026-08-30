@@ -104,7 +104,8 @@ namespace Residue.Gameplay.UI
 
         private readonly Slider sensitivityField;
         private readonly Toggle invertLookField;
-        private readonly Toggle headBobField;
+        private readonly Slider headBobField;
+        private readonly Slider cameraShakeField;
 
         private readonly List<RebindRow> rebindRows = new();
         private readonly Button resetAllButton;
@@ -150,7 +151,7 @@ namespace Residue.Gameplay.UI
             var audio = BuildAudioPage(out masterField, out effectsField, out ambienceField,
                 out voiceField);
             var controls = BuildControlsPage(out sensitivityField, out invertLookField,
-                out headBobField, out resetAllButton, out bindingStatus);
+                out headBobField, out cameraShakeField, out resetAllButton, out bindingStatus);
 
             pages = new[] { display, audio, controls };
             foreach (var page in pages) body.Add(page);
@@ -496,24 +497,28 @@ namespace Residue.Gameplay.UI
         {
             var page = UiKit.Column();
 
-            master = Volume(page, "Master", GameSettings.MasterVolume,
+            master = Percent(page, "Master", GameSettings.MasterVolume,
                 value => GameSettings.MasterVolume = value);
-            effects = Volume(page, "Machines and tools", GameSettings.EffectsVolume,
+            effects = Percent(page, "Machines and tools", GameSettings.EffectsVolume,
                 value => GameSettings.EffectsVolume = value);
-            ambience = Volume(page, "Room ambience", GameSettings.AmbienceVolume,
+            ambience = Percent(page, "Room ambience", GameSettings.AmbienceVolume,
                 value => GameSettings.AmbienceVolume = value);
-            voice = Volume(page, "Voice chat", GameSettings.VoiceVolume,
+            voice = Percent(page, "Voice chat", GameSettings.VoiceVolume,
                 value => GameSettings.VoiceVolume = value);
 
             page.Add(UiKit.Hint(
-                "The lab has no sound of its own yet, so machines, tools and room ambience have " +
-                "nothing to turn down — those two are remembered now and will take effect when the " +
-                "sound lands. Master and voice chat work today."));
+                "Room ambience is the ventilation, the lighting hum and the occasional relay. " +
+                "Machines and tools is everything you or an instrument sets off."));
 
             return page;
         }
 
-        private Slider Volume(VisualElement page, string label, float value, Action<float> changed)
+        /// <summary>
+        /// A 0–100% slider over a 0–1 setting. Shared by the volumes and by #54's comfort scales,
+        /// which are the same control with a different noun — and a second copy of it would be the
+        /// place the two drifted apart on rounding.
+        /// </summary>
+        private Slider Percent(VisualElement page, string label, float value, Action<float> changed)
         {
             var slider = UiKit.SliderField(label, 0f, 100f, value * 100f,
                 v => { if (!applying) changed(v / 100f); },
@@ -534,7 +539,7 @@ namespace Residue.Gameplay.UI
         // -- Controls ------------------------------------------------------------------------------
 
         private VisualElement BuildControlsPage(out Slider sensitivity, out Toggle invert,
-                                                out Toggle bob, out Button resetAll,
+                                                out Slider bob, out Slider shake, out Button resetAll,
                                                 out Label status)
         {
             var page = UiKit.Column();
@@ -550,13 +555,17 @@ namespace Residue.Gameplay.UI
                 value => { if (!applying) GameSettings.InvertLook = value; });
             page.Add(UiKit.RowFor(invert));
 
-            bob = UiKit.ToggleField("Head bob", true,
-                value => { if (!applying) GameSettings.HeadBob = value; });
-            page.Add(UiKit.RowFor(bob));
+            bob = Percent(page, "Head bob", GameSettings.HeadBobScale,
+                value => GameSettings.HeadBobScale = value);
+
+            shake = Percent(page, "Camera shake", GameSettings.CameraShakeScale,
+                value => GameSettings.CameraShakeScale = value);
 
             page.Add(UiKit.Hint(
-                "Turn head bob off if walking between benches makes you queasy. Nothing else " +
-                "changes: you still read the same numbers off the same machines."));
+                "Turn these down if walking between benches makes you queasy. Head bob is the sway " +
+                "of your own footsteps; camera shake is the dip when you land and the lens kick when " +
+                "you sprint. Zero means off, not reduced. Nothing else changes: you still read the " +
+                "same numbers off the same machines."));
 
             page.Add(UiKit.Divider());
 
@@ -628,7 +637,8 @@ namespace Residue.Gameplay.UI
         {
             sensitivityField.SetValueWithoutNotify(GameSettings.LookSensitivity);
             invertLookField.SetValueWithoutNotify(GameSettings.InvertLook);
-            headBobField.SetValueWithoutNotify(GameSettings.HeadBob);
+            headBobField.SetValueWithoutNotify(GameSettings.HeadBobScale * 100f);
+            cameraShakeField.SetValueWithoutNotify(GameSettings.CameraShakeScale * 100f);
 
             foreach (var row in rebindRows)
             {

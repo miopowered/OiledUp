@@ -56,6 +56,8 @@ namespace Residue.Gameplay.Settings
         private const string KeySensitivity = Prefix + "controls.sensitivity";
         private const string KeyInvertLook = Prefix + "controls.invert";
         private const string KeyHeadBob = Prefix + "controls.headbob";
+        private const string KeyHeadBobScale = Prefix + "controls.headbobscale";
+        private const string KeyCameraShake = Prefix + "controls.camerashake";
 
         // -- Ranges ------------------------------------------------------------------------------
 
@@ -101,7 +103,8 @@ namespace Residue.Gameplay.Settings
 
         private static float lookSensitivity = FallbackLookSensitivity;
         private static bool invertLook;
-        private static bool headBob = true;
+        private static float headBobScale = 1f;
+        private static float cameraShakeScale = 1f;
 
         private static float defaultLookSensitivity = FallbackLookSensitivity;
         private static float defaultFieldOfView = FallbackFieldOfView;
@@ -162,7 +165,8 @@ namespace Residue.Gameplay.Settings
                 MinLookSensitivity, MaxLookSensitivity);
 
             invertLook = PlayerPrefs.GetInt(KeyInvertLook, 0) != 0;
-            headBob = PlayerPrefs.GetInt(KeyHeadBob, 1) != 0;
+            headBobScale = ReadHeadBobScale();
+            cameraShakeScale = Mathf.Clamp01(PlayerPrefs.GetFloat(KeyCameraShake, 1f));
 
             Apply();
         }
@@ -186,7 +190,8 @@ namespace Residue.Gameplay.Settings
 
             PlayerPrefs.SetFloat(KeySensitivity, lookSensitivity);
             PlayerPrefs.SetInt(KeyInvertLook, invertLook ? 1 : 0);
-            PlayerPrefs.SetInt(KeyHeadBob, headBob ? 1 : 0);
+            PlayerPrefs.SetFloat(KeyHeadBobScale, headBobScale);
+            PlayerPrefs.SetFloat(KeyCameraShake, cameraShakeScale);
 
             hasSavedLookSensitivity = true;
             hasSavedFieldOfView = true;
@@ -227,7 +232,8 @@ namespace Residue.Gameplay.Settings
                      {
                          KeyWidth, KeyHeight, KeyRefreshHz, KeyScreenMode, KeyVSync, KeyQuality,
                          KeyFieldOfView, KeyMaster, KeyEffects, KeyAmbience, KeyVoice,
-                         KeySensitivity, KeyInvertLook, KeyHeadBob
+                         KeySensitivity, KeyInvertLook, KeyHeadBob, KeyHeadBobScale,
+                         KeyCameraShake
                      })
             {
                 PlayerPrefs.DeleteKey(key);
@@ -254,7 +260,8 @@ namespace Residue.Gameplay.Settings
             hasSavedLookSensitivity = false;
 
             invertLook = false;
-            headBob = true;
+            headBobScale = 1f;
+            cameraShakeScale = 1f;
 
             Apply();
         }
@@ -537,14 +544,70 @@ namespace Residue.Gameplay.Settings
         /// for motion sickness in a game whose whole loop is reading small numbers off a display
         /// while walking between benches.
         /// </summary>
-        public static bool HeadBob
+        /// <para>
+        /// A scale rather than a switch since #54, because "off or full" is the wrong shape for this
+        /// control: the players who need it are spread across a range, and the ones who can play with
+        /// a third of the motion should not have to choose between queasy and floating. Zero is still
+        /// exactly off — see <c>PlayerHeadMotion</c>, where the amplitude reaches zero rather than the
+        /// code taking an early return, so the rig settles level instead of freezing mid-step.
+        /// </para>
+        /// <summary>
+        /// Read the stored head bob scale, falling back to the boolean this setting used to be (#54).
+        /// <para>
+        /// A profile that only ever saw the switch still has the old key and no new one, so its
+        /// answer is honoured. Someone who deliberately turned the bob off must not get it back on
+        /// when they next update — for an accessibility setting that is the one migration failure
+        /// that actually hurts, because it hands a motion-sickness trigger back to the person who
+        /// went looking for the switch, at the moment they least expect it.
+        /// </para>
+        /// Public so <c>MotionComfortTests</c> can exercise the real migration rather than a copy of
+        /// it pasted into a test, which would pass for ever regardless of what this file did. It is
+        /// also why <see cref="Load"/> calls it instead of inlining the fallback.
+        /// </summary>
+        public static float ReadHeadBobScale() =>
+            Mathf.Clamp01(PlayerPrefs.GetFloat(KeyHeadBobScale,
+                PlayerPrefs.GetInt(KeyHeadBob, 1) != 0 ? 1f : 0f));
+
+        /// <summary>The PlayerPrefs keys behind <see cref="ReadHeadBobScale"/>, for that test.</summary>
+        public static string HeadBobScaleKey => KeyHeadBobScale;
+
+        /// <inheritdoc cref="HeadBobScaleKey"/>
+        public static string LegacyHeadBobKey => KeyHeadBob;
+
+        public static float HeadBobScale
         {
-            get => headBob;
+            get => headBobScale;
             set
             {
-                if (headBob == value) return;
-                headBob = value;
-                PlayerPrefs.SetInt(KeyHeadBob, value ? 1 : 0);
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(headBobScale, clamped)) return;
+                headBobScale = clamped;
+                PlayerPrefs.SetFloat(KeyHeadBobScale, clamped);
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// The landing dip and the sprint field-of-view kick — camera motion the player did not ask
+        /// for, as opposed to the motion their own input caused.
+        /// <para>
+        /// Both are on one scale because both are the same complaint: the view moves on its own. A
+        /// player who turns the landing dip off and is still handed a lens punch every time they run
+        /// has not been given the off switch #54 asks for, and would reasonably conclude the setting
+        /// does not work.
+        /// </para>
+        /// Zero is exactly zero, not "reduced". That is the issue's own wording and it is the whole
+        /// point: someone who needs this needs it entirely.
+        /// </summary>
+        public static float CameraShakeScale
+        {
+            get => cameraShakeScale;
+            set
+            {
+                float clamped = Mathf.Clamp01(value);
+                if (Mathf.Approximately(cameraShakeScale, clamped)) return;
+                cameraShakeScale = clamped;
+                PlayerPrefs.SetFloat(KeyCameraShake, clamped);
                 Raise();
             }
         }
