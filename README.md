@@ -45,22 +45,20 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 - **[#18](https://github.com/miopowered/OiledUp/issues/18) CI is deliberately off** while this is a
   single-developer project — the local path works, it is just operated by hand. Revisit if a second
   person commits, or if `main` goes red unnoticed again.
-- **[#3](https://github.com/miopowered/OiledUp/issues/3)** No debug command to dump a generated
-  sample's ground truth, which makes a chemistry bug harder to pin than it should be.
+- **`.meta` files are outstanding** for the scripts added in the audio, credits and sample-dump
+  commits. Unity was not running when they landed, so it has not imported them yet. Open the Editor
+  and commit the generated `.meta` files before pushing to another machine.
 
 ### Polish and accessibility ([F1](https://github.com/miopowered/OiledUp/milestone/12))
 
-- [#46](https://github.com/miopowered/OiledUp/issues/46) The lab is completely silent — no audio at
-  all. The settings screen already has volume sliders wired to nothing.
 - [#47](https://github.com/miopowered/OiledUp/issues/47) No first-run onboarding; nothing tells a new
   player the lab has rules.
 - [#51](https://github.com/miopowered/OiledUp/issues/51) Scene transitions hard-cut.
-- [#53](https://github.com/miopowered/OiledUp/issues/53) No credits screen, which some art licences
-  require.
-- [#54](https://github.com/miopowered/OiledUp/issues/54) Motion comfort is partly done — FOV and
-  head-bob-off ship; bob as a scale and any control over the landing impulse do not.
 - [#55](https://github.com/miopowered/OiledUp/issues/55) Every player-facing string is a literal at
   its use site, so localisation is not yet possible.
+- [#46](https://github.com/miopowered/OiledUp/issues/46) Audio is in but unheard — room tone,
+  per-instrument run-finished chimes, machine loops and interaction feedback all ship, and the volume
+  sliders route. Nobody has actually listened to it yet.
 
 ### Not started
 
