@@ -100,8 +100,62 @@ namespace Residue.Gameplay.World
             }
         }
 
+        // -- Sound ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// Solvent running through the instrument while the flush is held (#46).
+        /// <para>
+        /// The flush is the longest hold in the game at shipping balance — §5.2 puts it at 20-40 s —
+        /// and it made no sound at all, which is the same complaint #46 raises about the wash
+        /// station's four seconds. It is the same clip as the tap for the same reason it is the same
+        /// liquid. Only the flush gets one: the other three actions are taps, and a tap has nothing
+        /// to keep saying.
+        /// </para>
+        /// Local to whoever is holding, like every other hold sound — hold state is not replicated,
+        /// and the person who needs to hear it is the one pressing the key.
+        /// </summary>
+        private void Update()
+        {
+            bool flushing = action == MachineAction.Clean && watcher != null &&
+                            (Interactable)watcher.Target == this && watcher.HoldProgress > 0f;
+
+            if (!flushing)
+            {
+                if (pour != null && pour.isPlaying) pour.Stop();
+                return;
+            }
+
+            if (pour == null)
+            {
+                pour = gameObject.AddComponent<AudioSource>();
+                pour.playOnAwake = false;
+                pour.loop = true;
+                pour.clip = LabSoundBank.SolventPour;
+
+                // Pitched down against the wash station's tap: this is solvent going through a
+                // sample path rather than into an open bottle, and the two holds should not be
+                // confusable when both are happening in the same room.
+                pour.pitch = 0.82f;
+                pour.spatialBlend = 1f;
+                pour.rolloffMode = AudioRolloffMode.Linear;
+                pour.minDistance = 1.5f;
+                pour.maxDistance = 14f;
+                pour.dopplerLevel = 0f;
+                AudioBus.Register(pour, AudioCategory.Effects, 0.26f);
+            }
+
+            if (!pour.isPlaying && pour.clip != null) pour.Play();
+        }
+
+        private void OnDestroy() => AudioBus.Unregister(pour);
+
+        private AudioSource pour;
+        private PlayerInteractor watcher;
+
         public override string Prompt(PlayerInteractor player)
         {
+            watcher = player;
+
             var machine = Machine;
             var lab = LabView.Current;
             if (machine == null || machine.Def == null) return null;

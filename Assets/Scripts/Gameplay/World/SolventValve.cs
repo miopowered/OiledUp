@@ -47,8 +47,56 @@ namespace Residue.Gameplay.World
             }
         }
 
+        // -- Sound ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The fill was #46's fourth complaint: four seconds of holding a key with nothing but a
+        /// progress ring to say anything was happening. The solvent runs while the key is down and
+        /// stops when it is not, so the sound is the progress bar.
+        /// <para>
+        /// Local to whoever is holding, like <see cref="MachineStation"/>'s agitation: hold state is
+        /// not replicated, and the person who needs to hear it is the one pressing the key. See
+        /// <see cref="MachineStation.Prompt"/> for why <paramref name="player"/> is captured in a
+        /// prompt rather than pushed in.
+        /// </para>
+        /// </summary>
+        private void Update()
+        {
+            bool pouring = watcher != null && (Interactable)watcher.Target == this &&
+                           watcher.HoldProgress > 0f;
+
+            if (!pouring)
+            {
+                if (pour != null && pour.isPlaying) pour.Stop();
+                return;
+            }
+
+            if (pour == null)
+            {
+                pour = gameObject.AddComponent<AudioSource>();
+                pour.playOnAwake = false;
+                pour.loop = true;
+                pour.clip = LabSoundBank.SolventPour;
+                pour.spatialBlend = 1f;
+                pour.rolloffMode = AudioRolloffMode.Linear;
+                pour.minDistance = 1.5f;
+                pour.maxDistance = 14f;
+                pour.dopplerLevel = 0f;
+                AudioBus.Register(pour, AudioCategory.Effects, 0.32f);
+            }
+
+            if (!pour.isPlaying && pour.clip != null) pour.Play();
+        }
+
+        private void OnDestroy() => AudioBus.Unregister(pour);
+
+        private AudioSource pour;
+        private PlayerInteractor watcher;
+
         public override string Prompt(PlayerInteractor player)
         {
+            watcher = player;
+
             // No view yet — a client between the scene loading and the first publish. Say nothing
             // rather than quote a drum reading of zero it has simply not been told about.
             if (LabView.Current == null) return null;

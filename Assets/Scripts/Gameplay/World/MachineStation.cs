@@ -104,6 +104,11 @@ namespace Residue.Gameplay.World
 
         private void OnDestroy()
         {
+            // Before the early return: the bus keeps a list slot per source and a station torn down
+            // on a client has no lab to unsubscribe from but has the same two sources to give back.
+            AudioBus.Unregister(loopSource);
+            AudioBus.Unregister(shotSource);
+
             var lab = HostLab;
             if (lab == null) return;
 
@@ -133,6 +138,7 @@ namespace Residue.Gameplay.World
             UpdateStatusLight(machine);
             NameOnce(machine);
             UpdateDisplay(machine);
+            UpdateSound(machine);
         }
 
         /// <summary>
@@ -144,6 +150,12 @@ namespace Residue.Gameplay.World
             if (named || machine?.Def == null) return;
             named = true;
             name = $"Machine_{machine.Def.Id}";
+
+            // Built here rather than on the frame the run ends. Synthesising a chime is a couple of
+            // hundred thousand samples of sin and exp, which is nothing once and a visible hitch if
+            // it lands on the frame the player is being told something. Same for the two sources.
+            LabSoundBank.RunFinished(InstrumentSoundId);
+            EnsureSources();
         }
 
         private void UpdateDisplay(IMachineView machine)
@@ -170,6 +182,193 @@ namespace Residue.Gameplay.World
             // clearing the screen here would wipe the result before anyone read it. A client has no
             // result to draw and would otherwise be left showing a frozen progress bar for ever.
             if (HostLab == null) display.ShowIdle(machine);
+        }
+
+        // -- Sound ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// What this instrument sounds like, which is a question about the box and not about the
+        /// sample in it. The definition id rather than the instance id, so two centrifuges on one
+        /// bench agree — and falling back to the instance id only because a client has no definition
+        /// until the first publish arrives.
+        /// </summary>
+        private string InstrumentSoundId
+        {
+            get
+            {
+                var def = Machine?.Def;
+                return def != null ? def.Id : machineInstanceId;
+            }
+        }
+
+        /// <summary>
+        /// How loud the instrument is while it works, before the effects slider. Constants rather
+        /// than serialized fields: five stations in the scene would be five places to disagree, and
+        /// CLAUDE.md keeps tuned numbers in source where a diff can see them.
+        /// </summary>
+        private const float RunningLoopVolume = 0.2f;
+
+        /// <summary>Louder than the machine loop — it is happening in the player's own hands.</summary>
+        private const float AgitateVolume = 0.35f;
+
+        private AudioSource loopSource;
+        private AudioSource shotSource;
+        private AudioClip loopingClip;
+        private float loopVolume;
+
+        /// <summary>
+        /// Has <i>this process</i> ever seen this instrument busy?
+        /// <para>
+        /// The guard against a late joiner hearing the whole lab finish at once. A client that
+        /// connects mid-day receives its first snapshot with three instruments idle and results
+        /// waiting in two of them; a chime driven by "not running now" would fire three times on that
+        /// frame for runs that ended before the player arrived. This only ever becomes true from an
+        /// observation, so the first frame a machine is visible can never produce an edge — there is
+        /// nothing to compare against yet.
+        /// </para>
+        /// </summary>
+        private bool observedRunning;
+
+        /// <summary>
+        /// The running loop and the run-finished chime, both on state every process can read.
+        ///
+        /// <para>
+        /// <b>Why the edge and not the event.</b> <see cref="OnRunCompleted"/> is the obvious place
+        /// and is wrong twice over. It is an event on the host's own <c>LabState</c>, so a joined
+        /// client would hear nothing at all and co-op would be back to patrolling; and it is handed a
+        /// <c>TestResult</c>, which is precisely the thing the chime must never be able to consult.
+        /// <see cref="IMachineView.IsRunning"/> replicates, it says only that the box is busy, and
+        /// reading the edge off it makes a host and a client run the same line.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>What the chime is allowed to know.</b> Which instrument, and that a run ended. Not
+        /// whether the reading was normal, caution or critical; not whether it was a sample, a blank,
+        /// a certified standard or a recalibration; not whether the instrument has drifted. A chime
+        /// that soured on a bad number would be a verdict arriving through the speakers on every
+        /// client, ahead of the measurement and outside every check that guards the wire.
+        /// </para>
+        /// </summary>
+        private void UpdateSound(IMachineView machine)
+        {
+            if (machine == null) return;
+
+            if (machine.IsRunning)
+            {
+                observedRunning = true;
+                PlayLoop(LabSoundBank.MachineLoop, LabSoundBank.RunningPitch(InstrumentSoundId),
+                         RunningLoopVolume);
+                return;
+            }
+
+            // The 2.5 s load hold is where §4.5's agitation is paid, and it used to be paid in
+            // silence — which reads as an unresponsive key rather than as work.
+            if (Shaking)
+            {
+                PlayLoop(LabSoundBank.Agitate, 1f, AgitateVolume);
+                return;
+            }
+
+            StopLoop();
+
+            if (!observedRunning) return;
+            observedRunning = false;
+
+            EnsureSources();
+            AudioBus.PlayOneShot(shotSource, LabSoundBank.RunFinished(InstrumentSoundId),
+                                 AudioCategory.Effects, 0.85f);
+        }
+
+        /// <summary>
+        /// Is somebody holding Interact at this instrument right now?
+        /// <para>
+        /// Read off the player who is looking at it rather than pushed in by one, because
+        /// <see cref="Prompt"/> already hands this component that player every frame it is targeted
+        /// and <see cref="PlayerInteractor.HoldProgress"/> is already public for the HUD ring. Local
+        /// to whoever is holding: hold state is not replicated and does not need to be, since the
+        /// point of the sound is to tell the person pressing the key that something is happening.
+        /// </para>
+        /// </summary>
+        private bool Shaking =>
+            watcher != null && (Interactable)watcher.Target == this && watcher.HoldProgress > 0f;
+
+        private PlayerInteractor watcher;
+
+        /// <summary>
+        /// Two sources: one for loops, one for one-shots. <see cref="AudioSource.Stop"/> ends
+        /// one-shots as well as the loop, and the loop stops on exactly the frame the chime or the
+        /// clunk starts — on one source the instrument would silence its own answer.
+        /// <para>
+        /// Both positional at full blend, which is #46's actual ask: a machine finishing across the
+        /// room has to be a direction rather than an event. Built here rather than in the scene
+        /// because a station is authored by <c>LabSceneBuilder</c> and a source wired by hand would
+        /// exist on whichever fixtures happened to be authored after this change.
+        /// </para>
+        /// </summary>
+        private void EnsureSources()
+        {
+            if (shotSource == null)
+            {
+                shotSource = Configure(gameObject.AddComponent<AudioSource>());
+
+                // Authored at 1 because AudioBus.PlayOneShot carries the per-sound gain itself.
+                AudioBus.Register(shotSource, AudioCategory.Effects, 1f);
+            }
+
+            if (loopSource != null) return;
+
+            loopSource = Configure(gameObject.AddComponent<AudioSource>());
+            loopSource.loop = true;
+
+            // Registered at creation rather than at first play: a source the bus has never heard of
+            // is a source the effects slider does not reach, and this one can exist for a whole day
+            // before an instrument is first used.
+            loopVolume = RunningLoopVolume;
+            AudioBus.Register(loopSource, AudioCategory.Effects, RunningLoopVolume);
+        }
+
+        private void PlayLoop(AudioClip clip, float pitch, float volume)
+        {
+            if (clip == null) return;
+            EnsureSources();
+
+            // Re-registered only when the figure changes. The bus is a linear scan and this runs
+            // every frame an instrument is working.
+            if (!Mathf.Approximately(loopVolume, volume))
+            {
+                loopVolume = volume;
+
+                // Through the bus rather than onto the source, so the effects slider reaches a loop
+                // that started while it was already down.
+                AudioBus.Register(loopSource, AudioCategory.Effects, volume);
+            }
+
+            loopSource.pitch = pitch;
+
+            if (loopingClip == clip && loopSource.isPlaying) return;
+
+            loopingClip = clip;
+            loopSource.clip = clip;
+            loopSource.Play();
+        }
+
+        private void StopLoop()
+        {
+            if (loopingClip == null) return;
+
+            loopingClip = null;
+            if (loopSource != null) loopSource.Stop();
+        }
+
+        private static AudioSource Configure(AudioSource source)
+        {
+            source.playOnAwake = false;
+            source.spatialBlend = 1f;
+            source.rolloffMode = AudioRolloffMode.Linear;
+            source.minDistance = 2f;
+            source.maxDistance = 26f;
+            source.dopplerLevel = 0f;
+            return source;
         }
 
         // -- Interaction ----------------------------------------------------------------------------
@@ -206,6 +405,10 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
+            // Asked every frame this instrument is targeted, which is the only regular signal it gets
+            // about who is standing at it. See Shaking.
+            watcher = player;
+
             var machine = Machine;
             if (machine == null) return null;
             string title = machine.DisplayName;
@@ -331,9 +534,15 @@ namespace Residue.Gameplay.World
             LabCommands.Attempt(player, LabCommand.Agitate(), _ =>
                 LabCommands.Attempt(player, LabCommand.LoadMachine(machineInstanceId), _ =>
                 {
-                    var vial = player.ReleaseCarried();
+                    // Quiet, because the instrument answers with its own clunk a line below. The
+                    // generic "set down" belongs to a rack or a bench; a vial being seated in an
+                    // instrument is the moment the hold paid off and should not sound like a shelf.
+                    var vial = player.ReleaseCarried(quiet: true);
                     if (vial != null)
                         vial.AttachTo(vialSocket != null ? vialSocket : transform, interactable: false);
+
+                    EnsureSources();
+                    AudioBus.PlayOneShot(shotSource, LabSoundBank.Load, AudioCategory.Effects, 0.7f);
                 }));
         }
 

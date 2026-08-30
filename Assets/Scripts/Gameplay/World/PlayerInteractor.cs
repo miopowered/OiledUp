@@ -258,6 +258,53 @@ namespace Residue.Gameplay.World
             toastUntil = Time.time + seconds;
         }
 
+        // -- Sound ------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The sounds this player's own hands make (#46). Flat rather than positional: these are
+        /// your hands, not something happening across the room, and panning your own pick-up would
+        /// only be wrong whenever you were not looking straight at what you took.
+        /// <para>
+        /// Built on first use rather than in <c>Awake</c>. Every other player in the room has one of
+        /// these components too — disabled, but with its <c>Awake</c> already run — and a source per
+        /// replica would put four entries on the bus for three sets of hands that never make a sound.
+        /// </para>
+        /// </summary>
+        private AudioSource Hands
+        {
+            get
+            {
+                if (hands != null) return hands;
+
+                hands = gameObject.AddComponent<AudioSource>();
+                hands.playOnAwake = false;
+                hands.spatialBlend = 0f;
+                hands.dopplerLevel = 0f;
+
+                // Authored at 1: AudioBus.PlayOneShot carries the per-sound gain itself.
+                AudioBus.Register(hands, AudioCategory.Effects, 1f);
+                return hands;
+            }
+        }
+
+        private AudioSource hands;
+
+        private void OnDestroy() => AudioBus.Unregister(hands);
+
+        /// <summary>
+        /// The lab declining to do something, said out loud.
+        /// <para>
+        /// Public because the refusal a player actually meets most often is not the one below — it is
+        /// a host refusal coming back through <see cref="LabCommands.Attempt"/>, which already knows
+        /// how to reach this player and says the sentence with <see cref="Say"/>. One call there
+        /// would give every refusal in the game a sound; see the note filed with #46.
+        /// </para>
+        /// The clip is deliberately a dull thud rather than a buzzer — see
+        /// <see cref="LabSoundBank.Refused"/> for why a sound that means "bad" is not available here.
+        /// </summary>
+        public void PlayRefused() =>
+            AudioBus.PlayOneShot(Hands, LabSoundBank.Refused, AudioCategory.Effects, 0.5f);
+
         // -- ILabActor ------------------------------------------------------------------------------
         //
         // What the host is answering when a request comes from this process.
@@ -405,6 +452,20 @@ namespace Residue.Gameplay.World
             {
                 holdElapsed = 0f;
                 HoldProgress = 0f;
+
+                // Pressing a greyed-out prompt used to do nothing whatsoever. The prompt already
+                // says why — §9 requires that — but a key that produces no response at all reads as
+                // a broken input rather than as a refusal, which is the difference between "the game
+                // said no" and "the game did not hear me".
+                //
+                // Only where there is a sentence to go with it. A station with no prompt has not
+                // refused anything: it is a client between the scene loading and the first publish,
+                // and a thud with no reason attached would be the game saying no to nothing.
+                if (Target != null && PromptBlocked && interactAction != null &&
+                    !string.IsNullOrEmpty(Prompt) && interactAction.WasPressedThisFrame())
+                {
+                    PlayRefused();
+                }
                 return;
             }
 
@@ -522,6 +583,10 @@ namespace Residue.Gameplay.World
         {
             if (item == null || Inventory == null || !Inventory.Add(item)) return false;
 
+            // Here rather than at each of the seven call sites: this is the one line every route
+            // into the hands passes through, so a prop added later cannot be picked up in silence.
+            AudioBus.PlayOneShot(Hands, LabSoundBank.PickUp, AudioCategory.Effects, 0.55f);
+
             if (item is VialProp vial)
             {
                 var sample = LabRuntime.Instance != null
@@ -533,10 +598,24 @@ namespace Residue.Gameplay.World
             return true;
         }
 
-        /// <summary>Hand the carried item over. Caller is responsible for re-parenting or destroying it.</summary>
-        public Carryable ReleaseCarried()
+        /// <summary>
+        /// Hand the carried item over. Caller is responsible for re-parenting or destroying it.
+        /// <para>
+        /// The mirror of <see cref="TryCarry"/>, and the sound sits here for the same reason: every
+        /// rack, bench, tray and drop goes through this one line. <paramref name="quiet"/> is for the
+        /// one caller that has a better sound of its own — an instrument seating a vial — so that a
+        /// load is not a set-down with a clunk layered over it. It defaults to false so a caller
+        /// added later is audible by default rather than silent by default.
+        /// </para>
+        /// </summary>
+        public Carryable ReleaseCarried(bool quiet = false)
         {
-            return Inventory != null ? Inventory.RemoveSelected() : null;
+            var released = Inventory != null ? Inventory.RemoveSelected() : null;
+
+            if (released != null && !quiet)
+                AudioBus.PlayOneShot(Hands, LabSoundBank.PutDown, AudioCategory.Effects, 0.55f);
+
+            return released;
         }
     }
 }
