@@ -26,7 +26,7 @@ namespace Residue.Gameplay.World
     /// resized without this file changing too.
     /// </para>
     /// <para>
-    /// Texture is 128x176 — a little over a tenth of <see cref="InspectableBookSurface"/>'s 512x384,
+    /// Texture is 128x176 — a fraction of <see cref="InspectableBookSurface"/>'s supersampled spread,
     /// because a slip or a note carries a caption and a short list, not a spread of paragraphs, and an
     /// oversized texture on a prop that gets created and destroyed all day is the same leak by a
     /// different route. <see cref="Dispose"/> must be called from the owning prop's <c>OnDestroy</c>;

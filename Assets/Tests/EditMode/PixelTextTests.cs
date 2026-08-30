@@ -5,7 +5,9 @@ using Residue.Gameplay.World;
 namespace Residue.Tests.EditMode
 {
     /// <summary>
-    /// The in-world text layout shared by the instrument screens and the reference book (#50).
+    /// The in-world text layout behind the instrument screens (#50). The reference book used to
+    /// share it and no longer does — <see cref="BookLayout"/> measures a proportional face on
+    /// painted width, where this counts columns of a monospaced one.
     /// <para>
     /// Wrapping and truncation are pure functions of a string and a column count, so the thing a
     /// player actually reads on a machine panel is pinned here rather than by looking at it. These
@@ -21,10 +23,14 @@ namespace Residue.Tests.EditMode
     /// </summary>
     public sealed class PixelTextTests
     {
-        // The two shipped screens, so the cases below are the real ones rather than round numbers.
-        private const int BookHalfWidth = 256;   // a 512px spread, one page
-        private const int BookMargin = 14;
-        private const int BookScale = 2;
+        // Two real fields, so the cases below are the shape callers actually pass rather than round
+        // numbers. The first was the reference book's page before it moved to BookFont and
+        // BookLayout — it is kept because it is a wide field at scale 2 and the arithmetic here has
+        // no other caller that shape. The book itself no longer measures in columns at all: its face
+        // is proportional, so a column count is the wrong question for it (see BookLayout).
+        private const int WideField = 256;
+        private const int WideFieldMargin = 14;
+        private const int WideFieldScale = 2;
 
         private const int PanelWidth = 128;      // MachineDisplay's default glass
         private const int PanelScale = 2;
@@ -50,7 +56,7 @@ namespace Residue.Tests.EditMode
         {
             var fields = new (string Name, int Width, int Scale)[]
             {
-                ("book page", BookHalfWidth - BookMargin * 2, BookScale),
+                ("wide field", WideField - WideFieldMargin * 2, WideFieldScale),
                 ("instrument panel", PanelWidth - 4, PanelScale),
                 ("one glyph exactly", PixelFont.Advance * 3, 3)
             };
@@ -84,12 +90,12 @@ namespace Residue.Tests.EditMode
             Assert.AreEqual(1, PixelText.Columns(-40, 2));
         }
 
-        /// <summary>The two shipped screens' own numbers, so a change to the shared maths is noticed here.</summary>
+        /// <summary>The instrument's own numbers, so a change to the shared maths is noticed here.</summary>
         [Test]
         public void TheShippedScreens_KeepTheColumnCountsTheyWereLaidOutAgainst()
         {
-            Assert.AreEqual(28, PixelText.Columns(BookHalfWidth - BookMargin * 2, BookScale),
-                "The reference book's pages were written and paginated against 28 columns.");
+            Assert.AreEqual(28, PixelText.Columns(WideField - WideFieldMargin * 2, WideFieldScale),
+                "A 228px field at scale 2 is 28 characters wide.");
 
             Assert.AreEqual(15, PixelText.Columns(PanelWidth - 4, PanelScale),
                 "An instrument's 128px glass at scale 2 is 15 characters wide.");
@@ -245,14 +251,14 @@ namespace Residue.Tests.EditMode
         }
 
         /// <summary>
-        /// The end-to-end promise, against the book's real page geometry: nothing the wrapper produces
-        /// can paint past the margin it was laid out for.
+        /// The end-to-end promise, against a real field's geometry: nothing the wrapper produces can
+        /// paint past the margin it was laid out for.
         /// </summary>
         [Test]
-        public void Wrap_AtThePagesOwnGeometry_NeverPaintsIntoTheMargin()
+        public void Wrap_AtAFieldsOwnGeometry_NeverPaintsIntoTheMargin()
         {
-            const int available = BookHalfWidth - BookMargin * 2;
-            int columns = PixelText.Columns(available, BookScale);
+            const int available = WideField - WideFieldMargin * 2;
+            int columns = PixelText.Columns(available, WideFieldScale);
 
             var lines = Wrapped(
                 "OXIDATION RAISES THE ACID NUMBER AND THE VISCOSITY TOGETHER.\n\n" +
@@ -262,8 +268,8 @@ namespace Residue.Tests.EditMode
 
             foreach (string line in lines)
             {
-                Assert.LessOrEqual(PixelFont.MeasureWidth(line, BookScale), available,
-                    $"'{line}' paints {PixelFont.MeasureWidth(line, BookScale)}px into a " +
+                Assert.LessOrEqual(PixelFont.MeasureWidth(line, WideFieldScale), available,
+                    $"'{line}' paints {PixelFont.MeasureWidth(line, WideFieldScale)}px into a " +
                     $"{available}px page.");
             }
         }
