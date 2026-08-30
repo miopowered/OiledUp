@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.Settings
@@ -61,6 +62,8 @@ namespace Residue.Gameplay.Settings
 
         private const string KeyShiftBrief = Prefix + "help.shiftbrief";
 
+        private const string KeyLanguage = Prefix + "ui.language";
+
         // -- Ranges ------------------------------------------------------------------------------
 
         /// <summary>
@@ -109,6 +112,8 @@ namespace Residue.Gameplay.Settings
         private static float cameraShakeScale = 1f;
 
         private static bool shiftBriefSeen;
+
+        private static string language = string.Empty;
 
         private static float defaultLookSensitivity = FallbackLookSensitivity;
         private static float defaultFieldOfView = FallbackFieldOfView;
@@ -174,6 +179,11 @@ namespace Residue.Gameplay.Settings
 
             shiftBriefSeen = ReadShiftBriefSeen();
 
+            // Before Apply, because Apply installs it. A profile that has never chosen takes the
+            // system language: someone running a German Windows should not have to find a menu in
+            // English to ask for German, and the menu is the first thing they see.
+            language = PlayerPrefs.GetString(KeyLanguage, SystemLanguageCode());
+
             Apply();
         }
 
@@ -200,6 +210,7 @@ namespace Residue.Gameplay.Settings
             PlayerPrefs.SetFloat(KeyCameraShake, cameraShakeScale);
 
             PlayerPrefs.SetInt(KeyShiftBrief, shiftBriefSeen ? 1 : 0);
+            PlayerPrefs.SetString(KeyLanguage, language);
 
             hasSavedLookSensitivity = true;
             hasSavedFieldOfView = true;
@@ -219,6 +230,7 @@ namespace Residue.Gameplay.Settings
 
             QualitySettings.vSyncCount = vSync ? 1 : 0;
             AudioListener.volume = masterVolume;
+            InstallLanguage();
             PushDisplay(display);
 
             Raise();
@@ -241,7 +253,7 @@ namespace Residue.Gameplay.Settings
                          KeyWidth, KeyHeight, KeyRefreshHz, KeyScreenMode, KeyVSync, KeyQuality,
                          KeyFieldOfView, KeyMaster, KeyEffects, KeyAmbience, KeyVoice,
                          KeySensitivity, KeyInvertLook, KeyHeadBob, KeyHeadBobScale,
-                         KeyCameraShake, KeyShiftBrief
+                         KeyCameraShake, KeyShiftBrief, KeyLanguage
                      })
             {
                 PlayerPrefs.DeleteKey(key);
@@ -274,6 +286,10 @@ namespace Residue.Gameplay.Settings
             // Deliberately part of the reset: someone who has wiped their profile is being handed a
             // first run, and the shift brief is what a first run is owed (#47).
             shiftBriefSeen = false;
+
+            // Back to the system language rather than to English — a reset returns the profile to
+            // how it arrived, and for a German player that was German.
+            language = SystemLanguageCode();
 
             Apply();
         }
@@ -661,6 +677,52 @@ namespace Residue.Gameplay.Settings
 
         /// <summary>The PlayerPrefs key behind <see cref="ReadShiftBriefSeen"/>, for that test.</summary>
         public static string ShiftBriefKey => KeyShiftBrief;
+
+        // -- Language ----------------------------------------------------------------------------
+
+        /// <summary>
+        /// The chosen language as a BCP 47 code, or empty for English (#55).
+        /// <para>
+        /// This is the one setting that changes text already on screen, so the screen showing it has
+        /// to redraw itself — <c>SettingsPanel.Refresh</c> is called from <see cref="Changed"/>'s
+        /// existing path, and every other panel rebuilds on show. A language that only took effect
+        /// after a restart would be the Apply button this class exists to avoid.
+        /// </para>
+        /// </summary>
+        public static string Language
+        {
+            get => language;
+            set
+            {
+                string chosen = value ?? string.Empty;
+                if (string.Equals(language, chosen, StringComparison.Ordinal)) return;
+
+                language = chosen;
+                PlayerPrefs.SetString(KeyLanguage, chosen);
+                InstallLanguage();
+                Raise();
+            }
+        }
+
+        /// <summary>
+        /// Push <see cref="Language"/> at <see cref="Loc"/>. The only place a translation is
+        /// installed, so there is one line to read when asking what language the game is in.
+        /// </summary>
+        private static void InstallLanguage()
+        {
+            if (string.Equals(language, German.Code, StringComparison.Ordinal))
+                Loc.Use(German.Code, German.Table);
+            else
+                Loc.UseEnglish();
+        }
+
+        /// <summary>
+        /// What the machine is set to, mapped to a language actually shipped. Anything else is
+        /// English, because offering a player their own language and then not having it is worse than
+        /// not offering it.
+        /// </summary>
+        private static string SystemLanguageCode() =>
+            Application.systemLanguage == SystemLanguage.German ? German.Code : string.Empty;
 
         // -- Internals ---------------------------------------------------------------------------
 

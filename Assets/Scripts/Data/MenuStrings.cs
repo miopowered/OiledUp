@@ -533,5 +533,14 @@ namespace Residue.Data
 
         public static readonly LocKey ConnectSinglePlayer = new(
             "session.connect_single_player", "Single player.");
+
+        // -- Language -----------------------------------------------------------------------------
+
+        public static readonly LocKey Language = new("settings.language", "Language");
+
+        public static readonly LocKey LanguageNote = new(
+            "settings.language_note",
+            "Menus already on screen keep their old wording until they are next opened. Everything " +
+            "in the lab changes straight away.");
     }
 }

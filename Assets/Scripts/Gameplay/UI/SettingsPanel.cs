@@ -90,7 +90,18 @@ namespace Residue.Gameplay.UI
 
         // -- Display ---------------------------------------------------------------------------------
 
+        private readonly DropdownField languageField;
         private readonly DropdownField resolutionField;
+
+        /// <summary>
+        /// The languages that actually ship, in the order they are offered. English is empty rather
+        /// than "en" because it is the built-in table and not an override — see <see cref="Loc"/>.
+        /// </summary>
+        private static readonly (string Code, string Endonym)[] Languages =
+        {
+            (string.Empty, "English"),
+            (German.Code, German.EndonymLabel)
+        };
         private readonly DropdownField windowModeField;
         private readonly Toggle vSyncField;
         private readonly DropdownField qualityField;
@@ -159,8 +170,8 @@ namespace Residue.Gameplay.UI
 
             var body = new VisualElement();
 
-            var display = BuildDisplayPage(out resolutionField, out windowModeField, out vSyncField,
-                out qualityField, out fieldOfViewField);
+            var display = BuildDisplayPage(out languageField, out resolutionField, out windowModeField,
+                out vSyncField, out qualityField, out fieldOfViewField);
             var audio = BuildAudioPage(out masterField, out effectsField, out ambienceField,
                 out voiceField);
             var controls = BuildControlsPage(out sensitivityField, out invertLookField,
@@ -254,13 +265,74 @@ namespace Residue.Gameplay.UI
             UiKit.FocusFirst(pages[currentTab]);
         }
 
+        // -- Language ------------------------------------------------------------------------------
+
+        private static List<string> LanguageChoices()
+        {
+            var choices = new List<string>(Languages.Length);
+            foreach (var (_, endonym) in Languages) choices.Add(endonym);
+            return choices;
+        }
+
+        private static int LanguageIndex()
+        {
+            for (int i = 0; i < Languages.Length; i++)
+                if (Languages[i].Code == GameSettings.Language) return i;
+
+            // A profile naming a language this build no longer ships reads as English, which is what
+            // Loc falls back to anyway — so the dropdown agrees with the screen behind it.
+            return 0;
+        }
+
+        /// <summary>
+        /// Change language.
+        ///
+        /// <para>
+        /// <b>This screen does not relabel itself, and that is a known limit rather than an
+        /// oversight.</b> Every panel in the shell resolves its captions through <see cref="LocKey"/>
+        /// once, at construction, and this one is deliberately built a single time and kept for the
+        /// process — see the type doc for why, which is that rebuilding it would throw away an
+        /// in-flight rebind or a running revert timer. So the words here change when the panel is next
+        /// built, not on the frame the dropdown moves.
+        /// </para>
+        ///
+        /// <para>
+        /// Everything drawn fresh does follow immediately: prompts, instrument screens, the terminal,
+        /// refusals and the reference books all resolve per draw. The visible symptom is confined to
+        /// captions already on screen, which is why <see cref="MenuStrings.LanguageNote"/> says so
+        /// under the dropdown rather than leaving the player to wonder whether it worked.
+        /// </para>
+        ///
+        /// <para>
+        /// Fixing it properly means <see cref="UiKit"/> holding the <see cref="LocKey"/> behind every
+        /// caption so a tree can be re-resolved in place, which is a change to every widget signature
+        /// in the kit and wants doing on its own rather than inside a translation.
+        /// </para>
+        /// </summary>
+        private void ChooseLanguage(int index)
+        {
+            if (applying || index < 0 || index >= Languages.Length) return;
+
+            GameSettings.Language = Languages[index].Code;
+        }
+
         // -- Display -------------------------------------------------------------------------------
 
-        private VisualElement BuildDisplayPage(out DropdownField resolution, out DropdownField window,
-                                               out Toggle vsync, out DropdownField quality,
-                                               out Slider fov)
+        private VisualElement BuildDisplayPage(out DropdownField language, out DropdownField resolution,
+                                               out DropdownField window, out Toggle vsync,
+                                               out DropdownField quality, out Slider fov)
         {
             var page = UiKit.Column();
+
+            // First on the first tab, because it is the setting a player who cannot read the rest of
+            // this screen is looking for. Every language is listed in itself — a player who needs
+            // "Deutsch" cannot be expected to find it under "German".
+            language = UiKit.ChoiceField(MenuStrings.Language, LanguageChoices(),
+                LanguageIndex(), ChooseLanguage);
+            page.Add(UiKit.RowFor(language));
+            page.Add(UiKit.Hint(MenuStrings.LanguageNote));
+
+            page.Add(UiKit.Divider());
 
             resolution = UiKit.ChoiceField(MenuStrings.Resolution, new List<string>(), 0,
                 ChooseResolution);
@@ -318,6 +390,11 @@ namespace Residue.Gameplay.UI
 
         private void RefreshDisplay()
         {
+            // The dropdown, not the captions around it — see ChooseLanguage for why those wait. This
+            // still matters: the panel is kept for the process, so without it a language changed from
+            // the pause menu would show the old choice when settings is next opened from the title.
+            languageField.SetValueWithoutNotify(LanguageChoices()[LanguageIndex()]);
+
             var current = GameSettings.Display;
 
             resolutionOptions.Clear();
