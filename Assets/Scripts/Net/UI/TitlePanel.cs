@@ -37,7 +37,8 @@ namespace Residue.Net.UI
         private readonly Button coOpButton;
         private readonly Label identityLabel;
 
-        public TitlePanel(LabConnection connection, Action coOp, Action settings, Action quit)
+        public TitlePanel(LabConnection connection, Action coOp, Action settings, Action credits,
+                          Action quit)
         {
             this.connection = connection;
 
@@ -65,6 +66,7 @@ namespace Residue.Net.UI
             actions.Add(coOpButton);
 
             actions.Add(UiKit.QuietButton("SETTINGS", () => settings?.Invoke()));
+            actions.Add(UiKit.QuietButton("CREDITS", () => credits?.Invoke()));
             actions.Add(UiKit.QuietButton("QUIT", () => quit?.Invoke()));
 
             column.Add(actions);

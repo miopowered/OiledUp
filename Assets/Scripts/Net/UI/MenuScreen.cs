@@ -55,6 +55,7 @@ namespace Residue.Net.UI
         private PausePanel pausePage;
         private DisconnectPanel disconnectPage;
         private SettingsPanel settingsPage;
+        private CreditsPanel creditsPage;
         private SessionCard card;
 
         /// <summary>Where the player navigated. Overruled by <see cref="Route"/> whenever the
@@ -129,17 +130,20 @@ namespace Residue.Net.UI
             backdrop.style.display = DisplayStyle.None;
             root.Add(backdrop);
 
-            titlePage = new TitlePanel(connection, () => Go(MenuPage.CoOp), OpenSettings, Quit);
+            titlePage = new TitlePanel(connection, () => Go(MenuPage.CoOp), OpenSettings,
+                () => Go(MenuPage.Credits), Quit);
             coOpPage = new CoOpPanel(connection, () => Go(MenuPage.Title));
             lobbyPage = new LobbyPanel(connection, Leave);
             pausePage = new PausePanel(Resume, OpenSettings, Leave);
             disconnectPage = new DisconnectPanel(connection, Acknowledge, Reconnect);
+            creditsPage = new CreditsPanel(() => Go(MenuPage.Title));
 
             backdrop.Add(titlePage.Root);
             backdrop.Add(coOpPage.Root);
             backdrop.Add(lobbyPage.Root);
             backdrop.Add(pausePage.Root);
             backdrop.Add(disconnectPage.Root);
+            backdrop.Add(creditsPage.Root);
 
             // Kept across a rebuild rather than remade: it holds rebind state and a revert timer.
             if (settingsPage != null) backdrop.Add(settingsPage.Root);
@@ -185,6 +189,7 @@ namespace Residue.Net.UI
             {
                 MenuPage.CoOp => MenuPage.CoOp,
                 MenuPage.Settings => MenuPage.Settings,
+                MenuPage.Credits => MenuPage.Credits,
                 _ => MenuPage.Title
             };
         }
@@ -281,6 +286,7 @@ namespace Residue.Net.UI
             lobbyPage.Root.style.display = Shows(page == MenuPage.Lobby);
             pausePage.Root.style.display = Shows(page == MenuPage.Pause);
             disconnectPage.Root.style.display = Shows(page == MenuPage.Disconnected);
+            creditsPage.Root.style.display = Shows(page == MenuPage.Credits);
             if (settingsPage != null)
                 settingsPage.Root.style.display = Shows(page == MenuPage.Settings);
         }
@@ -296,6 +302,7 @@ namespace Residue.Net.UI
             MenuPage.Pause => pausePage.Root,
             MenuPage.Disconnected => disconnectPage.Root,
             MenuPage.Settings => settingsPage?.Root,
+            MenuPage.Credits => creditsPage.Root,
             _ => null
         };
 

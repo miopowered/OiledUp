@@ -29,6 +29,12 @@ namespace Residue.Net.UI
         /// <summary>The shared <c>SettingsPanel</c>, reached from <see cref="Title"/> or <see cref="Pause"/>.</summary>
         Settings,
 
+        /// <summary>The credits screen (#53): who made it, and the third-party attribution some of
+        /// the art licences require. Reached only from <see cref="Title"/> — there is no reason to
+        /// read it mid-shift, so unlike <see cref="Settings"/> it is not offered from
+        /// <see cref="Pause"/>.</summary>
+        Credits,
+
         /// <summary>Over a shift in progress. Only reachable once the lab is loaded.</summary>
         Pause,
 
