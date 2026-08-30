@@ -32,7 +32,7 @@ namespace Residue.Gameplay.World
 
         // The words live on the generated 3D paper surface, never in the HUD reading overlay.
         public override string InspectionText => null;
-        public override string InspectionHelp => "Click a folded page corner to turn";
+        public override string InspectionHelp => PromptStrings.BookInspectionHelp.Text;
         public override Quaternion InspectionRotation => Quaternion.Euler(-90f, 0f, 0f);
         public override Quaternion InventoryIconRotation => InspectionRotation;
 

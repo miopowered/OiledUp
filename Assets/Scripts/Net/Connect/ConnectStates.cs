@@ -1,3 +1,5 @@
+using Residue.Data;
+
 namespace Residue.Net.Connect
 {
     /// <summary>
@@ -48,16 +50,16 @@ namespace Residue.Net.Connect
         /// </summary>
         public static string Label(ConnectState state) => state switch
         {
-            ConnectState.Idle => "Not connected.",
-            ConnectState.Preparing => "Signing in…",
-            ConnectState.Allocating => "Opening a session…",
-            ConnectState.Resolving => "Looking up that join code…",
-            ConnectState.Connecting => "Connecting…",
-            ConnectState.Hosting => "Hosting.",
-            ConnectState.Joined => "Connected.",
-            ConnectState.SinglePlayer => "Single player.",
-            ConnectState.Failed => "Not connected.",
-            _ => "Not connected."
+            ConnectState.Idle => MenuStrings.ConnectIdle,
+            ConnectState.Preparing => MenuStrings.ConnectPreparing,
+            ConnectState.Allocating => MenuStrings.ConnectAllocating,
+            ConnectState.Resolving => MenuStrings.ConnectResolving,
+            ConnectState.Connecting => MenuStrings.ConnectConnecting,
+            ConnectState.Hosting => MenuStrings.ConnectHosting,
+            ConnectState.Joined => MenuStrings.ConnectJoined,
+            ConnectState.SinglePlayer => MenuStrings.ConnectSinglePlayer,
+            ConnectState.Failed => MenuStrings.ConnectIdle,
+            _ => MenuStrings.ConnectIdle
         };
     }
 }

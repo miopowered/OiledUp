@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Residue.Data;
 using Residue.Gameplay.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -58,7 +59,16 @@ namespace Residue.Gameplay.UI
         private const float RebindLabelColumn = 168f;
         private const float BindingListMaxHeight = 236f;
 
-        private static readonly string[] TabNames = { "DISPLAY", "AUDIO", "CONTROLS" };
+        /// <summary>
+        /// Resolved once, at static construction, rather than per show. The tab strip is built once
+        /// too — see the type doc — so there is no moment at which a re-read would reach it anyway.
+        /// </summary>
+        private static readonly string[] TabNames =
+        {
+            MenuStrings.TabDisplay.Text,
+            MenuStrings.TabAudio.Text,
+            MenuStrings.TabControls.Text
+        };
 
         /// <summary>
         /// The window modes always offered. <c>MaximizedWindow</c> is macOS only, so it is appended
@@ -142,7 +152,7 @@ namespace Residue.Gameplay.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Heading("SETTINGS"));
+            column.Add(UiKit.Heading(MenuStrings.SettingsHeading));
 
             var body = new VisualElement();
 
@@ -168,7 +178,7 @@ namespace Residue.Gameplay.UI
 
                 var footer = UiKit.Row();
                 footer.Add(UiKit.Spacer());
-                footer.Add(UiKit.QuietButton("BACK", () => this.back?.Invoke()));
+                footer.Add(UiKit.QuietButton(MenuStrings.Back, () => this.back?.Invoke()));
                 column.Add(footer);
             }
 
@@ -249,25 +259,27 @@ namespace Residue.Gameplay.UI
         {
             var page = UiKit.Column();
 
-            resolution = UiKit.ChoiceField("Resolution", new List<string>(), 0, ChooseResolution);
+            resolution = UiKit.ChoiceField(MenuStrings.Resolution, new List<string>(), 0,
+                ChooseResolution);
             page.Add(UiKit.RowFor(resolution));
 
-            window = UiKit.ChoiceField("Window mode", new List<string>(), 0, ChooseWindowMode);
+            window = UiKit.ChoiceField(MenuStrings.WindowMode, new List<string>(), 0,
+                ChooseWindowMode);
             page.Add(UiKit.RowFor(window));
 
-            page.Add(UiKit.Hint(
-                "A new resolution or window mode is applied straight away and then asks you to " +
-                "confirm it, so a mode your monitor cannot show puts itself back."));
+            page.Add(UiKit.Hint(MenuStrings.DisplayNote));
 
-            vsync = UiKit.ToggleField("Vertical sync", true,
+            vsync = UiKit.ToggleField(MenuStrings.VerticalSync, true,
                 value => { if (!applying) GameSettings.VSync = value; });
             page.Add(UiKit.RowFor(vsync));
 
-            quality = UiKit.ChoiceField("Detail", new List<string>(), 0,
+            quality = UiKit.ChoiceField(MenuStrings.Detail, new List<string>(), 0,
                 index => { if (!applying) GameSettings.QualityLevel = index; });
             page.Add(UiKit.RowFor(quality));
 
-            fov = UiKit.SliderField("Field of view",
+            // The choices in both dropdowns are left alone. A resolution is "1920 x 1080" and the
+            // detail levels are Unity's own quality-level names — numbers and ids, not sentences.
+            fov = UiKit.SliderField(MenuStrings.FieldOfView,
                 GameSettings.MinFieldOfView, GameSettings.MaxFieldOfView,
                 GameSettings.FieldOfView,
                 value => { if (!applying) GameSettings.FieldOfView = value; },
@@ -363,10 +375,10 @@ namespace Residue.Gameplay.UI
 
         private static string WindowModeLabel(FullScreenMode mode) => mode switch
         {
-            FullScreenMode.ExclusiveFullScreen => "Exclusive fullscreen",
-            FullScreenMode.FullScreenWindow => "Borderless fullscreen",
-            FullScreenMode.MaximizedWindow => "Maximised window",
-            _ => "Windowed"
+            FullScreenMode.ExclusiveFullScreen => MenuStrings.WindowExclusive,
+            FullScreenMode.FullScreenWindow => MenuStrings.WindowBorderless,
+            FullScreenMode.MaximizedWindow => MenuStrings.WindowMaximised,
+            _ => MenuStrings.WindowWindowed
         };
 
         // -- The revert timer ----------------------------------------------------------------------
@@ -393,8 +405,8 @@ namespace Residue.Gameplay.UI
             var buttons = UiKit.Row();
             buttons.Add(UiKit.Spacer());
 
-            buttons.Add(UiKit.ActionButton("KEEP THIS MODE", CommitDisplayMode));
-            buttons.Add(UiKit.QuietButton("PUT IT BACK", RevertDisplayMode));
+            buttons.Add(UiKit.ActionButton(MenuStrings.KeepThisMode, CommitDisplayMode));
+            buttons.Add(UiKit.QuietButton(MenuStrings.PutItBack, RevertDisplayMode));
 
             holder.Add(buttons);
             return holder;
@@ -479,15 +491,27 @@ namespace Residue.Gameplay.UI
             if (pending) PaintConfirmPrompt();
         }
 
+        /// <summary>
+        /// The countdown sentence. Every moving part is a named argument, the seconds included: the
+        /// number does not sit at the end of the sentence in every language, and a translator handed
+        /// "… in " and " s." separately cannot move it (#55).
+        /// <para>
+        /// The window mode is no longer lowercased on the way in. Case is a property of the language
+        /// — German capitalises its nouns mid-sentence — so a <c>ToLowerInvariant</c> applied to a
+        /// looked-up label is a transformation of somebody else's grammar. The mode names now read
+        /// as they do in the dropdown above, which is also what the player just chose from.
+        /// </para>
+        /// </summary>
         private void PaintConfirmPrompt()
         {
             var committed = GameSettings.CommittedDisplay;
 
-            confirmLabel.text =
-                $"Can you read this? Keep {GameSettings.Display.Label}, " +
-                $"{WindowModeLabel(GameSettings.Display.Mode).ToLowerInvariant()}. " +
-                $"It goes back to {committed.Label}, " +
-                $"{WindowModeLabel(committed.Mode).ToLowerInvariant()}, in {confirmSecondsLeft} s.";
+            confirmLabel.text = MenuStrings.ConfirmDisplay.Format(
+                ("mode", GameSettings.Display.Label),
+                ("window", WindowModeLabel(GameSettings.Display.Mode)),
+                ("previous", committed.Label),
+                ("previousWindow", WindowModeLabel(committed.Mode)),
+                ("seconds", confirmSecondsLeft));
         }
 
         // -- Audio ---------------------------------------------------------------------------------
@@ -497,18 +521,16 @@ namespace Residue.Gameplay.UI
         {
             var page = UiKit.Column();
 
-            master = Percent(page, "Master", GameSettings.MasterVolume,
+            master = Percent(page, MenuStrings.VolumeMaster, GameSettings.MasterVolume,
                 value => GameSettings.MasterVolume = value);
-            effects = Percent(page, "Machines and tools", GameSettings.EffectsVolume,
+            effects = Percent(page, MenuStrings.VolumeEffects, GameSettings.EffectsVolume,
                 value => GameSettings.EffectsVolume = value);
-            ambience = Percent(page, "Room ambience", GameSettings.AmbienceVolume,
+            ambience = Percent(page, MenuStrings.VolumeAmbience, GameSettings.AmbienceVolume,
                 value => GameSettings.AmbienceVolume = value);
-            voice = Percent(page, "Voice chat", GameSettings.VoiceVolume,
+            voice = Percent(page, MenuStrings.VolumeVoice, GameSettings.VoiceVolume,
                 value => GameSettings.VoiceVolume = value);
 
-            page.Add(UiKit.Hint(
-                "Room ambience is the ventilation, the lighting hum and the occasional relay. " +
-                "Machines and tools is everything you or an instrument sets off."));
+            page.Add(UiKit.Hint(MenuStrings.AudioNote));
 
             return page;
         }
@@ -544,28 +566,24 @@ namespace Residue.Gameplay.UI
         {
             var page = UiKit.Column();
 
-            sensitivity = UiKit.SliderField("Look sensitivity",
+            sensitivity = UiKit.SliderField(MenuStrings.LookSensitivity,
                 GameSettings.MinLookSensitivity, GameSettings.MaxLookSensitivity,
                 GameSettings.LookSensitivity,
                 value => { if (!applying) GameSettings.LookSensitivity = value; },
                 value => value.ToString("0.000"));
             page.Add(UiKit.RowFor(sensitivity));
 
-            invert = UiKit.ToggleField("Invert looking up", false,
+            invert = UiKit.ToggleField(MenuStrings.InvertLook, false,
                 value => { if (!applying) GameSettings.InvertLook = value; });
             page.Add(UiKit.RowFor(invert));
 
-            bob = Percent(page, "Head bob", GameSettings.HeadBobScale,
+            bob = Percent(page, MenuStrings.HeadBob, GameSettings.HeadBobScale,
                 value => GameSettings.HeadBobScale = value);
 
-            shake = Percent(page, "Camera shake", GameSettings.CameraShakeScale,
+            shake = Percent(page, MenuStrings.CameraShake, GameSettings.CameraShakeScale,
                 value => GameSettings.CameraShakeScale = value);
 
-            page.Add(UiKit.Hint(
-                "Turn these down if walking between benches makes you queasy. Head bob is the sway " +
-                "of your own footsteps; camera shake is the dip when you land and the lens kick when " +
-                "you sprint. Zero means off, not reduced. Nothing else changes: you still read the " +
-                "same numbers off the same machines."));
+            page.Add(UiKit.Hint(MenuStrings.ComfortNote));
 
             page.Add(UiKit.Divider());
 
@@ -574,11 +592,8 @@ namespace Residue.Gameplay.UI
 
             if (asset == null)
             {
-                page.Add(UiKit.Body("Keys cannot be changed from here."));
-                page.Add(UiKit.Hint(
-                    "This screen was opened without the input actions that hold your key " +
-                    "bindings. Open settings from the main menu or from the pause menu and the " +
-                    "full list of keys will be here."));
+                page.Add(UiKit.Body(MenuStrings.NoBindingsHere));
+                page.Add(UiKit.Hint(MenuStrings.NoBindingsHereNote));
                 return page;
             }
 
@@ -586,24 +601,22 @@ namespace Residue.Gameplay.UI
 
             if (bindings.Count == 0)
             {
-                page.Add(UiKit.Body("There are no keyboard or mouse controls to change."));
-                page.Add(UiKit.Hint(
-                    "Nothing on the Player action map is bound to a key or a mouse button, so " +
-                    "there is nothing here to rebind."));
+                page.Add(UiKit.Body(MenuStrings.NothingToRebind));
+                page.Add(UiKit.Hint(MenuStrings.NothingToRebindNote));
                 return page;
             }
 
             var header = UiKit.Row();
-            header.Add(UiKit.Body("Keyboard and mouse"));
+            header.Add(UiKit.Body(MenuStrings.KeyboardAndMouse));
             header.Add(UiKit.Spacer());
 
-            resetAll = UiKit.DangerButton("RESET EVERY KEY", ResetAllBindings);
+            // Still DangerButton, which is oxidised orange text and not a red fill — hard rule 4 has
+            // no exception for a destructive control, and nothing about wording changes that.
+            resetAll = UiKit.DangerButton(MenuStrings.ResetEveryKey, ResetAllBindings);
             header.Add(resetAll);
             page.Add(header);
 
-            page.Add(UiKit.Hint(
-                "Press REBIND, then press the key you want. Escape keeps the key you already had, " +
-                "and so does waiting."));
+            page.Add(UiKit.Hint(MenuStrings.RebindNote));
 
             bool anyHeld = false;
             var list = UiKit.Column(4f);
@@ -616,12 +629,7 @@ namespace Residue.Gameplay.UI
                 anyHeld |= row.IsHeld;
             }
 
-            if (anyHeld)
-            {
-                page.Add(UiKit.Hint(
-                    "A row marked (hold) is a key you keep pressed. Rebinding moves the key and " +
-                    "never the time the job takes."));
-            }
+            if (anyHeld) page.Add(UiKit.Hint(MenuStrings.HoldNote));
 
             var scroller = new ScrollView(ScrollViewMode.Vertical);
             scroller.style.maxHeight = BindingListMaxHeight;
@@ -659,7 +667,7 @@ namespace Residue.Gameplay.UI
             KeyBindings.ResetAll(asset);
 
             RefreshControls();
-            Say("Every key is back to how it shipped.", false);
+            Say(MenuStrings.ResetEveryKeyDone, false);
         }
 
         private void ResetBinding(RebindRow row)
@@ -668,7 +676,9 @@ namespace Residue.Gameplay.UI
 
             KeyBindings.Reset(row.Binding);
             RefreshControls();
-            Say($"{row.Binding.Label} is back to {KeyBindings.Display(row.Binding)}.", false);
+            Say(MenuStrings.ResetKeyDone.Format(
+                ("action", row.Binding.Label),
+                ("key", KeyBindings.Display(row.Binding))), false);
 
             // The button they pressed has just hidden itself, so hand focus to the one still there
             // rather than dropping a keyboard player back at the top of the list.
@@ -695,7 +705,7 @@ namespace Residue.Gameplay.UI
 
             SetRebindControlsEnabled(false);
             row.ShowListening();
-            Say($"Press the key you want for {binding.Label}.", false);
+            Say(MenuStrings.PressKeyFor.Format(("action", binding.Label)), false);
 
             rebind = binding.Action.PerformInteractiveRebinding(binding.BindingIndex)
                 .WithCancelingThrough("<Keyboard>/escape")
@@ -743,7 +753,9 @@ namespace Residue.Gameplay.UI
             if (!completed)
             {
                 row.ShowKey();
-                Say($"{binding.Label} is still {KeyBindings.Display(binding)}.", false);
+                Say(MenuStrings.RebindUnchanged.Format(
+                    ("action", binding.Label),
+                    ("key", KeyBindings.Display(binding))), false);
                 return;
             }
 
@@ -761,15 +773,22 @@ namespace Residue.Gameplay.UI
                     binding.Action.ApplyBindingOverride(binding.BindingIndex, previous);
 
                 row.ShowKey();
-                Say($"{Readable(path)} is already {heldBy}. {binding.Label} is still " +
-                    $"{KeyBindings.Display(binding)} — change {heldBy} first if you want that key " +
-                    "here.", true);
+
+                // Five moving parts, one sentence, and {heldBy} used twice — which is exactly what
+                // named arguments buy over positional ones or a concatenation.
+                Say(MenuStrings.RebindConflict.Format(
+                    ("key", Readable(path)),
+                    ("heldBy", heldBy),
+                    ("action", binding.Label),
+                    ("current", KeyBindings.Display(binding))), true);
                 return;
             }
 
             KeyBindings.Save(asset);
             row.ShowKey();
-            Say($"{binding.Label} is now {KeyBindings.Display(binding)}.", false);
+            Say(MenuStrings.RebindDone.Format(
+                ("action", binding.Label),
+                ("key", KeyBindings.Display(binding))), false);
         }
 
         /// <summary>
@@ -820,14 +839,18 @@ namespace Residue.Gameplay.UI
             bindingStatus.style.color = new StyleColor(refused ? UiPalette.Warn : UiPalette.InkFaint);
         }
 
+        /// <summary>
+        /// A key's own name, which is the input system's to give — a control path is data and never
+        /// comes through a lookup. Only the stand-in for a key it could not name is a line of ours.
+        /// </summary>
         private static string Readable(string path)
         {
-            if (string.IsNullOrEmpty(path)) return "That key";
+            if (string.IsNullOrEmpty(path)) return MenuStrings.ThatKey;
 
             string text = InputControlPath.ToHumanReadableString(
                 path, InputControlPath.HumanReadableStringOptions.OmitDevice);
 
-            return string.IsNullOrEmpty(text) ? "That key" : text;
+            return string.IsNullOrEmpty(text) ? MenuStrings.ThatKey : text;
         }
 
         /// <summary>
@@ -851,7 +874,11 @@ namespace Residue.Gameplay.UI
                 Root.style.paddingTop = 3;
                 Root.style.paddingBottom = 3;
 
-                var label = UiKit.Body(IsHeld ? $"{binding.Label} (hold)" : binding.Label);
+                // The action's own name is data from the action asset; only the "(hold)" mark is a
+                // line of ours, so it is a format around the name rather than a suffix glued to it.
+                var label = UiKit.Body(IsHeld
+                    ? MenuStrings.BindingHeld.Format(("action", binding.Label))
+                    : binding.Label);
                 label.style.fontSize = UiKit.LabelSize;
                 label.style.color = new StyleColor(UiPalette.InkDim);
                 label.style.width = RebindLabelColumn;
@@ -862,11 +889,11 @@ namespace Residue.Gameplay.UI
                 key.style.flexGrow = 1f;
                 Root.Add(key);
 
-                rebindButton = UiKit.QuietButton("REBIND", () => beginRebind(this));
+                rebindButton = UiKit.QuietButton(MenuStrings.Rebind, () => beginRebind(this));
                 Compact(rebindButton);
                 Root.Add(rebindButton);
 
-                resetButton = UiKit.QuietButton("DEFAULT", () => reset(this));
+                resetButton = UiKit.QuietButton(MenuStrings.RebindDefault, () => reset(this));
                 Compact(resetButton);
                 Root.Add(resetButton);
             }
@@ -901,7 +928,7 @@ namespace Residue.Gameplay.UI
             /// a state, not a verdict.</summary>
             internal void ShowListening()
             {
-                key.text = "press a key…";
+                key.text = MenuStrings.PressAKey;
                 key.style.color = new StyleColor(UiPalette.Accent);
             }
 

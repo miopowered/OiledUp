@@ -1,3 +1,4 @@
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -80,7 +81,9 @@ namespace Residue.Gameplay.World
         }
 
         public override string Prompt(PlayerInteractor player) =>
-            player.InventoryHasSpace ? $"Take {DisplayName}" : "Inventory full";
+            player.InventoryHasSpace
+                ? PromptStrings.TakeItem.Format(("item", DisplayName))
+                : PromptStrings.InventoryFull.Text;
 
         public override bool CanInteract(PlayerInteractor player) => player.InventoryHasSpace;
 

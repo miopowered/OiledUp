@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -162,7 +163,7 @@ namespace Residue.Gameplay.World
 
             if (action == MachineAction.Clean)
             {
-                if (machine.IsRunning) return "Cannot flush while running";
+                if (machine.IsRunning) return PromptStrings.ActionFlushWhileRunning.Text;
 
                 // Named separately from "out of solvent". An empty bottle sends you to the wash
                 // station; no bottle at all sends you there for a different reason, and a player who
@@ -171,42 +172,52 @@ namespace Residue.Gameplay.World
                 if (bottle == null)
                 {
                     return player.Carried != null
-                        ? $"{machine.DisplayName} needs a solvent bottle, not that"
-                        : $"{machine.DisplayName}: fetch a solvent bottle from the wash station";
+                        ? PromptStrings.ActionNeedsBottleNotThat.Format(
+                            ("machine", machine.DisplayName))
+                        : PromptStrings.ActionFetchBottle.Format(("machine", machine.DisplayName));
                 }
 
-                if (bottle.IsEmpty) return "Solvent bottle is empty — refill at the wash station";
+                if (bottle.IsEmpty) return PromptStrings.ActionBottleEmpty.Text;
 
-                return $"Hold to flush {machine.DisplayName} " +
-                       $"({HoldSeconds:F0}s, 1 of {bottle.Charges} charge{(bottle.Charges == 1 ? "" : "s")})";
+                // One charge and several are separate lines, not one line plus an "s".
+                string flushSeconds = HoldSeconds.ToString("F0");
+                return bottle.Charges == 1
+                    ? PromptStrings.ActionHoldToFlushOne.Format(
+                        ("machine", machine.DisplayName), ("seconds", flushSeconds))
+                    : PromptStrings.ActionHoldToFlush.Format(
+                        ("machine", machine.DisplayName), ("seconds", flushSeconds),
+                        ("charges", bottle.Charges));
             }
 
-            if (machine.IsRunning) return "Instrument busy";
+            if (machine.IsRunning) return PromptStrings.ActionBusy.Text;
 
             if (action == MachineAction.Calibrate)
             {
-                if (!machine.IsEmpty) return "Remove the vial before calibrating";
+                if (!machine.IsEmpty) return PromptStrings.ActionRemoveVialCalibrate.Text;
                 if (lab == null) return null;
-                if (!machine.HasFreshCheck(lab.Day)) return "Run today's certified standard first";
-                if (lab.Money < lab.CalibrationCost) return "Cannot afford the calibration";
+                if (!machine.HasFreshCheck(lab.Day)) return PromptStrings.ActionNeedsFreshCheck.Text;
+                if (lab.Money < lab.CalibrationCost) return PromptStrings.ActionCannotAfford.Text;
 
-                return $"Recalibrate {machine.DisplayName} " +
-                       $"({machine.CalibrationSeconds:F0}s, £{lab.CalibrationCost:N0})";
+                return PromptStrings.ActionRecalibrate.Format(
+                    ("machine", machine.DisplayName),
+                    ("seconds", machine.CalibrationSeconds.ToString("F0")),
+                    ("cost", lab.CalibrationCost.ToString("N0")));
             }
 
             if (action == MachineAction.Reference)
             {
-                if (!machine.IsEmpty) return "Remove the vial before running a standard";
-                if (ShiftOver) return "Shift over — no new runs";
+                if (!machine.IsEmpty) return PromptStrings.ActionRemoveVialStandard.Text;
+                if (ShiftOver) return PromptStrings.ActionShiftOver.Text;
                 if (lab != null && lab.ReferenceStandards < 1)
-                    return "No certified standards — order them at the terminal";
+                    return PromptStrings.ActionNoStandards.Text;
 
-                return $"Run certified standard ({machine.RunSeconds:F0}s, 1 ampoule) — flush afterwards";
+                return PromptStrings.ActionRunStandard.Format(
+                    ("seconds", machine.RunSeconds.ToString("F0")));
             }
 
-            if (!machine.IsEmpty) return "Remove the vial before running a blank";
-            if (ShiftOver) return "Shift over — no new runs";
-            return $"Run solvent blank ({machine.RunSeconds:F0}s)";
+            if (!machine.IsEmpty) return PromptStrings.ActionRemoveVialBlank.Text;
+            if (ShiftOver) return PromptStrings.ActionShiftOver.Text;
+            return PromptStrings.ActionRunBlank.Format(("seconds", machine.RunSeconds.ToString("F0")));
         }
 
         public override bool CanInteract(PlayerInteractor player)
@@ -252,23 +263,23 @@ namespace Residue.Gameplay.World
             {
                 case MachineAction.Clean:
                     LabCommands.Attempt(player, LabCommand.FlushMachine(id),
-                        _ => player.Say($"{title}: flushed. Residue cleared."));
+                        _ => player.Say(PromptStrings.ActionFlushed.Format(("machine", title))));
                     return;
 
                 case MachineAction.Reference:
                     LabCommands.Attempt(player, LabCommand.RunReference(id),
-                        _ => player.Say($"{title}: certified standard running. " +
-                                        "Compare it against the certificate at the terminal."));
+                        _ => player.Say(
+                            PromptStrings.ActionStandardRunning.Format(("machine", title))));
                     return;
 
                 case MachineAction.Calibrate:
                     LabCommands.Attempt(player, LabCommand.Calibrate(id),
-                        _ => player.Say($"{title}: recalibrating."));
+                        _ => player.Say(PromptStrings.ActionRecalibrating.Format(("machine", title))));
                     return;
 
                 default:
                     LabCommands.Attempt(player, LabCommand.RunBlank(id),
-                        _ => player.Say($"{title}: blank running. Check the terminal for what it finds."));
+                        _ => player.Say(PromptStrings.ActionBlankRunning.Format(("machine", title))));
                     return;
             }
         }

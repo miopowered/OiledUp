@@ -1,4 +1,5 @@
 using System;
+using Residue.Data;
 using Residue.Gameplay.UI;
 using UnityEngine.UIElements;
 
@@ -35,30 +36,29 @@ namespace Residue.Net.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Heading("CREDITS"));
-            column.Add(UiKit.Body("OILED UP is made by Emmanuel Lampe and Kevin-Timo Salmen."));
+            // The headings, the note and the button are ours. Everything drawn out of
+            // CreditsContent below is generated licence text: it has to appear exactly as the
+            // licence was granted, so it must never acquire a translated variant (#55).
+            column.Add(UiKit.Heading(MenuStrings.CreditsHeading));
+            column.Add(UiKit.Body(MenuStrings.MadeBy));
 
             column.Add(UiKit.Divider());
 
-            column.Add(UiKit.Body("Third-party art"));
-            column.Add(UiKit.Hint(
-                "Recorded in Assets/Art/Imported/CREDITS.md and reproduced here verbatim, because " +
-                "some of these licences require attribution in the game itself rather than only in " +
-                "the repository."));
+            column.Add(UiKit.Body(MenuStrings.ThirdPartyArt));
+            column.Add(UiKit.Hint(MenuStrings.ThirdPartyArtNote));
             column.Add(Section(CreditsContent.ThirdPartyArt));
 
             column.Add(UiKit.Divider());
 
-            column.Add(UiKit.Body("Third-party software"));
-            column.Add(UiKit.Hint(
-                "Licence notices shipped inside the Unity packages this build is made from."));
+            column.Add(UiKit.Body(MenuStrings.ThirdPartySoftware));
+            column.Add(UiKit.Hint(MenuStrings.ThirdPartySoftwareNote));
             column.Add(PackageNoticesSection());
 
             column.Add(UiKit.Divider());
 
             var footer = UiKit.Row();
             footer.Add(UiKit.Spacer());
-            footer.Add(UiKit.QuietButton("BACK", () => back?.Invoke()));
+            footer.Add(UiKit.QuietButton(MenuStrings.Back, () => back?.Invoke()));
             column.Add(footer);
         }
 

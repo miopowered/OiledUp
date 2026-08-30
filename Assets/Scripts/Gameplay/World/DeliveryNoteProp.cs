@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -35,13 +36,20 @@ namespace Residue.Gameplay.World
 
         public string JobNumber { get; private set; } = "—";
 
-        private string sender = "an unnamed sender";
+        /// <summary>
+        /// Who sent it, or empty when the customer did not say. Empty rather than a stand-in phrase
+        /// so the prompt can pick a whole sentence for each case (#55) — a translator handed
+        /// "an unnamed sender" spliced into a bracket cannot move it, and every language brackets an
+        /// aside differently.
+        /// </summary>
+        private string sender = string.Empty;
+
         private string body = string.Empty;
 
         private MeshRenderer sheet;
         private PrintedSheetSurface surface;
 
-        public override string DisplayName => $"Delivery note {JobNumber}";
+        public override string DisplayName => PromptStrings.NoteName.Format(("job", JobNumber));
 
         public override string InspectionText => body;
 
@@ -66,7 +74,7 @@ namespace Residue.Gameplay.World
         {
             CartonId = cartonId;
             JobNumber = string.IsNullOrEmpty(jobNumber) ? "—" : jobNumber;
-            sender = string.IsNullOrEmpty(senderName) ? "an unnamed sender" : senderName;
+            sender = senderName ?? string.Empty;
             body = printed ?? string.Empty;
             name = $"Note_{JobNumber}";
             RenderOntoPaper();
@@ -100,10 +108,14 @@ namespace Residue.Gameplay.World
 
         private void OnDestroy() => surface?.Dispose();
 
-        public override string Prompt(PlayerInteractor player) =>
-            player.InventoryHasSpace
-                ? $"Take delivery note {JobNumber} ({sender})"
-                : "Inventory full";
+        public override string Prompt(PlayerInteractor player)
+        {
+            if (!player.InventoryHasSpace) return PromptStrings.InventoryFull.Text;
+
+            return string.IsNullOrEmpty(sender)
+                ? PromptStrings.NoteTakeUnnamed.Format(("job", JobNumber))
+                : PromptStrings.NoteTake.Format(("job", JobNumber), ("sender", sender));
+        }
 
         /// <summary>
         /// What the customer typed, as it appears on the paper.
@@ -118,21 +130,32 @@ namespace Residue.Gameplay.World
         {
             if (note == null) return string.Empty;
 
+            // A line at a time rather than a phrase at a time (#55). The page is a document, so its
+            // lines are assembled here — but every line is a whole line in the table, because a
+            // translator handed "Booked out day " and a number separately cannot put the number
+            // first.
             var text = new StringBuilder();
-            text.Append("DELIVERY NOTE ").Append(note.JobNumber).Append('\n');
-            text.Append(note.Customer != null ? note.Customer.DisplayName : "Sender not stated")
-                .Append("\nBooked out day ").Append(note.Day).Append("\n\n");
+            text.Append(PromptStrings.NotePrintedHeading.Format(("job", note.JobNumber))).Append('\n');
+            text.Append(note.Customer != null
+                    ? note.Customer.DisplayName
+                    : PromptStrings.NotePrintedSenderUnknown.Text)
+                .Append('\n')
+                .Append(PromptStrings.NotePrintedBookedOut.Format(("day", note.Day)))
+                .Append("\n\n");
 
             for (int i = 0; i < note.Lines.Count; i++)
             {
                 var line = note.Lines[i];
-                text.Append(i + 1).Append(". ").Append(line.TankTag ?? "—");
+                string tag = line.TankTag ?? "—";
 
-                if (line.Profile != null) text.Append("  [").Append(line.Profile.DisplayName).Append(']');
-                text.Append('\n');
+                text.Append(line.Profile != null
+                        ? PromptStrings.NotePrintedLineWithProfile.Format(
+                            ("n", i + 1), ("tag", tag), ("profile", line.Profile.DisplayName))
+                        : PromptStrings.NotePrintedLine.Format(("n", i + 1), ("tag", tag)))
+                    .Append('\n');
             }
 
-            text.Append('\n').Append(note.Count).Append(" vial(s) declared.");
+            text.Append('\n').Append(PromptStrings.NotePrintedDeclared.Format(("count", note.Count)));
             return text.ToString();
         }
     }

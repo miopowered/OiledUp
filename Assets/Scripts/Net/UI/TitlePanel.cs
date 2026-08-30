@@ -1,4 +1,5 @@
 using System;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.UI;
 using Residue.Net.Connect;
@@ -47,35 +48,34 @@ namespace Residue.Net.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Title("OILED UP"));
-            column.Add(UiKit.Hint("Heat-treatment oil analysis. Up to four of you in the lab."));
+            column.Add(UiKit.Title(MenuStrings.Wordmark));
+            column.Add(UiKit.Hint(MenuStrings.Tagline));
 
             var actions = UiKit.Column();
 
             // Above SINGLE PLAYER, because a player with a contract half run wants it and a player
             // without one never sees it.
-            continueButton = UiKit.ActionButton("CONTINUE",
+            continueButton = UiKit.ActionButton(MenuStrings.Continue,
                 () => this.connection?.ContinueSinglePlayer());
             actions.Add(continueButton);
 
-            soloButton = UiKit.ActionButton("SINGLE PLAYER",
+            soloButton = UiKit.ActionButton(MenuStrings.SinglePlayer,
                 () => this.connection?.StartSinglePlayer());
             actions.Add(soloButton);
 
-            coOpButton = UiKit.QuietButton("CO-OP", () => coOp?.Invoke());
+            coOpButton = UiKit.QuietButton(MenuStrings.CoOp, () => coOp?.Invoke());
             actions.Add(coOpButton);
 
-            actions.Add(UiKit.QuietButton("SETTINGS", () => settings?.Invoke()));
-            actions.Add(UiKit.QuietButton("CREDITS", () => credits?.Invoke()));
-            actions.Add(UiKit.QuietButton("QUIT", () => quit?.Invoke()));
+            actions.Add(UiKit.QuietButton(MenuStrings.Settings, () => settings?.Invoke()));
+            actions.Add(UiKit.QuietButton(MenuStrings.Credits, () => credits?.Invoke()));
+            actions.Add(UiKit.QuietButton(MenuStrings.Quit, () => quit?.Invoke()));
 
             column.Add(actions);
 
             continueHint = UiKit.Hint(string.Empty);
             column.Add(continueHint);
 
-            column.Add(UiKit.Hint(
-                "Single player needs no sign-in, no lobby and no connection. It works offline."));
+            column.Add(UiKit.Hint(MenuStrings.OfflineNote));
 
             column.Add(UiKit.Divider());
 
@@ -99,9 +99,8 @@ namespace Residue.Net.UI
                 soloButton.SetEnabled(false);
                 coOpButton.SetEnabled(false);
                 continueButton.SetEnabled(false);
-                identityLabel.text =
-                    $"No LabConnection on this object, so nothing here can start a game.  " +
-                    $"build {Application.version}";
+                identityLabel.text = MenuStrings.NoConnectionOnTitle.Format(
+                    ("build", Application.version));
                 return;
             }
 
@@ -110,10 +109,14 @@ namespace Residue.Net.UI
             coOpButton.SetEnabled(open);
             continueButton.SetEnabled(open && loadable);
 
+            // The display name and the stable id are arguments, never translated: an id run through
+            // a lookup is a bug that only shows up in one language.
             var identity = connection.Identity;
             identityLabel.text = identity != null && identity.IsReady
-                ? $"you are {identity.DisplayName} · {identity.StableId}    build {Application.version}"
-                : $"build {Application.version}";
+                ? MenuStrings.Identity.Format(("name", identity.DisplayName),
+                                              ("id", identity.StableId),
+                                              ("build", Application.version))
+                : MenuStrings.Build.Format(("build", Application.version));
         }
 
         private bool loadable;
@@ -157,10 +160,11 @@ namespace Residue.Net.UI
             continueHint.style.display = DisplayStyle.Flex;
 
             continueHint.text = loadable
-                ? $"{headline.Describe()}  ·  £{headline.Money:N0}  ·  " +
-                  $"saved {headline.SavedLocal:d MMM HH:mm}"
-                : $"{headline.Describe()} was saved by a different version of the game and cannot " +
-                  "be continued. The file has been left where it is.";
+                ? MenuStrings.ContinueSaved.Format(
+                    ("run", headline.Describe()),
+                    ("money", headline.Money.ToString("N0")),
+                    ("when", headline.SavedLocal.ToString("d MMM HH:mm")))
+                : MenuStrings.ContinueUnreadable.Format(("run", headline.Describe()));
         }
     }
 }

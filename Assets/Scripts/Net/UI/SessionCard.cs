@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.UI;
 using Residue.Net.Connect;
 using UnityEngine;
@@ -131,18 +132,26 @@ namespace Residue.Net.UI
             Root.pickingMode = clickable ? PickingMode.Position : PickingMode.Ignore;
             if (!live) return;
 
+            // The code itself is data and passed as an argument; only the words around it are looked
+            // up. A join code run through a translation table would fail in one language only.
             string code = connection.JoinCodeText;
             bool hosting = connection.State == ConnectState.Hosting && !string.IsNullOrEmpty(code);
-            codeLabel.text = hosting ? $"JOIN CODE  {JoinCode.ForReading(code)}" : "CONNECTED";
+            codeLabel.text = hosting
+                ? MenuStrings.CardJoinCode.Format(("code", JoinCode.ForReading(code)))
+                : MenuStrings.CardConnected.Text;
 
             var voice = connection.Voice;
             voiceLabel.text = voice.IsConnected
-                ? $"[M] MIC {(voice.MicrophoneMuted ? "OFF" : "ON")}   " +
-                  $"[N] SOUND {(voice.OutputMuted ? "OFF" : "ON")}"
-                : voice.IsConnecting ? "VOICE CONNECTING…" : voice.UnavailableText;
+                ? MenuStrings.CardVoiceKeys.Format(
+                    ("mic", voice.MicrophoneMuted ? MenuStrings.Off.Text : MenuStrings.On.Text),
+                    ("sound", voice.OutputMuted ? MenuStrings.Off.Text : MenuStrings.On.Text))
+                : voice.IsConnecting ? MenuStrings.CardVoiceConnecting.Text : voice.UnavailableText;
 
-            volumeLabel.text = $"[-/+] VOL {Mathf.RoundToInt(voice.OutputVolume * 100f)}%  " +
-                               (voiceControlsOpen ? "[V/ESC] CLOSE" : "[V] MOUSE");
+            volumeLabel.text = MenuStrings.CardVolume.Format(
+                ("percent", Mathf.RoundToInt(voice.OutputVolume * 100f)),
+                ("pointer", voiceControlsOpen
+                    ? MenuStrings.CardVolumeClose.Text
+                    : MenuStrings.CardVolumeMouse.Text));
             volumeSlider.SetValueWithoutNotify(voice.OutputVolume * 100f);
             volumeRow.style.display = voice.IsConnected ? DisplayStyle.Flex : DisplayStyle.None;
 

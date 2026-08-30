@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -83,9 +84,9 @@ namespace Residue.Gameplay.World
             // Said out loud rather than left as a dead object: you cannot get both hands into a box you
             // are carrying, and the walk from the bay to a bench is the point of #30.
             if (state.Location.Kind == SampleLocationKind.Held)
-                return "Set the carton down before opening it";
+                return PromptStrings.CartonSetDownFirst.Text;
 
-            return $"Hold to open carton {state.JobNumber}";
+            return PromptStrings.CartonHoldToOpen.Format(("job", state.JobNumber));
         }
 
         public override bool CanInteract(PlayerInteractor player) =>
@@ -111,8 +112,8 @@ namespace Residue.Gameplay.World
                 int count = known && state.Note != null ? state.Note.Count : 0;
 
                 player.Say(known
-                    ? $"Carton {state.JobNumber} open — {count} vial(s) and a delivery note."
-                    : "Carton open.", 4f);
+                    ? PromptStrings.CartonOpened.Format(("job", state.JobNumber), ("count", count))
+                    : PromptStrings.CartonOpenedUnknown.Text, 4f);
             });
         }
     }

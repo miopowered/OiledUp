@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Residue.Data;
 using Residue.Gameplay.UI;
 using Residue.Net.Connect;
 using UnityEngine;
@@ -30,8 +31,6 @@ namespace Residue.Net.UI
 
         private readonly LabConnection connection;
 
-        private const string DefaultCodeHint = "Send this to whoever is joining you.";
-
         /// <summary>
         /// How long the copy button stays saying it worked. Long enough to be read after the click
         /// that caused it, short enough not to still be lying when the player looks back.
@@ -61,7 +60,7 @@ namespace Residue.Net.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Heading("LOBBY"));
+            column.Add(UiKit.Heading(MenuStrings.LobbyHeading));
 
             var code = UiKit.Column(4f);
 
@@ -74,11 +73,11 @@ namespace Residue.Net.UI
 
             codeRow.Add(UiKit.Spacer());
 
-            copyButton = UiKit.QuietButton("COPY", CopyCode);
+            copyButton = UiKit.QuietButton(MenuStrings.Copy, CopyCode);
             codeRow.Add(copyButton);
             code.Add(codeRow);
 
-            codeHint = UiKit.Hint(DefaultCodeHint);
+            codeHint = UiKit.Hint(MenuStrings.CodeHint);
             code.Add(codeHint);
             column.Add(code);
 
@@ -103,15 +102,15 @@ namespace Residue.Net.UI
 
             var buttons = UiKit.Row();
 
-            readyButton = UiKit.QuietButton("READY UP",
+            readyButton = UiKit.QuietButton(MenuStrings.ReadyUp,
                 () => this.connection?.Lobby.ToggleReady());
             buttons.Add(readyButton);
 
-            startButton = UiKit.ActionButton("START SHIFT", StartOrCancel);
+            startButton = UiKit.ActionButton(MenuStrings.StartShift, StartOrCancel);
             buttons.Add(startButton);
 
             buttons.Add(UiKit.Spacer());
-            buttons.Add(UiKit.DangerButton("LEAVE", () => leave?.Invoke()));
+            buttons.Add(UiKit.DangerButton(MenuStrings.LeaveLobby, () => leave?.Invoke()));
             column.Add(buttons);
 
             Refresh();
@@ -137,7 +136,7 @@ namespace Residue.Net.UI
             codeHint.style.display = showCode ? DisplayStyle.Flex : DisplayStyle.None;
 
             // Left alone while the copy confirmation is up; it owns both of these until it expires.
-            if (!copied) codeHint.text = DefaultCodeHint;
+            if (!copied) codeHint.text = MenuStrings.CodeHint;
 
             var seats = lobby.Seats;
             for (int i = 0; i < rows.Count; i++)
@@ -149,21 +148,25 @@ namespace Residue.Net.UI
             int here = Mathf.Min(seats.Count, rows.Count);
             int free = rows.Count - here;
             waitingLabel.text = free <= 0
-                ? "The lab is full."
-                : $"{here} of {rows.Count} here. There is room for {free} more.";
+                ? MenuStrings.LobbyFull.Text
+                : MenuStrings.LobbyRoomLeft.Format(("here", here),
+                                                   ("capacity", rows.Count),
+                                                   ("free", free));
 
             bool counting = lobby.IsCountingDown;
             countdownLabel.text = counting
-                ? $"STARTING IN {Mathf.Max(1, Mathf.CeilToInt(lobby.CountdownRemaining))}"
+                ? MenuStrings.Countdown.Format(
+                    ("seconds", Mathf.Max(1, Mathf.CeilToInt(lobby.CountdownRemaining))))
                 : string.Empty;
             countdownLabel.style.display = counting ? DisplayStyle.Flex : DisplayStyle.None;
 
-            readyButton.text = lobby.LocalReady ? "CANCEL READY" : "READY UP";
+            readyButton.text = lobby.LocalReady ? MenuStrings.CancelReady : MenuStrings.ReadyUp;
 
             startButton.style.display = host ? DisplayStyle.Flex : DisplayStyle.None;
             startButton.text = counting
-                ? "CANCEL"
-                : $"START SHIFT ({lobby.ReadyCount}/{seats.Count} READY)";
+                ? MenuStrings.CancelCountdown.Text
+                : MenuStrings.StartShiftReady.Format(("ready", lobby.ReadyCount),
+                                                     ("seated", seats.Count));
         }
 
         /// <summary>
@@ -186,14 +189,14 @@ namespace Residue.Net.UI
             GUIUtility.systemCopyBuffer = code;
 
             copied = true;
-            copyButton.text = "COPIED";
-            codeHint.text = $"{code} is on your clipboard. Paste it to whoever is joining you.";
+            copyButton.text = MenuStrings.Copied;
+            codeHint.text = MenuStrings.CodeCopied.Format(("code", code));
 
             copyButton.schedule.Execute(() =>
             {
                 copied = false;
-                copyButton.text = "COPY";
-                codeHint.text = DefaultCodeHint;
+                copyButton.text = MenuStrings.Copy;
+                codeHint.text = MenuStrings.CodeHint;
             }).StartingIn(CopiedMilliseconds);
         }
 
@@ -239,18 +242,21 @@ namespace Residue.Net.UI
 
             internal void Show(in LobbySeat seat)
             {
-                name.text = seat.IsHost ? $"{seat.Name}  (host)" : seat.Name;
+                // The name is a player's, so it is an argument and never a lookup.
+                name.text = seat.IsHost
+                    ? MenuStrings.SeatHost.Format(("name", seat.Name))
+                    : seat.Name;
                 name.style.color = new StyleColor(UiPalette.Ink);
 
                 // Accent, never green. A ready tick is a state, not a verdict — hard rule 4.
-                state.text = seat.Ready ? "READY" : "still deciding";
+                state.text = seat.Ready ? MenuStrings.SeatReady : MenuStrings.SeatDeciding;
                 state.style.color = new StyleColor(
                     seat.Ready ? UiPalette.Accent : UiPalette.InkFaint);
             }
 
             internal void ShowEmpty()
             {
-                name.text = "empty seat";
+                name.text = MenuStrings.SeatEmpty;
                 name.style.color = new StyleColor(UiPalette.InkFaint);
                 state.text = string.Empty;
             }

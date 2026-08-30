@@ -89,8 +89,15 @@ namespace Residue.Gameplay.World
         /// <summary>Nothing has been measured, so there is no severity to show. See <see cref="Off"/>.</summary>
         public const string UnknownGlyph = "?";
 
-        /// <summary>The <see cref="UnknownGlyph"/> and its word, for a row with no runs behind it.</summary>
-        public const string UnknownMark = "? UNTESTED";
+        /// <summary>
+        /// The <see cref="UnknownGlyph"/> and its word, for a row with no runs behind it.
+        /// <para>
+        /// A property rather than a <c>const</c> since #55: a compile-time constant is baked into
+        /// every call site at build and could never follow the active language.
+        /// </para>
+        /// </summary>
+        public static string UnknownMark =>
+            ScreenStrings.Marked.Format(("glyph", UnknownGlyph), ("label", ScreenStrings.Untested));
 
         public static Color For(ReadingSeverity severity) => severity switch
         {
@@ -108,9 +115,9 @@ namespace Residue.Gameplay.World
 
         public static string Label(ReadingSeverity severity) => severity switch
         {
-            ReadingSeverity.Critical => "CRITICAL",
-            ReadingSeverity.Caution => "CAUTION",
-            _ => "NORMAL"
+            ReadingSeverity.Critical => ScreenStrings.SeverityCritical,
+            ReadingSeverity.Caution => ScreenStrings.SeverityCaution,
+            _ => ScreenStrings.SeverityNormal
         };
 
         /// <summary>
@@ -121,15 +128,24 @@ namespace Residue.Gameplay.World
         /// </summary>
         public static string Label(Verdict verdict) => verdict switch
         {
-            Verdict.Critical => "CRITICAL",
-            Verdict.Monitor => "MONITOR",
-            _ => "NORMAL"
+            Verdict.Critical => ScreenStrings.VerdictCritical,
+            Verdict.Monitor => ScreenStrings.VerdictMonitor,
+            _ => ScreenStrings.VerdictNormal
         };
 
-        /// <summary>Glyph and word together — the two non-colour channels, for anything drawing one string.</summary>
-        public static string Marked(ReadingSeverity severity) => $"{Glyph(severity)} {Label(severity)}";
+        /// <summary>
+        /// Glyph and word together — the two non-colour channels, for anything drawing one string.
+        /// <para>
+        /// Through a template rather than interpolation (#55). A language that reads right to left
+        /// wants the marker on the other side of the word, which is not something a call site joining
+        /// two strings can express.
+        /// </para>
+        /// </summary>
+        public static string Marked(ReadingSeverity severity) =>
+            ScreenStrings.Marked.Format(("glyph", Glyph(severity)), ("label", Label(severity)));
 
-        public static string Marked(Verdict verdict) => $"{Glyph(verdict)} {Label(verdict)}";
+        public static string Marked(Verdict verdict) =>
+            ScreenStrings.Marked.Format(("glyph", Glyph(verdict)), ("label", Label(verdict)));
 
         /// <summary>
         /// Relative luminance, sRGB coefficients. Deliberately over the raw channel values rather

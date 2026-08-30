@@ -44,7 +44,13 @@ namespace Residue.Gameplay.World
         /// <summary>What the last recalibration corrected, and how much filed work it put in doubt.</summary>
         public CalibrationOutcome? LastCalibration;
 
-        public string DisplayName => Def != null ? Def.DisplayName : "Instrument";
+        /// <summary>
+        /// The instrument's name out of the content tables, or a stand-in for a record whose
+        /// definition this process cannot see yet. Only the stand-in is a translated line; the
+        /// definition's name is balance data with its own pipeline.
+        /// </summary>
+        public string DisplayName =>
+            Def != null ? Def.DisplayName : ScreenStrings.ScreenInstrumentFallback;
 
         /// <summary>Read a live instrument. Host and single player; nothing here leaves the process.</summary>
         public static InstrumentRecord FromHost(MachineInstance machine) => machine == null

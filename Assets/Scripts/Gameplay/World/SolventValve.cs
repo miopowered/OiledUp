@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -106,18 +107,24 @@ namespace Residue.Gameplay.World
             if (bottle == null)
             {
                 return player.Carried != null
-                    ? "Solvent tap — you need a bottle, not that"
-                    : "Solvent tap — fetch a bottle from the cradle";
+                    ? PromptStrings.ValveWrongItem.Text
+                    : PromptStrings.ValveNoBottle.Text;
             }
 
-            if (bottle.IsFull) return $"Bottle is full ({bottle.Capacity} flushes)";
+            if (bottle.IsFull)
+                return PromptStrings.ValveBottleFull.Format(("capacity", bottle.Capacity));
 
             int drum = DrumCharges;
-            if (drum < 1) return "Solvent drum is empty — order more at the terminal";
+            if (drum < 1) return PromptStrings.ValveDrumEmpty.Text;
 
             int taking = Mathf.Min(bottle.Capacity - bottle.Charges, drum);
-            return $"Hold to fill ({HoldSeconds:F0}s, +{taking} flush{(taking == 1 ? "" : "es")}, " +
-                   $"{drum} left in the drum)";
+            string seconds = HoldSeconds.ToString("F0");
+
+            // One flush and several are separate lines rather than one line with an "es" bolted on.
+            return taking == 1
+                ? PromptStrings.ValveHoldToFillOne.Format(("seconds", seconds), ("drum", drum))
+                : PromptStrings.ValveHoldToFill.Format(
+                    ("seconds", seconds), ("charges", taking), ("drum", drum));
         }
 
         /// <summary>
@@ -143,7 +150,7 @@ namespace Residue.Gameplay.World
             // publish that follows — quoting the figure this side guessed would be a second answer
             // that is wrong whenever somebody else filled first.
             LabCommands.Attempt(player, LabCommand.FillBottle(WashStation.FixtureId),
-                _ => player.Say("Solvent bottle topped up."));
+                _ => player.Say(PromptStrings.ValveFilled.Text));
         }
     }
 }

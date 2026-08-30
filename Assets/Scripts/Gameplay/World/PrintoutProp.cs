@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -103,7 +104,8 @@ namespace Residue.Gameplay.World
             }
         }
 
-        public override string DisplayName => $"{MachineName} printout — {RecordTag}";
+        public override string DisplayName =>
+            PromptStrings.PrintoutName.Format(("machine", MachineName), ("tag", RecordTag));
 
         /// <summary>
         /// Bind the paper to the run it came off. The host's half: it is holding the
@@ -175,13 +177,13 @@ namespace Residue.Gameplay.World
 
         public override string Prompt(PlayerInteractor player)
         {
-            if (!player.InventoryHasSpace) return "Inventory full";
+            if (!player.InventoryHasSpace) return PromptStrings.InventoryFull.Text;
             return IsBlank
-                ? $"Take blank slip — {MachineName}"
-                : $"Take printout — {RecordTag}";
+                ? PromptStrings.PrintoutTakeBlank.Format(("machine", MachineName))
+                : PromptStrings.PrintoutTake.Format(("tag", RecordTag));
         }
 
-        public override string UseHint => "read slip";
+        public override string UseHint => PromptStrings.PrintoutUseHint.Text;
 
         public override string InspectionText => BuildReadingText();
 
@@ -207,14 +209,20 @@ namespace Residue.Gameplay.World
             var reading = Result;
             if (reading == null)
                 return ResultKey == 0
-                    ? "This paper is blank."
-                    : "The numbers on this paper have not come through yet.";
+                    ? PromptStrings.PrintoutPaperBlank.Text
+                    : PromptStrings.PrintoutNumbersPending.Text;
 
             var text = new System.Text.StringBuilder();
-            text.AppendLine(reading.IsBlank ? $"{MachineName} — BLANK" : $"{RecordTag} — {MachineName}");
+            text.AppendLine(reading.IsBlank
+                ? PromptStrings.PrintoutHeadingBlank.Format(("machine", MachineName))
+                : PromptStrings.PrintoutHeading.Format(("tag", RecordTag), ("machine", MachineName)));
             text.AppendLine();
+
+            // Element id and figure, in a fixed column. Data rather than a sentence — an element id
+            // put through a translation table is a lookup that fails in one language only.
             foreach (var kv in reading.Values) text.AppendLine($"{kv.Key,-10} {kv.Value:0.###}");
-            if (reading.Values.Count == 0) text.Append("No values reported.");
+
+            if (reading.Values.Count == 0) text.Append(PromptStrings.PrintoutNoValues.Text);
             return text.ToString();
         }
     }

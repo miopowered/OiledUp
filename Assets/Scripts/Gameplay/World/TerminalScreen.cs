@@ -258,14 +258,13 @@ namespace Residue.Gameplay.World
         {
             var panel = Panel();
             panel.style.flexGrow = 1f;
-            panel.Add(SectionTitle("SAMPLE TERMINAL"));
+            panel.Add(SectionTitle(ScreenStrings.TerminalTitle));
 
             panel.Add(Dim(LabView.Current == null
-                ? "Waiting for the lab. If this does not clear, the session never came up."
-                : "Waiting for the first publish from the host. The instruments in the room are " +
-                  "already readable; this desk fills in a moment."));
+                ? ScreenStrings.TerminalWaitingForSession
+                : ScreenStrings.TerminalWaitingForHost));
 
-            var close = new Button(Close) { text = "CLOSE  (Esc)" };
+            var close = new Button(Close) { text = ScreenStrings.TerminalClose };
             StyleButton(close, SignalPalette.PanelSoft);
             close.style.marginTop = 14;
             close.style.marginLeft = 0;
@@ -281,7 +280,7 @@ namespace Residue.Gameplay.World
             bar.style.justifyContent = Justify.SpaceBetween;
             bar.style.alignItems = Align.Center;
 
-            var left = new Label($"SAMPLE TERMINAL — DAY {records.Day}");
+            var left = new Label(ScreenStrings.TerminalHeader.Format(("day", records.Day)));
             left.style.fontSize = 18;
             left.style.color = new StyleColor(SignalPalette.Ink);
             left.style.unityFontStyleAndWeight = FontStyle.Bold;
@@ -290,7 +289,9 @@ namespace Residue.Gameplay.World
             var right = Row();
             right.style.alignItems = Align.Center;
 
-            var money = new Label($"£{records.Money:N0}    REP {records.Reputation:F0}");
+            var money = new Label(ScreenStrings.TerminalBalance.Format(
+                ("money", records.Money.ToString("N0")),
+                ("reputation", records.Reputation.ToString("F0"))));
             money.style.fontSize = 15;
             money.style.color = new StyleColor(SignalPalette.Dim);
             money.style.marginRight = 16;
@@ -301,11 +302,11 @@ namespace Residue.Gameplay.World
             // making the command carry them would put a list of consequences on the wire twice — and
             // the day closing is a fact about the lab, not about whoever pressed the button.
             var endDay = new Button(() => Ask(LabCommand.EndDay(), null, () => endingTheDay = true))
-            { text = "END DAY" };
+            { text = ScreenStrings.TerminalEndDay };
             StyleButton(endDay, SignalPalette.Accent);
             right.Add(endDay);
 
-            var close = new Button(Close) { text = "CLOSE  (Esc)" };
+            var close = new Button(Close) { text = ScreenStrings.TerminalClose };
             StyleButton(close, SignalPalette.PanelSoft);
             right.Add(close);
 
@@ -319,13 +320,13 @@ namespace Residue.Gameplay.World
             panel.style.width = 320;
             panel.style.marginRight = 12;
 
-            panel.Add(SectionTitle("OPEN SAMPLES"));
+            panel.Add(SectionTitle(ScreenStrings.TerminalOpenSamples));
 
             var scroll = new ScrollView();
             scroll.style.flexGrow = 1f;
 
             var open = records.Open;
-            if (open.Count == 0) scroll.Add(Dim("Nothing open. End the day."));
+            if (open.Count == 0) scroll.Add(Dim(ScreenStrings.TerminalNothingOpen));
 
             foreach (var sample in open)
             {
@@ -365,9 +366,11 @@ namespace Residue.Gameplay.World
                 // the same unit), so the tag alone does not always say which bottle a row is asking
                 // about. Instrument screens caption by tag since #56, which is what lets a player
                 // match numbers on a machine to a record here; the id settles the ties.
-                var meta = new Label(
-                    $"{sample.Id} · {ProfileName(sample)} · {sample.VolumeMl:F0} ml · " +
-                    $"{sample.Results.Count} run{(sample.Results.Count == 1 ? "" : "s")}");
+                var meta = new Label(ScreenStrings.TerminalSampleMeta.Format(
+                    ("id", sample.Id),
+                    ("profile", ProfileName(sample)),
+                    ("volume", sample.VolumeMl.ToString("F0")),
+                    ("runs", RunCount(sample.Results.Count))));
                 meta.style.fontSize = 11;
                 meta.style.color = new StyleColor(SignalPalette.Dim);
                 row.Add(meta);
@@ -386,7 +389,16 @@ namespace Residue.Gameplay.World
         /// profile, and an exception here would take the whole desk down mid-shift.
         /// </summary>
         private static string ProfileName(SampleState sample) =>
-            sample?.Profile != null ? sample.Profile.DisplayName : "unknown fluid";
+            sample?.Profile != null ? sample.Profile.DisplayName : ScreenStrings.TerminalUnknownFluid;
+
+        /// <summary>
+        /// "1 run" or "4 runs" as a whole phrase. Two keys rather than a stem and an "s", because a
+        /// translator handed the letter cannot make the noun agree with the number in a language that
+        /// inflects, and cannot move it in one that counts after the noun.
+        /// </summary>
+        private static string RunCount(int runs) => runs == 1
+            ? ScreenStrings.TerminalRunCountOne.Text
+            : ScreenStrings.TerminalRunCountMany.Format(("count", runs));
 
         /// <summary>
         /// Per-instrument state, including the last solvent blank.
@@ -403,20 +415,22 @@ namespace Residue.Gameplay.World
             box.style.paddingTop = 8;
             box.style.borderTopWidth = 1;
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
-            box.Add(SectionTitle("INSTRUMENTS"));
+            box.Add(SectionTitle(ScreenStrings.TerminalInstruments));
 
             foreach (var machine in records.Instruments)
             {
                 if (machine == null) continue;
 
-                var header = new Label($"{machine.DisplayName} · {machine.RunsSinceFlush} run(s) since flush");
+                var header = new Label(ScreenStrings.TerminalRunsSinceFlush.Format(
+                    ("instrument", machine.DisplayName),
+                    ("runs", machine.RunsSinceFlush)));
                 header.style.fontSize = 11;
                 header.style.color = new StyleColor(SignalPalette.Ink);
                 box.Add(header);
 
                 if (machine.LastBlank == null)
                 {
-                    box.Add(Tiny("no blank run — residue unknown", SignalPalette.Caution));
+                    box.Add(Tiny(ScreenStrings.TerminalBlankMissing, SignalPalette.Caution));
                     continue;
                 }
 
@@ -429,8 +443,11 @@ namespace Residue.Gameplay.World
                 }
 
                 box.Add(residue.Length == 0
-                    ? Tiny($"blank day {machine.LastBlankDay}: clean", SignalPalette.Normal)
-                    : Tiny($"blank day {machine.LastBlankDay}: {residue}", SignalPalette.Caution));
+                    ? Tiny(ScreenStrings.TerminalBlankClean.Format(("day", machine.LastBlankDay)),
+                           SignalPalette.Normal)
+                    : Tiny(ScreenStrings.TerminalBlankResidue.Format(
+                               ("day", machine.LastBlankDay), ("residue", residue)),
+                           SignalPalette.Caution));
             }
 
             box.Add(SolventRow(records));
@@ -463,7 +480,8 @@ namespace Residue.Gameplay.World
             float cost = records.SolventUnitCost * packSize;
             bool dry = records.SolventUnits < 1f;
 
-            var stock = new Label($"SOLVENT  {records.SolventUnits:F0} unit(s)");
+            var stock = new Label(ScreenStrings.TerminalSolventStock.Format(
+                ("units", records.SolventUnits.ToString("F0"))));
             stock.style.fontSize = 12;
             stock.style.width = 220;
 
@@ -473,7 +491,10 @@ namespace Residue.Gameplay.World
             row.Add(stock);
 
             var buy = new Button(() => Ask(LabCommand.OrderSolvent(packSize), null))
-            { text = $"ORDER {packSize}  (£{cost:N0})" };
+            {
+                text = ScreenStrings.TerminalOrder.Format(
+                    ("count", packSize), ("cost", cost.ToString("N0")))
+            };
 
             StyleButton(buy, SignalPalette.PanelSoft);
 
@@ -484,7 +505,13 @@ namespace Residue.Gameplay.World
             row.Add(buy);
 
             if (records.Money < cost)
-                row.Add(Tiny("  cannot afford a restock", SignalPalette.Dim));
+            {
+                // The gap used to be two leading spaces inside the sentence. A translator should not
+                // have to carry layout in the string, so it is a margin now.
+                var afford = Tiny(ScreenStrings.TerminalCannotAffordRestock, SignalPalette.Dim);
+                afford.style.marginLeft = 8;
+                row.Add(afford);
+            }
 
             return row;
         }
@@ -507,7 +534,7 @@ namespace Residue.Gameplay.World
             var panel = Panel();
             panel.style.width = 340;
             panel.style.marginLeft = 12;
-            panel.Add(SectionTitle("CALIBRATION"));
+            panel.Add(SectionTitle(ScreenStrings.TerminalCalibration));
 
             var order = Row();
             order.style.alignItems = Align.Center;
@@ -515,7 +542,8 @@ namespace Residue.Gameplay.World
 
             float cost = records.ReferenceStandardUnitCost * packSize;
 
-            var stock = new Label($"STANDARDS  {records.ReferenceStandards} ampoule(s)");
+            var stock = new Label(ScreenStrings.TerminalStandardsStock.Format(
+                ("count", records.ReferenceStandards)));
             stock.style.fontSize = 12;
             stock.style.flexGrow = 1f;
 
@@ -526,7 +554,10 @@ namespace Residue.Gameplay.World
             order.Add(stock);
 
             var buy = new Button(() => Ask(LabCommand.OrderStandards(packSize), null))
-            { text = $"ORDER {packSize}  (£{cost:N0})" };
+            {
+                text = ScreenStrings.TerminalOrder.Format(
+                    ("count", packSize), ("cost", cost.ToString("N0")))
+            };
 
             StyleButton(buy, SignalPalette.PanelSoft);
             buy.SetEnabled(records.Money >= cost);
@@ -535,7 +566,7 @@ namespace Residue.Gameplay.World
 
             // Where the certificate comes from, so the numbers are checkable before one is ever run.
             panel.Add(Tiny(
-                $"{records.StandardId} — certified at the healthy baselines the manual publishes.",
+                ScreenStrings.TerminalStandardCertified.Format(("standard", records.StandardId)),
                 SignalPalette.Dim));
 
             var scroll = new ScrollView();
@@ -569,21 +600,32 @@ namespace Residue.Gameplay.World
             var check = machine.Check;
             if (check == null)
             {
-                box.Add(Tiny("no standard run today — drift unknown", SignalPalette.Caution));
+                box.Add(Tiny(ScreenStrings.TerminalCheckMissing, SignalPalette.Caution));
             }
             else
             {
+                // Two whole sentences rather than a stem with a verdict appended: "in tolerance" is
+                // not a phrase a translator can place without seeing the clause it qualifies. The
+                // colour still turns on IsOutOfTolerance alone (hard rule 4).
+                var tolerance = check.IsOutOfTolerance
+                    ? ScreenStrings.TerminalCheckOutOfTolerance
+                    : ScreenStrings.TerminalCheckInTolerance;
+
                 box.Add(Tiny(
-                    $"{check.StandardId} day {check.Day}: reads {Signed(check.ErrorFraction)}" +
-                    (check.IsOutOfTolerance ? "  OUT OF TOLERANCE" : "  in tolerance"),
+                    tolerance.Format(
+                        ("standard", check.StandardId),
+                        ("day", check.Day),
+                        ("error", Signed(check.ErrorFraction))),
                     check.IsOutOfTolerance ? SignalPalette.Caution : SignalPalette.Dim));
 
                 foreach (var line in check.Lines)
                 {
                     var row = Row();
                     row.Add(Cell(line.Element.DisplayName, 130, SignalPalette.Dim));
-                    row.Add(Cell($"cert {line.Certified:0.###}", 90, SignalPalette.Dim));
-                    row.Add(Cell($"read {line.Measured:0.###}", 90, SignalPalette.Ink));
+                    row.Add(Cell(ScreenStrings.TerminalCertifiedCell.Format(
+                        ("value", line.Certified.ToString("0.###"))), 90, SignalPalette.Dim));
+                    row.Add(Cell(ScreenStrings.TerminalMeasuredCell.Format(
+                        ("value", line.Measured.ToString("0.###"))), 90, SignalPalette.Ink));
                     row.Add(Cell(Signed(line.ErrorFraction), 60, SignalPalette.Dim));
                     box.Add(row);
                 }
@@ -593,8 +635,11 @@ namespace Residue.Gameplay.World
             {
                 var last = machine.LastCalibration.Value;
                 box.Add(Tiny(
-                    $"calibrated day {last.Day}: corrected {Signed(last.CorrectedDrift)}, " +
-                    $"{last.FlaggedResults} run(s) now suspect across {last.AffectedArchived} filed record(s)",
+                    ScreenStrings.TerminalCalibrated.Format(
+                        ("day", last.Day),
+                        ("drift", Signed(last.CorrectedDrift)),
+                        ("runs", last.FlaggedResults),
+                        ("records", last.AffectedArchived)),
                     SignalPalette.Dim));
             }
 
@@ -617,12 +662,12 @@ namespace Residue.Gameplay.World
             box.style.paddingTop = 8;
             box.style.borderTopWidth = 1;
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
-            box.Add(SectionTitle("RECORDS IN DOUBT"));
+            box.Add(SectionTitle(ScreenStrings.TerminalRecordsInDoubt));
 
             var suspect = records.InDoubt;
             if (suspect.Count == 0)
             {
-                box.Add(Dim("No filed record rests on a drifting instrument."));
+                box.Add(Dim(ScreenStrings.TerminalNoRecordsInDoubt));
                 return box;
             }
 
@@ -633,9 +678,11 @@ namespace Residue.Gameplay.World
                 var card = new VisualElement();
                 card.style.marginBottom = 6;
 
-                var title = new Label(
-                    $"{SignalPalette.Glyph(sample.FiledVerdict.Value)} {sample.RecordTag} — " +
-                    $"filed {SignalPalette.Label(sample.FiledVerdict.Value)} day {sample.FiledOnDay}");
+                var title = new Label(ScreenStrings.TerminalInDoubtTitle.Format(
+                    ("mark", SignalPalette.Glyph(sample.FiledVerdict.Value)),
+                    ("tag", sample.RecordTag),
+                    ("verdict", SignalPalette.Label(sample.FiledVerdict.Value)),
+                    ("day", sample.FiledOnDay)));
                 title.style.fontSize = 12;
                 title.style.whiteSpace = WhiteSpace.Normal;
                 title.style.color = new StyleColor(SignalPalette.For(sample.FiledVerdict.Value));
@@ -643,14 +690,17 @@ namespace Residue.Gameplay.World
 
                 card.Add(Tiny(
                     float.IsInfinity(need)
-                        ? $"{sample.VolumeMl:F1} ml left · no instrument here can repeat those tests"
-                        : $"{sample.VolumeMl:F1} ml left · a re-test needs {need:F0} ml",
+                        ? ScreenStrings.TerminalRetestImpossible.Format(
+                            ("volume", sample.VolumeMl.ToString("F1")))
+                        : ScreenStrings.TerminalRetestNeeds.Format(
+                            ("volume", sample.VolumeMl.ToString("F1")),
+                            ("needed", need.ToString("F0"))),
                     SignalPalette.Dim));
 
                 var refusal = Tiny("", SignalPalette.Caution);
 
                 var reopen = new Button(() => Ask(LabCommand.ReopenSuspect(sample.Id), refusal))
-                { text = "RE-OPEN FOR RE-TEST" };
+                { text = ScreenStrings.TerminalReopen };
 
                 StyleButton(reopen, SignalPalette.PanelSoft);
                 reopen.style.marginLeft = 0;
@@ -684,15 +734,17 @@ namespace Residue.Gameplay.World
             var sample = selected.IsValid ? records.Sample(selected) : null;
             if (sample == null)
             {
-                panel.Add(Dim("Select a sample."));
+                panel.Add(Dim(ScreenStrings.TerminalSelectASample));
                 return panel;
             }
 
             panel.Add(SectionTitle(sample.RecordTag));
 
-            var sub = new Label(
-                $"{ProfileName(sample)} · {(sample.Profile != null ? sample.Profile.BaseOilGrade : "—")} · " +
-                $"{sample.HoursSinceOilChange:F0} h on the oil · {sample.VolumeMl:F1} ml remaining");
+            var sub = new Label(ScreenStrings.TerminalSampleSubtitle.Format(
+                ("profile", ProfileName(sample)),
+                ("grade", sample.Profile != null ? sample.Profile.BaseOilGrade : "—"),
+                ("hours", sample.HoursSinceOilChange.ToString("F0")),
+                ("volume", sample.VolumeMl.ToString("F1"))));
             sub.style.fontSize = 12;
             sub.style.color = new StyleColor(SignalPalette.Dim);
             sub.style.marginBottom = 6;
@@ -700,7 +752,11 @@ namespace Residue.Gameplay.World
 
             if (sample.IsResample)
             {
-                var history = new Label($"RE-DRAW of {sample.ResampleOf} — you filed MONITOR on this unit.");
+                // The verdict word comes from SignalPalette rather than being spelled out here, so
+                // the sentence and the button the player pressed cannot drift apart.
+                var history = new Label(ScreenStrings.TerminalRedrawOf.Format(
+                    ("origin", sample.ResampleOf),
+                    ("verdict", SignalPalette.Label(Verdict.Monitor))));
                 history.style.fontSize = 12;
                 history.style.color = new StyleColor(SignalPalette.Caution);
                 history.style.marginBottom = 6;
@@ -711,7 +767,8 @@ namespace Residue.Gameplay.World
 
             if (!string.IsNullOrEmpty(sample.FieldTechNote))
             {
-                var note = new Label($"Field note: \"{sample.FieldTechNote}\"");
+                var note = new Label(ScreenStrings.TerminalFieldNote.Format(
+                    ("note", sample.FieldTechNote)));
                 note.style.fontSize = 12;
                 note.style.color = new StyleColor(SignalPalette.Dim);
                 note.style.whiteSpace = WhiteSpace.Normal;
@@ -760,30 +817,33 @@ namespace Residue.Gameplay.World
             box.style.backgroundColor = new StyleColor(SignalPalette.PanelSoft);
             LabHud.Round(box, 3);
 
-            box.Add(SectionTitle("RECONCILE AGAINST THE DELIVERY NOTE"));
+            box.Add(SectionTitle(ScreenStrings.TerminalReconcile));
 
             box.Add(Dim(sample.Ambiguity == SampleAmbiguity.UnreadableLabel
-                ? "This bottle's tank tag cannot be read. The note that came in its carton lists the " +
-                  "tanks the sender says they drew — the spare one is this."
-                : "Another bottle in this carton carries the same tag, and the note books that tank " +
-                  "twice. Say which draw this is, or that they cannot be told apart."));
+                ? ScreenStrings.TerminalReconcileUnreadable
+                : ScreenStrings.TerminalReconcileDuplicate));
 
             var note = records.NoteFor(sample);
             if (note == null || note.Count == 0)
             {
+                // Two sentences rather than one with "this vial" dropped into the slot a job number
+                // would fill. A bare noun phrase substituted into a template cannot carry the article
+                // or the case the surrounding language wants.
                 box.Add(Tiny(
-                    $"No delivery note on file for {sample.JobNumber ?? "this vial"}. " +
-                    "Ring the customer, or read the paper that came in the box.",
+                    sample.JobNumber == null
+                        ? ScreenStrings.TerminalNoNoteForVial.Text
+                        : ScreenStrings.TerminalNoNoteForJob.Format(("job", sample.JobNumber)),
                     SignalPalette.Caution));
                 return box;
             }
 
             box.Add(Tiny(
                 sample.NeedsRegistering
-                    ? $"NOT REGISTERED — note {note.JobNumber}"
+                    ? ScreenStrings.TerminalNotRegistered.Format(("job", note.JobNumber))
                     : sample.RegisteredLine == SampleState.CannotTell
-                        ? $"RECORDED AS INSEPARABLE — note {note.JobNumber}"
-                        : $"REGISTERED AS {sample.RegisteredTag} — note {note.JobNumber}",
+                        ? ScreenStrings.TerminalRegisteredInseparable.Format(("job", note.JobNumber))
+                        : ScreenStrings.TerminalRegisteredAs.Format(
+                            ("tag", sample.RegisteredTag), ("job", note.JobNumber)),
                 sample.NeedsRegistering ? SignalPalette.Dim : SignalPalette.Ink));
 
             var refusal = Tiny("", SignalPalette.Caution);
@@ -798,7 +858,10 @@ namespace Residue.Gameplay.World
                 var claim = note.Lines[i];
 
                 var pick = new Button(() => Ask(LabCommand.RegisterSample(sample.Id, line), refusal))
-                { text = $"{line + 1}. {claim.TankTag ?? "—"}" };
+                {
+                    text = ScreenStrings.TerminalNoteLine.Format(
+                        ("number", line + 1), ("tank", claim.TankTag ?? "—"))
+                };
 
                 StyleButton(pick, sample.RegisteredLine == line
                     ? SignalPalette.Accent
@@ -811,7 +874,7 @@ namespace Residue.Gameplay.World
 
             var cannot = new Button(
                 () => Ask(LabCommand.RegisterSample(sample.Id, SampleState.CannotTell), refusal))
-            { text = "CANNOT TELL" };
+            { text = ScreenStrings.TerminalCannotTell };
 
             StyleButton(cannot, sample.RegisteredLine == SampleState.CannotTell
                 ? SignalPalette.Accent
@@ -832,7 +895,10 @@ namespace Residue.Gameplay.World
                 var carton = FindCartonId(sample);
 
                 var call = new Button(() => Ask(LabCommand.CallCustomer(carton), refusal))
-                { text = $"RING THE CUSTOMER  ({DeliveryDiscrepancies.CallSeconds:F0} s)" };
+                {
+                    text = ScreenStrings.TerminalRingCustomer.Format(
+                        ("seconds", DeliveryDiscrepancies.CallSeconds.ToString("F0")))
+                };
 
                 StyleButton(call, SignalPalette.PanelSoft);
                 call.style.marginLeft = 0;
@@ -881,7 +947,7 @@ namespace Residue.Gameplay.World
 
             if (sample.Results.Count == 0)
             {
-                box.Add(Dim("No results yet. Run this sample on an instrument."));
+                box.Add(Dim(ScreenStrings.TerminalNoResults));
                 return box;
             }
 
@@ -890,8 +956,7 @@ namespace Residue.Gameplay.World
             // mid-shift with a panel of numbers already on the glass.
             if (sample.Profile == null)
             {
-                box.Add(Dim("This fluid's profile is missing from the content catalog, so nothing " +
-                            "here can be scored. Rebuild definitions."));
+                box.Add(Dim(ScreenStrings.TerminalProfileMissing));
                 return box;
             }
 
@@ -903,7 +968,7 @@ namespace Residue.Gameplay.World
 
             // Results exist but none of them measure anything this profile scores. Rare, but a bare
             // column header with nothing under it reads as a broken screen rather than an empty one.
-            if (rows == 0) box.Add(Dim("Nothing measured yet that this profile scores."));
+            if (rows == 0) box.Add(Dim(ScreenStrings.TerminalNothingScored));
 
             return box;
         }
@@ -952,11 +1017,28 @@ namespace Residue.Gameplay.World
             // need attention, and four green "all normal" tags would drown the one that is not. The
             // glyph goes on both branches anyway — it is the channel that survives desaturation, and
             // the dim branch is exactly where there is no hue to fall back on (#41).
-            row.Add(flagged == 0
-                ? Cell($"{SignalPalette.Glyph(ReadingSeverity.Normal)} all normal", 240, SignalPalette.Dim)
-                : Cell($"{SignalPalette.Glyph(worst)} {flagged} outside limit{(flagged == 1 ? "" : "s")} · " +
-                       $"worst {SignalPalette.Label(worst)}", 240, SignalPalette.For(worst)));
+            if (flagged == 0)
+            {
+                row.Add(Cell(
+                    ScreenStrings.TerminalCategoryAllNormal.Format(
+                        ("mark", SignalPalette.Glyph(ReadingSeverity.Normal))),
+                    240, SignalPalette.Dim));
 
+                return row;
+            }
+
+            // One key per count rather than a stem with an "s" appended. The colour is still chosen
+            // from `worst` alone, whichever key is drawn (hard rule 4).
+            string summary = flagged == 1
+                ? ScreenStrings.TerminalCategoryFlaggedOne.Format(
+                    ("mark", SignalPalette.Glyph(worst)),
+                    ("verdict", SignalPalette.Label(worst)))
+                : ScreenStrings.TerminalCategoryFlaggedMany.Format(
+                    ("mark", SignalPalette.Glyph(worst)),
+                    ("count", flagged),
+                    ("verdict", SignalPalette.Label(worst)));
+
+            row.Add(Cell(summary, 240, SignalPalette.For(worst)));
             return row;
         }
 
@@ -970,22 +1052,29 @@ namespace Residue.Gameplay.World
             row.style.borderBottomColor = new StyleColor(new Color(1f, 1f, 1f, 0.05f));
 
             row.Add(Cell(threshold.Element.DisplayName, 190, SignalPalette.Ink));
-            row.Add(Cell($"{value:0.###} {threshold.Element.Unit}", 130, SignalPalette.Ink));
+            row.Add(Cell(ScreenStrings.TerminalMeasuredValue.Format(
+                ("value", value.ToString("0.###")),
+                ("unit", threshold.Element.Unit)), 130, SignalPalette.Ink));
             row.Add(Cell(LimitText(threshold), 150, SignalPalette.Dim));
 
             // Glyph, word and hue. Reading this column with the colour taken away has to work
             // (#41), which is what the marker in front of the word is for.
             row.Add(Cell(SignalPalette.Marked(severity), 110, SignalPalette.For(severity)));
-            row.Add(Cell(source != null && source.Suspect ? "SUSPECT" : "", 80, SignalPalette.Caution));
+            row.Add(Cell(source != null && source.Suspect ? ScreenStrings.TerminalSuspect : "",
+                         80, SignalPalette.Caution));
 
             return row;
         }
 
         private static string LimitText(Threshold t) => t.Mode switch
         {
-            ThresholdMode.UpperLimit => $"normal ≤ {t.NormalLimit:0.###}",
-            ThresholdMode.LowerLimit => $"normal ≥ {t.NormalLimit:0.###}",
-            ThresholdMode.DeviationBand => $"{t.Baseline:0.#} ±{t.NormalLimit * 100f:0}%",
+            ThresholdMode.UpperLimit => ScreenStrings.TerminalLimitUpper.Format(
+                ("limit", t.NormalLimit.ToString("0.###"))),
+            ThresholdMode.LowerLimit => ScreenStrings.TerminalLimitLower.Format(
+                ("limit", t.NormalLimit.ToString("0.###"))),
+            ThresholdMode.DeviationBand => ScreenStrings.TerminalLimitBand.Format(
+                ("baseline", t.Baseline.ToString("0.#")),
+                ("percent", (t.NormalLimit * 100f).ToString("0"))),
             _ => ""
         };
 
@@ -994,12 +1083,22 @@ namespace Residue.Gameplay.World
             var box = new VisualElement();
             if (sample.Results.Count == 0) return box;
 
-            box.Add(SectionTitle("RUNS"));
+            box.Add(SectionTitle(ScreenStrings.TerminalRuns));
             foreach (var r in sample.Results)
             {
-                var line = new Label(
-                    $"day {r.DayRun} · {r.MachineId}{(r.IsBlank ? " · BLANK" : "")} · " +
-                    $"{r.VolumeConsumedMl:F0} ml · £{r.Cost:F0}{(r.Suspect ? " · SUSPECT" : "")}");
+                // BLANK and SUSPECT are whole labels — the same two words the results table prints on
+                // their own — collected into one argument rather than appended mid-sentence, so the
+                // template stays a single line a translator can reorder.
+                string marks = "";
+                if (r.IsBlank) marks += " · " + ScreenStrings.TerminalRunMarkBlank.Text;
+                if (r.Suspect) marks += " · " + ScreenStrings.TerminalSuspect.Text;
+
+                var line = new Label(ScreenStrings.TerminalRunLogLine.Format(
+                    ("day", r.DayRun),
+                    ("machine", r.MachineId),
+                    ("volume", r.VolumeConsumedMl.ToString("F0")),
+                    ("cost", r.Cost.ToString("F0")),
+                    ("marks", marks)));
                 line.style.fontSize = 11;
                 line.style.color = new StyleColor(r.Suspect ? SignalPalette.Caution : SignalPalette.Dim);
                 box.Add(line);
@@ -1015,13 +1114,15 @@ namespace Residue.Gameplay.World
             box.style.borderTopWidth = 1;
             box.style.borderTopColor = new StyleColor(new Color(1f, 1f, 1f, 0.08f));
 
-            var causes = new List<string> { "(no root cause)" };
+            // The entries after the first are root cause names out of the content tables, which have
+            // their own pipeline and are matched by value below — they are not routed through Loc.
+            var causes = new List<string> { ScreenStrings.TerminalNoRootCause };
             foreach (var c in records.Causes)
             {
                 if (c != null) causes.Add(c.DisplayName);
             }
 
-            var dropdown = new DropdownField("Root cause", causes, 0);
+            var dropdown = new DropdownField(ScreenStrings.TerminalRootCause, causes, 0);
             dropdown.style.marginBottom = 8;
             dropdown.RegisterValueChangedCallback(evt =>
             {
@@ -1034,9 +1135,9 @@ namespace Residue.Gameplay.World
             box.Add(dropdown);
 
             var buttons = Row();
-            buttons.Add(VerdictButton(sample, Verdict.Normal, "FILE NORMAL"));
-            buttons.Add(VerdictButton(sample, Verdict.Monitor, "FILE MONITOR"));
-            buttons.Add(VerdictButton(sample, Verdict.Critical, "FILE CRITICAL — PULL"));
+            buttons.Add(VerdictButton(sample, Verdict.Normal, ScreenStrings.TerminalFileNormal));
+            buttons.Add(VerdictButton(sample, Verdict.Monitor, ScreenStrings.TerminalFileMonitor));
+            buttons.Add(VerdictButton(sample, Verdict.Critical, ScreenStrings.TerminalFileCritical));
             box.Add(buttons);
 
             return box;
@@ -1053,7 +1154,7 @@ namespace Residue.Gameplay.World
         /// how you file CRITICAL by muscle memory on the wrong sample (#41).
         /// </para>
         /// </summary>
-        private Button VerdictButton(SampleState sample, Verdict verdict, string text)
+        private Button VerdictButton(SampleState sample, Verdict verdict, LocKey action)
         {
             var button = new Button(() =>
             {
@@ -1066,7 +1167,10 @@ namespace Residue.Gameplay.World
                     pendingCause = null;
                 });
             })
-            { text = $"{SignalPalette.Glyph(verdict)}  {text}" };
+            {
+                text = ScreenStrings.TerminalVerdictButton.Format(
+                    ("mark", SignalPalette.Glyph(verdict)), ("action", action.Text))
+            };
 
             StyleButton(button, SignalPalette.PanelSoft);
             button.style.color = new StyleColor(SignalPalette.For(verdict));
@@ -1092,7 +1196,7 @@ namespace Residue.Gameplay.World
             var panel = Panel();
             panel.style.flexGrow = 1f;
             panel.style.marginTop = 12;
-            panel.Add(SectionTitle($"END OF DAY {records.Day}"));
+            panel.Add(SectionTitle(ScreenStrings.TerminalEndOfDay.Format(("day", records.Day))));
 
             var scroll = new ScrollView();
             scroll.style.flexGrow = 1f;
@@ -1103,8 +1207,8 @@ namespace Residue.Gameplay.World
                 // of them is reachable at a desk that simulates. §5.4 delays every consequence, so a
                 // day with no reports is ordinary and must not read as a broken screen.
                 scroll.Add(Dim(RecordFeed.IsReplicated && endingTheDay
-                    ? "Closing the day…"
-                    : "Nothing came due today."));
+                    ? ScreenStrings.TerminalClosingDay
+                    : ScreenStrings.TerminalNothingDue));
             }
 
             float net = 0f;
@@ -1128,8 +1232,10 @@ namespace Residue.Gameplay.World
                 // sentence about the customer rather than a verdict on the player. Say which it was
                 // in a glyph and a word before saying what it cost (#41).
                 var outcome = new Label(report.IsGood
-                    ? $"{SignalPalette.Glyph(ReadingSeverity.Normal)} GOOD CALL"
-                    : $"{SignalPalette.Glyph(ReadingSeverity.Critical)} BAD CALL");
+                    ? ScreenStrings.TerminalGoodCall.Format(
+                        ("mark", SignalPalette.Glyph(ReadingSeverity.Normal)))
+                    : ScreenStrings.TerminalBadCall.Format(
+                        ("mark", SignalPalette.Glyph(ReadingSeverity.Critical))));
                 outcome.style.fontSize = 11;
                 outcome.style.unityFontStyleAndWeight = FontStyle.Bold;
                 outcome.style.color = new StyleColor(
@@ -1142,9 +1248,12 @@ namespace Residue.Gameplay.World
                 headline.style.whiteSpace = WhiteSpace.Normal;
                 card.Add(headline);
 
-                var money = new Label(
-                    $"{(report.MoneyDelta >= 0 ? "+" : "−")}£{Mathf.Abs(report.MoneyDelta):N0}" +
-                    (report.RootCauseCorrect ? "   root cause bonus" : ""));
+                var money = new Label((report.RootCauseCorrect
+                        ? ScreenStrings.TerminalReportMoneyWithBonus
+                        : ScreenStrings.TerminalReportMoney)
+                    .Format(
+                        ("sign", report.MoneyDelta >= 0 ? "+" : "−"),
+                        ("amount", Mathf.Abs(report.MoneyDelta).ToString("N0"))));
                 money.style.fontSize = 12;
                 money.style.color = new StyleColor(
                     report.MoneyDelta >= 0 ? SignalPalette.Normal : SignalPalette.Critical);
@@ -1155,8 +1264,10 @@ namespace Residue.Gameplay.World
 
             panel.Add(scroll);
 
-            var total = new Label($"NET  {(net >= 0 ? "+" : "−")}£{Mathf.Abs(net):N0}    " +
-                                  $"BALANCE £{records.Money:N0}");
+            var total = new Label(ScreenStrings.TerminalReportNet.Format(
+                ("sign", net >= 0 ? "+" : "−"),
+                ("net", Mathf.Abs(net).ToString("N0")),
+                ("balance", records.Money.ToString("N0"))));
             total.style.fontSize = 15;
             total.style.marginTop = 8;
             total.style.color = new StyleColor(net >= 0 ? SignalPalette.Normal : SignalPalette.Critical);
@@ -1171,8 +1282,10 @@ namespace Residue.Gameplay.World
                 bool bankrupt = records.Money < 0f;
 
                 var verdict = new Label(bankrupt
-                    ? "OUTPOST CLOSED — the account is overdrawn."
-                    : $"CONTRACT COMPLETE — {records.ContractName}, {records.ContractLength} days.");
+                    ? ScreenStrings.TerminalOutpostClosed.Text
+                    : ScreenStrings.TerminalContractComplete.Format(
+                        ("contract", records.ContractName),
+                        ("days", records.ContractLength)));
                 verdict.style.fontSize = 17;
                 verdict.style.unityFontStyleAndWeight = FontStyle.Bold;
                 verdict.style.marginTop = 10;
@@ -1180,10 +1293,12 @@ namespace Residue.Gameplay.World
                 verdict.style.color = new StyleColor(bankrupt ? SignalPalette.Critical : SignalPalette.Normal);
                 panel.Add(verdict);
 
-                var summary = new Label(
-                    $"Closing balance £{records.Money:N0} from £{records.StartingMoney:N0} · " +
-                    $"reputation {records.Reputation:F0} · " +
-                    $"earned £{records.TotalEarned:N0}, lost £{records.TotalLost:N0}");
+                var summary = new Label(ScreenStrings.TerminalRunSummary.Format(
+                    ("closing", records.Money.ToString("N0")),
+                    ("opening", records.StartingMoney.ToString("N0")),
+                    ("reputation", records.Reputation.ToString("F0")),
+                    ("earned", records.TotalEarned.ToString("N0")),
+                    ("lost", records.TotalLost.ToString("N0"))));
                 summary.style.fontSize = 13;
                 summary.style.marginTop = 4;
                 summary.style.whiteSpace = WhiteSpace.Normal;
@@ -1194,7 +1309,7 @@ namespace Residue.Gameplay.World
             }
 
             var next = new Button(() => Ask(LabCommand.StartNextDay(), null))
-            { text = "START NEXT DAY" };
+            { text = ScreenStrings.TerminalStartNextDay };
             StyleButton(next, SignalPalette.Accent);
             next.style.marginTop = 8;
             panel.Add(next);
@@ -1246,10 +1361,10 @@ namespace Residue.Gameplay.World
         {
             var row = Row();
             row.style.marginBottom = 4;
-            row.Add(Cell("ELEMENT", 190, SignalPalette.Dim));
-            row.Add(Cell("MEASURED", 130, SignalPalette.Dim));
-            row.Add(Cell("LIMIT", 150, SignalPalette.Dim));
-            row.Add(Cell("STATE", 110, SignalPalette.Dim));
+            row.Add(Cell(ScreenStrings.TerminalColumnElement, 190, SignalPalette.Dim));
+            row.Add(Cell(ScreenStrings.TerminalColumnMeasured, 130, SignalPalette.Dim));
+            row.Add(Cell(ScreenStrings.TerminalColumnLimit, 150, SignalPalette.Dim));
+            row.Add(Cell(ScreenStrings.TerminalColumnState, 110, SignalPalette.Dim));
             row.Add(Cell("", 80, SignalPalette.Dim));
             return row;
         }

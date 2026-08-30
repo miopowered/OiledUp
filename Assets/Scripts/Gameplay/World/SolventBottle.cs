@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -46,10 +47,12 @@ namespace Residue.Gameplay.World
         /// walking to an instrument is worth it, and a player should never have to open a screen —
         /// or guess — to find out how many flushes they are carrying.
         /// </summary>
-        public override string DisplayName => $"Solvent bottle ({Charges}/{Capacity})";
+        public override string DisplayName =>
+            PromptStrings.BottleName.Format(("charges", Charges), ("capacity", Capacity));
+
         public override string InspectionText => IsEmpty
-            ? "SOLVENT\nEMPTY\n\nRefill at the wash station."
-            : $"SOLVENT\n{Charges} / {Capacity} flushes remaining";
+            ? PromptStrings.BottleInspectionEmpty.Text
+            : PromptStrings.BottleInspection.Format(("charges", Charges), ("capacity", Capacity));
 
         public void Bind(string bottleId, int capacity)
         {
@@ -96,11 +99,15 @@ namespace Residue.Gameplay.World
         {
             if (player == null) return;
 
-            player.Say(IsEmpty
-                ? "Solvent bottle: empty. Refill it at the wash station."
-                : $"Solvent bottle: {Charges} flush{(Charges == 1 ? "" : "es")} left.");
+            // A whole sentence for one flush and another for several, rather than a stem and an
+            // "es" — see PromptStrings.
+            if (IsEmpty) { player.Say(PromptStrings.BottleSayEmpty.Text); return; }
+
+            player.Say(Charges == 1
+                ? PromptStrings.BottleSayOneFlush.Text
+                : PromptStrings.BottleSayFlushes.Format(("count", Charges)));
         }
 
-        public override string UseHint => "check the bottle";
+        public override string UseHint => PromptStrings.BottleUseHint.Text;
     }
 }

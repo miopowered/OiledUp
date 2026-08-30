@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Residue.Chemistry;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -414,7 +415,10 @@ namespace Residue.Gameplay.World
             string title = machine.DisplayName;
 
             if (machine.IsRunning)
-                return $"{title} — running, {machine.SecondsRemaining:F0}s left";
+            {
+                return PromptStrings.MachineRunning.Format(
+                    ("machine", title), ("seconds", machine.SecondsRemaining.ToString("F0")));
+            }
 
             if (player.CarriedVial != null && machine.IsEmpty)
             {
@@ -422,29 +426,36 @@ namespace Residue.Gameplay.World
 
                 return machine.CanAccept(sample) switch
                 {
-                    LoadRefusal.Accepted => $"Hold to load into {title}",
-                    LoadRefusal.NotEnoughVolume =>
-                        $"{title} needs {machine.Def.SampleVolumeMl:F0} ml — {sample?.VolumeMl:F1} ml left",
+                    LoadRefusal.Accepted =>
+                        PromptStrings.MachineHoldToLoad.Format(("machine", title)),
+                    LoadRefusal.NotEnoughVolume => PromptStrings.MachineNotEnoughVolume.Format(
+                        ("machine", title),
+                        ("needed", machine.Def.SampleVolumeMl.ToString("F0")),
+                        ("left", sample != null ? sample.VolumeMl.ToString("F1") : string.Empty)),
 
                     // Not a refusal any more: the hold is where the shaking happens, so a settled
                     // sample is loadable and the prompt says what the seconds are buying.
-                    LoadRefusal.NotSettled => $"Hold to shake and load into {title}",
-                    LoadRefusal.NeedsPreheat => $"{title}: sample is cold, needs preheating",
-                    _ => $"{title} is occupied"
+                    LoadRefusal.NotSettled =>
+                        PromptStrings.MachineHoldToShakeAndLoad.Format(("machine", title)),
+                    LoadRefusal.NeedsPreheat =>
+                        PromptStrings.MachineNeedsPreheat.Format(("machine", title)),
+                    _ => PromptStrings.MachineOccupied.Format(("machine", title))
                 };
             }
 
             if (!machine.IsEmpty && player.Carried == null)
             {
-                if (machine.HasResultWaiting) return $"Take vial from {title}";
+                if (machine.HasResultWaiting)
+                    return PromptStrings.MachineTakeVial.Format(("machine", title));
 
                 return ShiftOver
-                    ? $"{title} — shift over, no new runs"
-                    : $"Run {title} ({machine.RunSeconds:F0}s)";
+                    ? PromptStrings.MachineShiftOver.Format(("machine", title))
+                    : PromptStrings.MachineRun.Format(
+                        ("machine", title), ("seconds", machine.RunSeconds.ToString("F0")));
             }
 
-            if (player.Carried != null) return "Hands full";
-            return $"{title} — empty";
+            if (player.Carried != null) return PromptStrings.HandsFull.Text;
+            return PromptStrings.MachineEmpty.Format(("machine", title));
         }
 
         /// <summary>
@@ -549,7 +560,9 @@ namespace Residue.Gameplay.World
         private void StartRun(PlayerInteractor player, IMachineView machine)
         {
             LabCommands.Attempt(player, LabCommand.StartRun(machineInstanceId),
-                _ => player.Say($"{machine.DisplayName}: running. {machine.RunSeconds:F0}s."));
+                _ => player.Say(PromptStrings.MachineStarted.Format(
+                    ("machine", machine.DisplayName),
+                    ("seconds", machine.RunSeconds.ToString("F0")))));
         }
 
         private void TakeBack(PlayerInteractor player)
@@ -595,10 +608,17 @@ namespace Residue.Gameplay.World
         {
             if (calibrated == null || calibrated.InstanceId != machineInstanceId || display == null) return;
 
+            // "+0.0;-0.0" carries the sign the old string concatenated on by hand, so the whole
+            // figure is one argument and a translation can put it wherever that language wants it.
+            string delta = (outcome.CorrectedDrift * 100f).ToString("+0.0;-0.0");
+
             display.ShowNotice(
                 Machine,
-                $"CAL {(outcome.CorrectedDrift >= 0f ? "+" : "-")}{Mathf.Abs(outcome.CorrectedDrift) * 100f:F1}%",
-                outcome.CastsDoubt ? $"{outcome.AffectedArchived} FILED SUSPECT" : "NOTHING IN DOUBT");
+                PromptStrings.MachineCalibrationHeadline.Format(("delta", delta)),
+                outcome.CastsDoubt
+                    ? PromptStrings.MachineCalibrationSuspect.Format(
+                        ("count", outcome.AffectedArchived))
+                    : PromptStrings.MachineCalibrationClear.Text);
         }
 
         /// <summary>

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Residue.Chemistry;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -73,7 +74,13 @@ namespace Residue.Gameplay.World
         private readonly List<Transform> slots = new();
 
         private string jobNumber = "—";
-        private string sender = "an unnamed sender";
+
+        /// <summary>
+        /// Who sent it, or empty when nobody said. Empty rather than a stand-in phrase, for the
+        /// reason <see cref="DeliveryNoteProp"/> gives (#55): each case is a whole sentence in the
+        /// string table instead of a bracket a translator cannot move.
+        /// </summary>
+        private string sender = string.Empty;
 
         private Vector3 closedLidPosition;
         private Quaternion closedLidRotation;
@@ -83,10 +90,11 @@ namespace Residue.Gameplay.World
         /// <summary>What <c>SampleLocation.InCrate</c> names this box. Null until <see cref="Bind"/>.</summary>
         public string CartonId { get; private set; }
 
-        public override string DisplayName => $"Carton {jobNumber}";
+        public override string DisplayName => PromptStrings.CartonName.Format(("job", jobNumber));
 
-        public override string InspectionText =>
-            $"CARTON {jobNumber}\nFrom {sender}";
+        public override string InspectionText => string.IsNullOrEmpty(sender)
+            ? PromptStrings.CartonInspectionUnnamed.Format(("job", jobNumber))
+            : PromptStrings.CartonInspection.Format(("job", jobNumber), ("sender", sender));
 
         /// <summary>
         /// This box as whatever this process can see of it. Resolved per access rather than cached,
@@ -105,7 +113,7 @@ namespace Residue.Gameplay.World
         {
             CartonId = cartonId;
             jobNumber = string.IsNullOrEmpty(job) ? "—" : job;
-            sender = string.IsNullOrEmpty(senderName) ? "an unnamed sender" : senderName;
+            sender = senderName ?? string.Empty;
             name = $"Carton_{jobNumber}";
             Register();
         }
@@ -324,17 +332,26 @@ namespace Residue.Gameplay.World
         {
             if (!TryState(out var box)) return DisplayName;
 
-            if (Spent(box)) return $"Flatten carton {jobNumber}";
+            if (Spent(box)) return PromptStrings.CartonFlatten.Format(("job", jobNumber));
 
             if (!box.IsSealed && box.NoteIsInside && box.VialsRemaining == 0)
-                return $"Carton {jobNumber} — empty. The delivery note is still in it.";
+                return PromptStrings.CartonEmptyNoteInside.Format(("job", jobNumber));
 
-            if (!player.InventoryHasSpace) return "Inventory full";
+            if (!player.InventoryHasSpace) return PromptStrings.InventoryFull.Text;
 
-            if (box.IsSealed) return $"Take carton {jobNumber} — {sender}";
+            if (box.IsSealed)
+            {
+                return string.IsNullOrEmpty(sender)
+                    ? PromptStrings.CartonTakeSealedUnnamed.Format(("job", jobNumber))
+                    : PromptStrings.CartonTakeSealed.Format(("job", jobNumber), ("sender", sender));
+            }
 
+            // One whole sentence per count rather than a stem and an "s": English is the only
+            // language in the table so far and it must not be the only one the table can hold.
             int left = box.VialsRemaining;
-            return $"Take carton {jobNumber} ({left} vial{(left == 1 ? "" : "s")} still in it)";
+            return left == 1
+                ? PromptStrings.CartonTakeOneVial.Format(("job", jobNumber))
+                : PromptStrings.CartonTakeVials.Format(("job", jobNumber), ("count", left));
         }
 
         public override bool CanInteract(PlayerInteractor player)
@@ -358,7 +375,7 @@ namespace Residue.Gameplay.World
             {
                 LabCommands.Attempt(player, LabCommand.DiscardCarton(CartonId), _ =>
                 {
-                    player.Say($"Carton {jobNumber} flattened.", 2f);
+                    player.Say(PromptStrings.CartonFlattened.Format(("job", jobNumber)), 2f);
                     LabRuntime.Instance?.RetireCarton(CartonId);
                 });
                 return;

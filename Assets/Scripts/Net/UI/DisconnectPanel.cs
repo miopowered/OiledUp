@@ -1,4 +1,5 @@
 using System;
+using Residue.Data;
 using Residue.Gameplay.UI;
 using Residue.Net.Connect;
 using UnityEngine.UIElements;
@@ -62,10 +63,10 @@ namespace Residue.Net.UI
 
             var actions = UiKit.Column();
 
-            rejoinButton = UiKit.ActionButton("RECONNECT", () => reconnect?.Invoke());
+            rejoinButton = UiKit.ActionButton(MenuStrings.Reconnect, () => reconnect?.Invoke());
             actions.Add(rejoinButton);
 
-            actions.Add(UiKit.QuietButton("BACK TO THE MENU",
+            actions.Add(UiKit.QuietButton(MenuStrings.BackToTheMenu,
                 () => dismiss?.Invoke()));
 
             column.Add(actions);
@@ -102,26 +103,25 @@ namespace Residue.Net.UI
             rejoinHint.style.display = DisplayStyle.Flex;
 
             rejoinHint.text = end.OffersRejoin
-                ? "Reconnecting uses the same join code and the same identity, so the host puts you " +
-                  "back in your own seat rather than seating you again."
+                ? MenuStrings.RejoinHint.Text
                 : Why(end.Kind);
         }
 
         /// <summary>
         /// Why there is no RECONNECT. Named per case rather than written once, because "you cannot
         /// rejoin" and "there is nothing there to rejoin" send a player to look in different places.
+        /// <para>
+        /// A whole sentence per case rather than a shared "There is no reconnect for this." stem
+        /// with a variable tail (#55). The three repeat their opening in English, and stitching them
+        /// would be cheaper — but a translator handed the stem cannot move that clause into the
+        /// middle of the sentence, which is where several languages want it.
+        /// </para>
         /// </summary>
         private static string Why(SessionEndKind kind) => kind switch
         {
-            SessionEndKind.HostClosed =>
-                "There is no reconnect for this. The session is gone with the host; someone will " +
-                "have to host a new one.",
-            SessionEndKind.Kicked =>
-                "There is no reconnect for this. The host decided, and the same code would be " +
-                "refused again.",
-            _ =>
-                "There is no reconnect for this. Nothing was ever started, so co-op is where to try " +
-                "again — with the code checked."
+            SessionEndKind.HostClosed => MenuStrings.NoRejoinHostClosed,
+            SessionEndKind.Kicked => MenuStrings.NoRejoinKicked,
+            _ => MenuStrings.NoRejoinRefused
         };
     }
 }

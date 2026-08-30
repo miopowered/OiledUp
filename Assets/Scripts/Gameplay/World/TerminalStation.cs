@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -57,23 +58,25 @@ namespace Residue.Gameplay.World
             // reason to caption a blank slip as a sample one.
             if (player.Carried is PrintoutProp printout)
                 return printout.IsBlank
-                    ? $"File blank slip ({printout.MachineName})"
-                    : $"File results — {printout.RecordTag}";
+                    ? PromptStrings.TerminalFileBlank.Format(("machine", printout.MachineName))
+                    : PromptStrings.TerminalFileResults.Format(("tag", printout.RecordTag));
 
             // You do not type up a report one-handed with a sample in the other. Racks exist for
             // exactly this, so name them rather than just refusing.
-            if (player.Carried != null) return "Rack the vial before filing";
+            if (player.Carried != null) return PromptStrings.TerminalRackFirst.Text;
 
             // A player with no view of their own and no shared one to borrow. Say so rather than
             // going dead: §9 forbids an object that refuses without explaining itself, and a silent
             // terminal reads as a broken interaction rather than as a missing screen.
-            if (ScreenFor(player) == null) return "Terminal — no display for you";
+            if (ScreenFor(player) == null) return PromptStrings.TerminalNoDisplay.Text;
 
             var lab = LabView.Current;
-            if (lab == null) return "Terminal";
+            if (lab == null) return PromptStrings.TerminalName.Text;
 
             int open = lab.OpenSampleCount;
-            return open > 0 ? $"Open terminal ({open} open)" : "Open terminal";
+            return open > 0
+                ? PromptStrings.TerminalOpenWithCount.Format(("count", open))
+                : PromptStrings.TerminalOpen.Text;
         }
 
         /// <summary>
@@ -99,7 +102,7 @@ namespace Residue.Gameplay.World
             var target = ScreenFor(player);
             if (target == null)
             {
-                player.Say("This terminal has no display for you.");
+                player.Say(PromptStrings.TerminalNoDisplayToast.Text);
                 return;
             }
 
@@ -129,7 +132,7 @@ namespace Residue.Gameplay.World
             // the host's to accept or refuse.
             if (printout.Ticket == ResultSlips.NoTicket)
             {
-                player.Say("That slip is blank.");
+                player.Say(PromptStrings.TerminalSlipBlank.Text);
                 return;
             }
 
@@ -154,10 +157,12 @@ namespace Residue.Gameplay.World
                 var sample = lab != null ? lab.SampleFor(result.Sample) : null;
 
                 player.Say(printout.IsBlank
-                    ? $"{printout.MachineName} blank slip filed."
+                    ? PromptStrings.TerminalBlankFiled.Format(("machine", printout.MachineName))
                     : sample != null
-                        ? $"{sample.RecordTag}: {printout.MachineName} results filed."
-                        : $"{printout.MachineName} results filed.");
+                        ? PromptStrings.TerminalResultsFiledTagged.Format(
+                            ("tag", sample.RecordTag), ("machine", printout.MachineName))
+                        : PromptStrings.TerminalResultsFiled.Format(
+                            ("machine", printout.MachineName)));
             });
         }
     }

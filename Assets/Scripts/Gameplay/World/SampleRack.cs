@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -162,13 +163,19 @@ namespace Residue.Gameplay.World
 
             if (player.Carried == null)
             {
-                return free == slots.Count
-                    ? "Rack — empty"
-                    : $"Rack — {slots.Count - free} sample{(slots.Count - free == 1 ? "" : "s")}. " +
-                      "Look at one to take it.";
+                // One whole sentence per case — see PromptStrings for why the count and the noun are
+                // never handed to a translator separately.
+                int held = slots.Count - free;
+                if (held == 0) return PromptStrings.RackEmpty.Text;
+
+                return held == 1
+                    ? PromptStrings.RackOneSample.Text
+                    : PromptStrings.RackSamples.Format(("count", held));
             }
 
-            return free > 0 ? $"Set down in rack ({free} free)" : "Rack full";
+            return free > 0
+                ? PromptStrings.RackSetDown.Format(("free", free))
+                : PromptStrings.RackFull.Text;
         }
 
         public override bool CanInteract(PlayerInteractor player) =>
@@ -189,7 +196,7 @@ namespace Residue.Gameplay.World
             {
                 if (!TryPlace(item, slot)) return;
                 player.ReleaseCarried();
-                player.Say($"{item.DisplayName} set down.", 2f);
+                player.Say(PromptStrings.ItemSetDown.Format(("item", item.DisplayName)), 2f);
             });
         }
     }

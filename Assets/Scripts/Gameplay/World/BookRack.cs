@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -239,16 +240,21 @@ namespace Residue.Gameplay.World
             // Unity's ==, not a null pattern, for the reason TryShelve gives.
             if (carried == null)
             {
+                // Three whole sentences rather than one with a count and an "s" spliced into it: a
+                // translator cannot inflect a noun they were handed in two pieces (#55).
                 int shelved = Shelved;
-                return shelved > 0
-                    ? $"Reference shelf — {shelved} manual{(shelved == 1 ? "" : "s")}. " +
-                      "Look at one to take it."
-                    : "Reference shelf — every manual is out.";
+                if (shelved == 0) return PromptStrings.BookRackEmpty.Text;
+
+                return shelved == 1
+                    ? PromptStrings.BookRackOneManual.Text
+                    : PromptStrings.BookRackManuals.Format(("count", shelved));
             }
 
-            if (!(carried is ReferenceBook book)) return "The shelf is for manuals.";
+            if (!(carried is ReferenceBook book)) return PromptStrings.BookRackManualsOnly.Text;
 
-            return FreeSlots > 0 ? $"Shelve {book.DisplayName}" : "Shelf full";
+            return FreeSlots > 0
+                ? PromptStrings.BookRackShelve.Format(("item", book.DisplayName))
+                : PromptStrings.BookRackFull.Text;
         }
 
         public override bool CanInteract(PlayerInteractor player) =>
@@ -280,7 +286,7 @@ namespace Residue.Gameplay.World
                     return;
                 }
 
-                player.Say($"{placed.DisplayName} shelved.", 2f);
+                player.Say(PromptStrings.BookRackShelved.Format(("item", placed.DisplayName)), 2f);
             });
         }
     }

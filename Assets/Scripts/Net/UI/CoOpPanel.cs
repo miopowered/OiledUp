@@ -1,4 +1,5 @@
 using System;
+using Residue.Data;
 using Residue.Gameplay.UI;
 using Residue.Net.Connect;
 using UnityEngine;
@@ -43,15 +44,15 @@ namespace Residue.Net.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Heading("CO-OP"));
+            column.Add(UiKit.Heading(MenuStrings.CoOpHeading));
 
             var actions = UiKit.Column();
 
-            hostButton = UiKit.ActionButton("HOST A SHIFT",
+            hostButton = UiKit.ActionButton(MenuStrings.Host,
                 () => { if (this.connection != null) _ = this.connection.HostAsync(); });
             actions.Add(hostButton);
 
-            codeField = UiKit.TextEntry("Join code", string.Empty, OnCodeTyped);
+            codeField = UiKit.TextEntry(MenuStrings.JoinCodeField, string.Empty, OnCodeTyped);
 
             // Normalise as they type, so the field shows what will actually be sent. A code read out
             // over voice arrives lowercase and a pasted one arrives with a newline or hyphens;
@@ -64,11 +65,11 @@ namespace Residue.Net.UI
             });
 
             var codeRow = UiKit.RowFor(codeField);
-            joinButton = UiKit.QuietButton("JOIN", Join);
+            joinButton = UiKit.QuietButton(MenuStrings.Join, Join);
             codeRow.Add(joinButton);
             actions.Add(codeRow);
 
-            actions.Add(UiKit.Hint("Six letters and digits, read out by whoever is hosting."));
+            actions.Add(UiKit.Hint(MenuStrings.JoinCodeHint));
 
             column.Add(actions);
             column.Add(UiKit.Divider());
@@ -81,7 +82,7 @@ namespace Residue.Net.UI
             errorLabel.style.color = new StyleColor(ConnectPalette.Fault);
             column.Add(errorLabel);
 
-            retryButton = UiKit.QuietButton("TRY AGAIN", () =>
+            retryButton = UiKit.QuietButton(MenuStrings.TryAgain, () =>
             {
                 // The player has plugged the network back in. Without forgetting the cached
                 // decision, the first failed sign-in would refuse every attempt until a restart.
@@ -92,7 +93,7 @@ namespace Residue.Net.UI
 
             var footer = UiKit.Row();
             footer.Add(UiKit.Spacer());
-            backButton = UiKit.QuietButton("BACK", () => back?.Invoke());
+            backButton = UiKit.QuietButton(MenuStrings.Back, () => back?.Invoke());
             footer.Add(backButton);
             column.Add(footer);
 
@@ -106,7 +107,7 @@ namespace Residue.Net.UI
         {
             if (connection == null)
             {
-                statusLabel.text = "No LabConnection on this object, so co-op cannot start.";
+                statusLabel.text = MenuStrings.NoConnectionOnCoOp;
                 statusLabel.style.color = new StyleColor(ConnectPalette.Fault);
                 errorLabel.style.display = DisplayStyle.None;
                 retryButton.style.display = DisplayStyle.None;

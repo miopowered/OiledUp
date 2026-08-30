@@ -1,3 +1,4 @@
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -66,7 +67,7 @@ namespace Residue.Gameplay.World
 
             if (player == null)
             {
-                refusal = "There is nobody here to set that down.";
+                refusal = PromptStrings.DropNoPlayer.Text;
                 return false;
             }
 
@@ -89,7 +90,7 @@ namespace Residue.Gameplay.World
                     return true;
                 }
 
-                refusal = "There is no room for that there.";
+                refusal = PromptStrings.DropNoRoom.Text;
                 return false;
             }
 
@@ -106,8 +107,8 @@ namespace Residue.Gameplay.World
             }
 
             refusal = aimed
-                ? "There is nowhere to set that down here."
-                : "There is nothing under your feet to set that down on.";
+                ? PromptStrings.DropNowhere.Text
+                : PromptStrings.DropNothingUnderfoot.Text;
             return false;
         }
 
@@ -155,7 +156,7 @@ namespace Residue.Gameplay.World
             // by somebody else, a spent vial — is a live C# reference and reads as empty hands.
             if (player.Carried == null)
             {
-                player.Say("Your hands are empty.");
+                player.Say(PromptStrings.DropHandsEmpty.Text);
                 return;
             }
 
@@ -190,7 +191,7 @@ namespace Residue.Gameplay.World
                 }
 
                 spot.TryPlace(placed);
-                player.Say($"{placed.DisplayName} set down.", 2f);
+                player.Say(PromptStrings.ItemSetDown.Format(("item", placed.DisplayName)), 2f);
             });
         }
     }

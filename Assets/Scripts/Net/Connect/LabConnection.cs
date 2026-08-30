@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using Residue.Gameplay.World;
 using Residue.Net.Session;
@@ -102,13 +103,6 @@ namespace Residue.Net.Connect
         /// </para>
         /// </summary>
         private const float MaxHoldSeconds = 30f;
-
-        private const string GenericLoadStep = "Loading…";
-        private const string WaitingForHostStep = "Waiting for the host to start the shift…";
-        private const string WaitingForLabStep = "Waiting for the host to send the lab…";
-        private const string OpeningLabStep = "Opening the lab…";
-        private const string LoadingLabStep = "Loading the lab…";
-        private const string ReturningStep = "Returning to the menu…";
 
         public static LabConnection Instance { get; private set; }
 
@@ -595,11 +589,13 @@ namespace Residue.Net.Connect
             // Connected, no lobby, no lab. NGO has this client and the host has not pushed a scene at
             // it yet, which is the longest wait in the game: the lobby room stays shut for anyone
             // joining a shift already in progress, so there is nothing else on screen to look at.
-            if (IsLive && !InLobby && !ShiftStarted) return WaitingForHostStep;
+            if (IsLive && !InLobby && !ShiftStarted) return MenuStrings.StepWaitingForHost;
 
             // Arrived, but the room is not furnished. See LabReady.
             if (ShiftStarted && !LabReady)
-                return LabRuntime.SimulatesLocally ? OpeningLabStep : WaitingForLabStep;
+                return LabRuntime.SimulatesLocally
+                    ? MenuStrings.StepOpeningLab
+                    : MenuStrings.StepWaitingForLab;
 
             return null;
         }
@@ -611,15 +607,12 @@ namespace Residue.Net.Connect
         /// </summary>
         private string PatienceNote()
         {
-            if (IsLive && !ShiftStarted)
-                return "Still connected. The host has not started the shift yet — you do not need " +
-                       "to rejoin.";
+            if (IsLive && !ShiftStarted) return MenuStrings.PatienceHostNotStarted;
 
             if (ShiftStarted && !LabRuntime.SimulatesLocally)
-                return "The lab is still arriving from the host. Leaving now would put you back in " +
-                       "the queue behind it.";
+                return MenuStrings.PatienceLabArriving;
 
-            return "Still working. This can take a moment on a slow connection.";
+            return MenuStrings.PatienceGeneric;
         }
 
         /// <summary>
@@ -696,7 +689,7 @@ namespace Residue.Net.Connect
             // load and then cut straight into a first-person camera at a spawn point (#51). Async and
             // behind the fade: the menu stays drawn and alive until the black is up, and the black
             // stays up until LabReady says there is a room to look at.
-            BeginSceneChange(labSceneName, LoadingLabStep, LoadLabLocally);
+            BeginSceneChange(labSceneName, MenuStrings.StepLoadingLab, LoadLabLocally);
         }
 
         /// <summary>Single player's own load. No netcode, exactly as before — only asynchronous.</summary>
@@ -707,7 +700,10 @@ namespace Residue.Net.Connect
             if (SceneManager.LoadSceneAsync(labSceneName) != null) return;
 
             AbandonSceneChange();
-            Fail($"Could not load '{labSceneName}'. Is it in Build Settings?");
+
+            // The scene name is a build identifier, so it is an argument rather than part of the
+            // looked-up sentence.
+            Fail(MenuStrings.ErrorSceneMissing.Format(("scene", labSceneName)));
         }
 
         // -- Host --------------------------------------------------------------------------------------
@@ -727,7 +723,7 @@ namespace Residue.Net.Connect
             if (!ConnectStates.AcceptsCommands(State)) return;
             if (!await PrepareAsync()) return;
 
-            Set(ConnectState.Allocating, "Reserving a relay…");
+            Set(ConnectState.Allocating, MenuStrings.StatusReservingRelay);
 
             Allocation allocation;
             string relayJoinCode;
@@ -741,11 +737,11 @@ namespace Residue.Net.Connect
             }
             catch (Exception e)
             {
-                Fail("Could not reserve a relay. Check your connection and try again.", e);
+                Fail(MenuStrings.ErrorRelayFailed, e);
                 return;
             }
 
-            Set(ConnectState.Allocating, "Opening the lobby…");
+            Set(ConnectState.Allocating, MenuStrings.StatusOpeningLobby);
 
             UgsLobby created;
             try
@@ -774,7 +770,7 @@ namespace Residue.Net.Connect
                 // The allocation above is abandoned here. There is no API to release one, and Relay
                 // reaps an allocation that is never bound to, so this leaks nothing but a few
                 // seconds of a slot we never used.
-                Fail("Reserved a relay but could not open a lobby. Nothing was started; try again.", e);
+                Fail(MenuStrings.ErrorLobbyFailed, e);
                 return;
             }
 
@@ -801,12 +797,12 @@ namespace Residue.Net.Connect
             manager.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(Identity.StableId);
             Hook(manager);
 
-            Set(ConnectState.Connecting, "Starting the host…");
+            Set(ConnectState.Connecting, MenuStrings.StatusStartingHost);
 
             if (!manager.StartHost())
             {
                 await TearDownAsync();
-                Fail("Netcode refused to start the host. See the console for the transport error.");
+                Fail(MenuStrings.ErrorHostRefused);
                 return;
             }
 
@@ -824,7 +820,8 @@ namespace Residue.Net.Connect
             _ = voice.JoinAsync(created.Id, Identity.DisplayName);
 
             JoinCodeText = created.LobbyCode;
-            Set(ConnectState.Hosting, $"Hosting — join code {JoinCode.ForReading(JoinCodeText)}");
+            Set(ConnectState.Hosting, MenuStrings.StatusHosting.Format(
+                ("code", JoinCode.ForReading(JoinCodeText))));
 
             // And that is where hosting stops. The lab is not loaded until StartShift; everyone
             // gathers in the lobby first, which is the whole point of there being one.
@@ -858,10 +855,11 @@ namespace Residue.Net.Connect
             shiftLoadQueued = true;
 
             Set(ConnectState.Hosting, string.IsNullOrEmpty(JoinCodeText)
-                ? "Starting the shift…"
-                : $"Starting the shift — join code {JoinCode.ForReading(JoinCodeText)}");
+                ? MenuStrings.StatusStartingShift.Text
+                : MenuStrings.StatusStartingShiftHosting.Format(
+                    ("code", JoinCode.ForReading(JoinCodeText))));
 
-            BeginSceneChange(labSceneName, LoadingLabStep, PushLabOverTheNetwork);
+            BeginSceneChange(labSceneName, MenuStrings.StepLoadingLab, PushLabOverTheNetwork);
         }
 
         /// <summary>
@@ -914,14 +912,15 @@ namespace Residue.Net.Connect
             if (!JoinCode.IsWellFormed(code))
             {
                 Fail(string.IsNullOrEmpty(code)
-                    ? "Type the join code your host read out."
-                    : $"“{code}” is not a join code — they are {JoinCode.Length} letters and digits.");
+                    ? MenuStrings.ErrorNoCode.Text
+                    : MenuStrings.ErrorCodeMalformed.Format(("code", code),
+                                                            ("length", JoinCode.Length)));
                 return;
             }
 
             if (!await PrepareAsync()) return;
 
-            Set(ConnectState.Resolving, "Looking up that join code…");
+            Set(ConnectState.Resolving, MenuStrings.StatusLookingUpCode);
 
             UgsLobby found;
             try
@@ -935,7 +934,7 @@ namespace Residue.Net.Connect
             }
             catch (Exception e)
             {
-                Fail("Could not reach the lobby service. Check your connection and try again.", e);
+                Fail(MenuStrings.ErrorLobbyService, e);
                 return;
             }
 
@@ -943,11 +942,11 @@ namespace Residue.Net.Connect
             if (relayJoinCode == null)
             {
                 await CloseLobbyAsync(found, false);
-                Fail("That lobby is not running a game. Ask your host for a fresh code.");
+                Fail(MenuStrings.ErrorLobbyNotPlaying);
                 return;
             }
 
-            Set(ConnectState.Resolving, "Joining the relay…");
+            Set(ConnectState.Resolving, MenuStrings.StatusJoiningRelay);
 
             JoinAllocation join;
             try
@@ -957,7 +956,7 @@ namespace Residue.Net.Connect
             catch (Exception e)
             {
                 await CloseLobbyAsync(found, false);
-                Fail("That game's relay is gone. The host has probably closed it.", e);
+                Fail(MenuStrings.ErrorRelayGone, e);
                 return;
             }
 
@@ -985,12 +984,12 @@ namespace Residue.Net.Connect
             manager.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(Identity.StableId);
             Hook(manager);
 
-            Set(ConnectState.Connecting, "Connecting…");
+            Set(ConnectState.Connecting, MenuStrings.StatusConnecting);
 
             if (!manager.StartClient())
             {
                 await TearDownAsync();
-                Fail("Netcode refused to start the client. See the console for the transport error.");
+                Fail(MenuStrings.ErrorClientRefused);
                 return;
             }
 
@@ -1058,7 +1057,7 @@ namespace Residue.Net.Connect
                 return;
             }
 
-            BeginSceneChange(bootSceneName, ReturningStep, LoadBoot);
+            BeginSceneChange(bootSceneName, MenuStrings.StepReturning, LoadBoot);
         }
 
         private void LoadBoot()
@@ -1210,7 +1209,9 @@ namespace Residue.Net.Connect
             if (awaitingScene == sceneName) return;
 
             awaitingScene = sceneName;
-            awaitingStep = sceneName == labSceneName ? LoadingLabStep : GenericLoadStep;
+            awaitingStep = sceneName == labSceneName
+                ? MenuStrings.StepLoadingLab
+                : MenuStrings.StepLoading;
             holdSeconds = 0f;
             holdGaveUp = false;
 
@@ -1341,13 +1342,13 @@ namespace Residue.Net.Connect
             var manager = NetworkManager.Singleton;
             if (manager == null)
             {
-                Fail("No NetworkManager in the scene. Co-op cannot start; single player still can.");
+                Fail(MenuStrings.ErrorNoNetworkManager);
                 return false;
             }
 
             if (Transport == null)
             {
-                Fail("The NetworkManager has no UnityTransport. Co-op cannot start.");
+                Fail(MenuStrings.ErrorNoTransport);
                 return false;
             }
 
@@ -1367,13 +1368,13 @@ namespace Residue.Net.Connect
 
             if (!status.Online)
             {
-                Fail($"{status.Detail} Single player still works.");
+                Fail(MenuStrings.ErrorOffline.Format(("detail", status.Detail)));
                 return false;
             }
 
             if (Identity == null || !Identity.IsReady)
             {
-                Fail("Could not establish a player identity. Single player still works.");
+                Fail(MenuStrings.ErrorNoIdentity);
                 return false;
             }
 
@@ -1396,14 +1397,14 @@ namespace Residue.Net.Connect
             var endpoint = SelectEndpoint(endpoints);
             if (endpoint == null)
             {
-                error = "The relay offered no endpoint this build can use.";
+                error = MenuStrings.ErrorNoEndpoint;
                 return false;
             }
 
             var transport = Transport;
             if (transport == null)
             {
-                error = "The NetworkManager has no UnityTransport.";
+                error = MenuStrings.ErrorTransportMissing;
                 return false;
             }
 
@@ -1449,12 +1450,12 @@ namespace Residue.Net.Connect
         private static string Explain(LobbyServiceException e, string code) => e.Reason switch
         {
             LobbyExceptionReason.LobbyNotFound =>
-                $"No game is using the code {JoinCode.ForReading(code)}. Check it and try again.",
+                MenuStrings.ErrorCodeNotFound.Format(("code", JoinCode.ForReading(code))),
             LobbyExceptionReason.InvalidJoinCode =>
-                $"{JoinCode.ForReading(code)} is not a valid join code.",
+                MenuStrings.ErrorCodeInvalid.Format(("code", JoinCode.ForReading(code))),
             LobbyExceptionReason.LobbyFull =>
-                $"That game is full — {SessionRegistry.DefaultCapacity} players is the limit.",
-            _ => $"Could not join: {e.Message}"
+                MenuStrings.ErrorLobbyFull.Format(("capacity", SessionRegistry.DefaultCapacity)),
+            _ => MenuStrings.ErrorJoinFailed.Format(("reason", e.Message))
         };
 
         private void Set(ConnectState state, string status = null)

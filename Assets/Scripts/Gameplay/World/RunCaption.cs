@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 
 namespace Residue.Gameplay.World
 {
@@ -27,12 +28,20 @@ namespace Residue.Gameplay.World
         /// <summary>
         /// A standard has to name itself: a full panel of plausible numbers with no sample named
         /// beside it reads as somebody else's sample.
+        /// <para>
+        /// Resolved rather than <c>const</c> since #55: these are words on a screen, not ids, and a
+        /// compile-time constant cannot follow the active language. Everything that compares against
+        /// them compares the string it was handed, which is still the string this returns.
+        /// </para>
         /// </summary>
-        public const string Blank = "SOLVENT BLANK";
+        public static string Blank => ScreenStrings.ScreenCaptionBlank.Text;
 
-        public const string Standard = "CERT STANDARD";
+        public static string Standard => ScreenStrings.ScreenCaptionStandard.Text;
 
-        /// <summary>A run whose sample nothing in this process can name yet. Never blank — see the type doc.</summary>
+        /// <summary>
+        /// A run whose sample nothing in this process can name yet. Never blank — see the type doc.
+        /// A dash rather than a word, so there is nothing here to translate.
+        /// </summary>
         public const string Unnamed = "-";
 
         /// <summary>

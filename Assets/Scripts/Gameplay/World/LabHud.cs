@@ -1,3 +1,4 @@
+using Residue.Data;
 using Residue.Gameplay.Settings;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -165,9 +166,7 @@ namespace Residue.Gameplay.World
             // player who cannot pick a vial up cannot discover anything else in the game. Setting an
             // item down earns its place here for the same reason: without it, the first item you pick
             // up occupies a slot for the rest of the shift and nothing on screen suggests otherwise.
-            var controls = new Label(
-                "[WASD] move    [E] interact    [1–3] select    [G] set down    [Space] inspect    " +
-                "[LMB drag] rotate    [Wheel] zoom    [Tab] standing orders");
+            var controls = new Label(ScreenStrings.HudControls);
             Style(controls, 12, SignalPalette.Dim);
             controls.style.position = Position.Absolute;
             controls.style.left = 16;
@@ -245,8 +244,9 @@ namespace Residue.Gameplay.World
             {
                 string hint = carried.UseHint;
                 handsLabel.text = hint == null
-                    ? $"in hands: {carried.DisplayName}    [G] set down    [Space] inspect"
-                    : $"in hands: {carried.DisplayName}    [LMB] {hint}    [G] set down    [Space] inspect";
+                    ? ScreenStrings.HudHands.Format(("item", carried.DisplayName))
+                    : ScreenStrings.HudHandsWithUse.Format(
+                        ("item", carried.DisplayName), ("use", hint));
             }
             else
             {
@@ -406,9 +406,12 @@ namespace Residue.Gameplay.World
             if (!open) return;
             inspectionTitle.text = view.Item.DisplayName;
             inspectionBody.text = view.Item.InspectionText ?? string.Empty;
-            inspectionHelp.text = "Hold LMB + move mouse to rotate    Wheel to zoom    " +
-                (string.IsNullOrEmpty(view.Item.InspectionHelp) ? "" : view.Item.InspectionHelp + "    ") +
-                "Space / Esc to close";
+            // Two whole lines rather than a stem with the item's own hint spliced into the middle:
+            // the controls either side of the hint are a sentence a translator has to be able to
+            // reorder around it.
+            inspectionHelp.text = string.IsNullOrEmpty(view.Item.InspectionHelp)
+                ? ScreenStrings.HudInspectHelp.Text
+                : ScreenStrings.HudInspectHelpWithHint.Format(("hint", view.Item.InspectionHelp));
         }
 
         /// <summary>
@@ -467,8 +470,8 @@ namespace Residue.Gameplay.World
                 briefCard.Add(body);
             }
 
-            var closing = new Label(
-                BookContent.ShiftBriefClosing + "\n[Tab] puts this away — [Tab] brings it back.");
+            var closing = new Label(ScreenStrings.HudBriefClosing.Format(
+                ("closing", BookContent.ShiftBriefClosing)));
             Style(closing, 11, SignalPalette.Off);
             closing.style.marginTop = 14;
             closing.style.whiteSpace = WhiteSpace.Normal;
@@ -529,17 +532,29 @@ namespace Residue.Gameplay.World
             var span = System.TimeSpan.FromSeconds(Mathf.Max(0f, lab.DaySecondsRemaining));
 
             string clock = lab.ShiftOver
-                ? "SHIFT OVER — file your verdicts"
-                : $"{span.Minutes:D2}:{span.Seconds:D2} left";
+                ? ScreenStrings.HudShiftOver.Text
+                : ScreenStrings.HudTimeLeft.Format(
+                    ("time", $"{span.Minutes:D2}:{span.Seconds:D2}"));
+
+            // Still chosen from ShiftOver alone, whichever line was resolved (hard rule 4).
             statusLabel.style.color = new StyleColor(lab.ShiftOver ? SignalPalette.Caution : SignalPalette.Dim);
 
-            statusLabel.text =
-                $"DAY {lab.Day}   {clock}\n" +
-                $"£{lab.Money:N0}   REP {lab.Reputation:F0}   " +
-                // DRUM, not SOLVENT: since #14 this is the stock at the wash station rather than
-                // flushes in hand, and what is in the bottle you are carrying is on the hands line.
-                $"DRUM {lab.SolventUnits:F0}   STD {lab.ReferenceStandards}\n" +
-                $"{open} sample{(open == 1 ? "" : "s")} open";
+            // "1 sample open" and "4 samples open" are two keys rather than a stem and an "s": a
+            // translator handed the letter cannot inflect the noun to agree with the count.
+            string openLine = open == 1
+                ? ScreenStrings.HudOpenSamplesOne.Text
+                : ScreenStrings.HudOpenSamplesMany.Format(("count", open));
+
+            // DRUM, not SOLVENT: since #14 this is the stock at the wash station rather than
+            // flushes in hand, and what is in the bottle you are carrying is on the hands line.
+            statusLabel.text = ScreenStrings.HudStatus.Format(
+                ("day", lab.Day),
+                ("clock", clock),
+                ("money", lab.Money.ToString("N0")),
+                ("reputation", lab.Reputation.ToString("F0")),
+                ("solvent", lab.SolventUnits.ToString("F0")),
+                ("standards", lab.ReferenceStandards),
+                ("open", openLine));
         }
 
         internal static void Style(Label label, int size, Color colour)

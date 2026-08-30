@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using Residue.Data;
 using Residue.Gameplay.World;
 using UnityEngine;
 using Object = UnityEngine.Object;
@@ -212,5 +213,71 @@ namespace Residue.Tests.EditMode
                 "player's controls disabled with no visible way to close it.");
         }
 
+        // -- Localisation -------------------------------------------------------------------------------
+        //
+        // LocalisationTests proves the lookup works. These two prove the room actually goes through it:
+        // a prompt assembled from a literal at the call site passes every test in that file and is
+        // still untranslatable.
+
+        /// <summary>
+        /// Promise: what a fixture says is drawn from the string table, not from a literal beside
+        /// the draw call (#55).
+        /// <para>
+        /// The failure this catches is a prompt quietly re-inlined during a later change. It reads
+        /// correctly in English for ever, and shows up only when somebody translates the game and
+        /// finds one line in the room still speaking English.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AStationPrompt_ReadsThroughTheStringTable()
+        {
+            var player = NewPlayer(withScreens: false);
+            var station = NewTerminal(null);
+
+            Loc.Use("test", new Dictionary<string, string>
+            {
+                [PromptStrings.TerminalNoDisplay.Id] = "Terminal — kein Bildschirm für dich"
+            });
+
+            try
+            {
+                Assert.AreEqual("Terminal — kein Bildschirm für dich", station.Prompt(player),
+                    "The terminal drew its own English rather than the installed translation, so " +
+                    "this prompt is a literal at the point of use again.");
+            }
+            finally
+            {
+                Loc.UseEnglish();
+            }
+        }
+
+        /// <summary>
+        /// Promise: an item's name keeps its arguments named, so a translation can move them.
+        /// <para>
+        /// This is the half of #55 that cannot be retrofitted. A name rebuilt as
+        /// <c>machine + " printout — " + tag</c> passes every English-only check and is unreachable
+        /// for any language that puts the tag first — so the test reorders the placeholders and
+        /// insists the result still reads correctly.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AnItemName_CanHaveItsArgumentsReordered()
+        {
+            var slip = Loose<PrintoutProp>("Printout_UnderTest");
+
+            Loc.Use("test", new Dictionary<string, string>
+            {
+                [PromptStrings.PrintoutName.Id] = "{tag}: Ausdruck von {machine}"
+            });
+
+            try
+            {
+                Assert.AreEqual("UNKNOWN: Ausdruck von instrument", slip.DisplayName);
+            }
+            finally
+            {
+                Loc.UseEnglish();
+            }
+        }
     }
 }

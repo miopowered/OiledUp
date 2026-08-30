@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -110,7 +111,8 @@ namespace Residue.Gameplay.World
         // -- Announcements ------------------------------------------------------------------------------
 
         private void OnDeliveryDue(DeliveryBay bay) =>
-            Announce($"Delivery due at the bay in about {Mathf.RoundToInt(bay.SecondsUntilArrival)}s.");
+            Announce(PromptStrings.BayDeliveryDue.Format(
+                ("seconds", Mathf.RoundToInt(bay.SecondsUntilArrival))));
 
         private void OnDeliveryArrived(IReadOnlyList<Carton> arrived)
         {
@@ -118,11 +120,18 @@ namespace Residue.Gameplay.World
 
             if (arrived == null || arrived.Count == 0) return;
 
-            string first = arrived[0].JobNumber;
-            string rest = arrived.Count == 1 ? string.Empty : $" and {arrived.Count - 1} more";
-
-            Announce($"Delivery at the bay — carton {first}{rest}. It needs carrying in.");
+            Announce(Arrival(arrived[0].JobNumber, arrived.Count));
         }
+
+        /// <summary>
+        /// One sentence for a single box and another for several (#55). It used to be one sentence
+        /// with <c>" and 2 more"</c> spliced into the middle of it, which is the fragment a
+        /// translator cannot place — and the same fragment existed twice, here and in
+        /// <see cref="NoticeArrivals"/>.
+        /// </summary>
+        private static string Arrival(string jobNumber, int count) => count <= 1
+            ? PromptStrings.BayArrived.Format(("job", jobNumber))
+            : PromptStrings.BayArrivedMore.Format(("job", jobNumber), ("count", count - 1));
 
         /// <summary>
         /// #30's "before the bay blocks", said out loud. The truck does not leave and nothing is lost;
@@ -131,8 +140,7 @@ namespace Residue.Gameplay.World
         /// the truck sitting outside with boxes on it is the standing reminder.
         /// </summary>
         private void OnDeliveryHeld(DeliveryBay bay) =>
-            Announce($"Bay full — {bay.OnTheRoadCount} carton(s) still on the truck. " +
-                     "Carry one in and the rest come off.");
+            Announce(PromptStrings.BayFull.Format(("count", bay.OnTheRoadCount)));
 
         /// <summary>
         /// Cardboard does not survive the night (#31). <c>LabState.EndDay</c> has already flattened
@@ -184,8 +192,7 @@ namespace Residue.Gameplay.World
 
             if (arrived == 0) return;
 
-            string rest = arrived == 1 ? string.Empty : $" and {arrived - 1} more";
-            Announce($"Delivery at the bay — carton {firstJob}{rest}. It needs carrying in.");
+            Announce(Arrival(firstJob, arrived));
         }
 
         /// <summary>

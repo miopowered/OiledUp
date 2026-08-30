@@ -101,13 +101,15 @@ namespace Residue.Gameplay.World
         /// on a client is the first few frames after the lab scene loads.
         /// </summary>
         private static string Title(IMachineView machine) =>
-            machine != null && machine.Def != null ? machine.Def.DisplayName : "INSTRUMENT";
+            machine != null && machine.Def != null
+                ? machine.Def.DisplayName
+                : ScreenStrings.ScreenInstrumentUnknown;
 
         public void ShowIdle(IMachineView machine)
         {
             Clear();
             DrawText(2, 2, PixelText.Truncate(Title(machine), Columns), ink);
-            DrawText(2, 2 + LineHeight, "READY", dim);
+            DrawText(2, 2 + LineHeight, PixelText.Truncate(ScreenStrings.ScreenReady, Columns), dim);
             Apply();
             drawn = 0;
         }
@@ -171,7 +173,10 @@ namespace Residue.Gameplay.World
 
             Clear();
             DrawText(2, 2, PixelText.Truncate(Title(machine), Columns), dim);
-            DrawText(2, 2 + LineHeight, $"RUNNING {machine.SecondsRemaining:F0}S", ink);
+            DrawText(2, 2 + LineHeight, PixelText.Truncate(
+                ScreenStrings.ScreenRunning.Format(
+                    ("seconds", machine.SecondsRemaining.ToString("F0"))),
+                Columns), ink);
             DrawProgressBar(2, 2 + LineHeight * 2, Columns * PixelFont.Advance * scale - 4, machine.Progress);
             Apply();
             drawn = 0;
@@ -256,12 +261,16 @@ namespace Residue.Gameplay.World
                 string unit = element != null ? element.Unit : "";
 
                 DrawText(2, y, kv.Key, dim);
-                DrawText(2 + PixelFont.MeasureWidth(kv.Key + " ", scale), y, $"{kv.Value:0.###} {unit}", ink, scale + 1);
+                DrawText(2 + PixelFont.MeasureWidth(kv.Key + " ", scale), y,
+                    ScreenStrings.ScreenValue.Format(
+                        ("value", kv.Value.ToString("0.###")), ("unit", unit)),
+                    ink, scale + 1);
                 y += LineHeight + 3;
                 shown++;
             }
 
-            if (shown == 0) DrawText(2, y, "NO READING", dim);
+            if (shown == 0)
+                DrawText(2, y, PixelText.Truncate(ScreenStrings.ScreenNoReading, Columns), dim);
         }
 
         private void DrawPanel(IMachineView machine, TestResult result, string caption)
@@ -292,7 +301,7 @@ namespace Residue.Gameplay.World
             // Local run history — this instrument's own log, not the sample's record.
             int historyY = pixelHeight - LineHeight * (Mathf.Min(history.Count, 2) + 1) - 2;
             DrawRule(2, historyY - 2, Columns * PixelFont.Advance * scale - 4);
-            DrawText(2, historyY, "HISTORY", dim);
+            DrawText(2, historyY, PixelText.Truncate(ScreenStrings.ScreenHistory, Columns), dim);
 
             for (int i = 0; i < history.Count && i < 2; i++)
                 DrawText(2, historyY + LineHeight * (i + 1), PixelText.Truncate(history[i], Columns), dim);
@@ -300,7 +309,9 @@ namespace Residue.Gameplay.World
 
         private void RecordHistory(TestResult result, string caption)
         {
-            history.Insert(0, $"D{result.DayRun} {PixelText.Truncate(caption, 14)}");
+            history.Insert(0, ScreenStrings.ScreenHistoryLine.Format(
+                ("day", result.DayRun),
+                ("caption", PixelText.Truncate(caption, 14))));
             while (history.Count > 6) history.RemoveAt(history.Count - 1);
         }
 
@@ -317,6 +328,12 @@ namespace Residue.Gameplay.World
         /// would push the number under it off the glass, which is the one thing the player walked
         /// over to read. <see cref="PixelText"/> holds both behaviours and the reasoning for the
         /// split; the book's pages take the other branch.
+        /// </para>
+        /// <para>
+        /// This is also the layout's only defence against a translation (#55). A German READY is
+        /// longer than an English one and nothing in <c>ScreenStrings</c> can know how wide this
+        /// screen is, so every line drawn here is cut here — including the fixed notices, which
+        /// were literals short enough not to need it and are not any more.
         /// </para>
         /// </summary>
         private int Columns => PixelText.Columns(pixelWidth - 4, scale);

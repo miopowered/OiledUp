@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Residue.Data;
 using Residue.Gameplay.Simulation;
 using UnityEngine;
 
@@ -109,27 +110,41 @@ namespace Residue.Gameplay.World
                 if (lab == null) return null;
 
                 int drum = (int)(lab.SolventUnits / SolventStore.UnitsPerCharge);
-                return $"drum holds {drum} flush{(drum == 1 ? "" : "es")}";
+                return drum == 1
+                    ? PromptStrings.WashDrumOne.Text
+                    : PromptStrings.WashDrum.Format(("count", drum));
             }
         }
 
+        /// <summary>
+        /// Three sentences, each with its own "we have not been told yet" twin, and the drum reading
+        /// arrives as one argument rather than as a suffix somebody appends (#55). The old shape
+        /// built <c>" (drum holds 4 flushes)"</c> and glued it onto whichever prompt applied, which
+        /// handed a translator a bracket with no sentence around it.
+        /// </summary>
         public override string Prompt(PlayerInteractor player)
         {
-            string stock = DrumReading;
-            string suffix = stock == null ? string.Empty : $" ({stock})";
+            string drum = DrumReading;
 
             if (player.Carried is SolventBottle bottle)
             {
-                return FreeSlot() >= 0
-                    ? $"Wash station — set {bottle.DisplayName} down{suffix}"
-                    : "Wash station — no free cradle";
+                if (FreeSlot() < 0) return PromptStrings.WashNoCradle.Text;
+
+                return drum == null
+                    ? PromptStrings.WashSetDownUnknown.Format(("item", bottle.DisplayName))
+                    : PromptStrings.WashSetDown.Format(("item", bottle.DisplayName), ("drum", drum));
             }
 
-            if (player.Carried != null) return $"Wash station — solvent only{suffix}";
+            if (player.Carried != null)
+            {
+                return drum == null
+                    ? PromptStrings.WashSolventOnlyUnknown.Text
+                    : PromptStrings.WashSolventOnly.Format(("drum", drum));
+            }
 
-            return stock == null
-                ? "Wash station — take a bottle to fill it."
-                : $"Wash station — {stock}. Take a bottle to fill it.";
+            return drum == null
+                ? PromptStrings.WashIdleUnknown.Text
+                : PromptStrings.WashIdle.Format(("drum", drum));
         }
 
         /// <summary>
@@ -151,7 +166,7 @@ namespace Residue.Gameplay.World
             {
                 if (!TryPlace(bottle, slot)) return;
                 player.ReleaseCarried();
-                player.Say("Solvent bottle stowed.", 2f);
+                player.Say(PromptStrings.WashStowed.Text, 2f);
             });
         }
 

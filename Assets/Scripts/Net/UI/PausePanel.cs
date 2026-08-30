@@ -1,4 +1,5 @@
 using System;
+using Residue.Data;
 using Residue.Gameplay.UI;
 using UnityEngine.UIElements;
 
@@ -31,20 +32,18 @@ namespace Residue.Net.UI
             var column = UiKit.Column(UiKit.GapWide);
             Root.Add(column);
 
-            column.Add(UiKit.Heading("PAUSED"));
+            column.Add(UiKit.Heading(MenuStrings.PausedHeading));
 
             clockLabel = UiKit.Body(string.Empty);
             column.Add(clockLabel);
 
             var actions = UiKit.Column();
-            actions.Add(UiKit.ActionButton("RESUME", () => resume?.Invoke()));
-            actions.Add(UiKit.QuietButton("SETTINGS", () => settings?.Invoke()));
-            actions.Add(UiKit.DangerButton("LEAVE THE SHIFT", () => leave?.Invoke()));
+            actions.Add(UiKit.ActionButton(MenuStrings.Resume, () => resume?.Invoke()));
+            actions.Add(UiKit.QuietButton(MenuStrings.Settings, () => settings?.Invoke()));
+            actions.Add(UiKit.DangerButton(MenuStrings.LeaveTheShift, () => leave?.Invoke()));
             column.Add(actions);
 
-            column.Add(UiKit.Hint(
-                "Leaving closes your session and puts you back at the menu. In co-op it does not " +
-                "end the shift for anybody else."));
+            column.Add(UiKit.Hint(MenuStrings.LeaveNote));
         }
 
         /// <summary>The tree to parent. Built once; <see cref="Refresh"/> re-reads everything on it.</summary>
@@ -57,9 +56,8 @@ namespace Residue.Net.UI
         public void Refresh(bool clockStopped)
         {
             clockLabel.text = clockStopped
-                ? "The lab is stopped while this is up. Nothing moves until you resume."
-                : "The shift clock is still running. This is a co-op session, so pausing only " +
-                  "stops your own hands — the day carries on for everyone else in the lab.";
+                ? MenuStrings.ClockStopped
+                : MenuStrings.ClockRunning;
 
             clockLabel.style.color = new StyleColor(
                 clockStopped ? UiPalette.InkDim : UiPalette.Warn);

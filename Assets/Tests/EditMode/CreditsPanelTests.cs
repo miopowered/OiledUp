@@ -1,5 +1,6 @@
 using System.IO;
 using NUnit.Framework;
+using Residue.Data;
 using Residue.Net.UI;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -89,7 +90,10 @@ namespace Residue.Tests.EditMode
         {
             var panel = new CreditsPanel(() => { });
 
-            Assert.IsNotNull(FindButton(panel.Root, "BACK"));
+            // Asked through the key rather than through the word (#55). The English is still "BACK",
+            // but a test that hunts for a literal is a test that fails in every language but one —
+            // which would make it a test of the translation rather than of the button being there.
+            Assert.IsNotNull(FindButton(panel.Root, MenuStrings.Back.Text));
         }
 
         private static bool ContainsExactLabel(VisualElement root, string text)

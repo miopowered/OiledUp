@@ -1,3 +1,5 @@
+using Residue.Data;
+
 namespace Residue.Net.Connect
 {
     /// <summary>
@@ -79,6 +81,15 @@ namespace Residue.Net.Connect
         /// What the host sends every client before it shuts down, so the other end can tell a
         /// deliberate close from a dead wire. A whole sentence rather than a code, because it is
         /// also the fallback the client shows if anything ever routes it straight through.
+        /// <para>
+        /// <b>Not localised, deliberately</b> (#55). This crosses the wire and
+        /// <see cref="NamesAShutdown"/> matches on it, so it is an identifier that happens to read
+        /// as English. Resolving it per-language would mean a German host telling an English client
+        /// something the client's own matcher does not recognise — and the client would report a
+        /// dead connection instead of a host that left, offering a rejoin against a lobby being
+        /// deleted in the same breath. The sentence the player actually reads is
+        /// <c>MenuStrings.EndHostClosedDetail</c>, which is looked up on the client that shows it.
+        /// </para>
         /// </summary>
         public const string HostClosedNote = "The host closed the lab.";
 
@@ -121,31 +132,33 @@ namespace Residue.Net.Connect
             if (spoken && NamesAShutdown(said))
             {
                 return new SessionEnd(SessionEndKind.HostClosed,
-                    "THE HOST CLOSED THE LAB",
-                    "The shift ended when your host left. Their lobby has been deleted and its join " +
-                    "code will not answer any more, so there is nothing left to rejoin.");
+                    MenuStrings.EndHostClosedHeadline,
+                    MenuStrings.EndHostClosedDetail);
             }
 
+            // The host's own words are a named argument rather than a stem this glues a tail onto
+            // (#55). A translator handed "… Nothing was started, so nothing was lost." on its own
+            // cannot put the reassurance in front of the reason, which is where several languages
+            // want it.
             if (!wasConnected)
             {
                 return new SessionEnd(SessionEndKind.Refused,
-                    "THE LAB TURNED YOU AWAY",
+                    MenuStrings.EndRefusedHeadline,
                     spoken
-                        ? said + " Nothing was started, so nothing was lost."
-                        : "The host refused the connection without saying why. Nothing was started.");
+                        ? MenuStrings.EndRefusedDetailSpoken.Format(("reason", said))
+                        : MenuStrings.EndRefusedDetail);
             }
 
             if (spoken)
             {
                 return new SessionEnd(SessionEndKind.Kicked,
-                    "THE HOST DISCONNECTED YOU",
-                    said + " Rejoining would only be refused again; ask your host for a fresh code.");
+                    MenuStrings.EndKickedHeadline,
+                    MenuStrings.EndKickedDetail.Format(("reason", said)));
             }
 
             return new SessionEnd(SessionEndKind.Dropped,
-                "THE CONNECTION DROPPED",
-                "Nothing more came back from the host. Your seat is held for you, so rejoining puts " +
-                "you back where you were standing, with whatever you were holding.");
+                MenuStrings.EndDroppedHeadline,
+                MenuStrings.EndDroppedDetail);
         }
 
         /// <summary>

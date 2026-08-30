@@ -1,4 +1,5 @@
 using Residue.Chemistry;
+using Residue.Data;
 using UnityEngine;
 
 namespace Residue.Gameplay.World
@@ -38,8 +39,9 @@ namespace Residue.Gameplay.World
         /// asking about; the id always does.
         /// </summary>
         public override string DisplayName => $"{Label} · {SampleId}";
+
         public override string InspectionText =>
-            $"SAMPLE {SampleId}\nCustomer label: {Label}";
+            PromptStrings.VialInspection.Format(("id", SampleId), ("label", Label));
 
         public void Bind(SampleId id, string label)
         {
