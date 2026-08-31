@@ -6,6 +6,7 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Residue.Gameplay.World;
 using UnityEngine;
+using UnityEngine.TestTools;
 using Object = UnityEngine.Object;
 
 namespace Residue.Tests.EditMode
@@ -274,14 +275,218 @@ namespace Residue.Tests.EditMode
         }
 
         // -----------------------------------------------------------------------------------------
+        // Getting in and out of it
+        // -----------------------------------------------------------------------------------------
+        //
+        // The tests above use a zero-length glide, because what they pin is the state contract and a
+        // glide is only ever the view catching up with it. Everything below is the glide itself.
+
+        /// <summary>
+        /// Promise: sitting down is a short eased move, not a cut — and the state it moves towards is
+        /// already true before it starts. The chair has its occupant and the legs are already gone on
+        /// the frame <c>Seat</c> was called; only the eye is late.
+        /// </summary>
+        [Test]
+        public void SittingDown_EasesTheEyeDownRatherThanCuttingToIt()
+        {
+            var player = NewPlayer(GlideSeconds, out var motor, out var head);
+            var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 8f);
+            Vector3 standing = seat.StandPosition();
+            player.transform.position = standing;
+
+            Assert.IsTrue(seat.Seat(player));
+
+            Assert.IsTrue(player.IsSeated, "The chair should hold the player from the first frame.");
+            Assert.IsFalse(motor.enabled);
+            Assert.IsTrue(player.IsSeatGliding, "Sitting down cut straight to the seated pose.");
+            Assert.AreEqual(0f, Vector3.Distance(player.transform.position, standing), 0.0001f,
+                "The body moved before the glide had run a single step.");
+            Assert.AreEqual(player.StandEyeHeight, head.localPosition.y, 0.0001f);
+
+            // A quarter of the way through the clock. Smoothstep has covered about 16% of the
+            // distance by now; a linear slide would be at 25% on the nose, so this fails loudly if
+            // the easing is ever dropped.
+            player.AdvanceSeatGlide(GlideSeconds * 0.25f);
+            float travelled = Vector3.Distance(standing, player.transform.position) /
+                              Vector3.Distance(standing, seat.transform.position);
+            Assert.Greater(travelled, 0.02f, "The glide is not moving at all.");
+            Assert.Less(travelled, 0.2f,
+                $"A quarter of the way through the glide the body had covered {travelled:P0} of the " +
+                "distance, which is linear. It should start from rest.");
+
+            Assert.Less(head.localPosition.y, player.StandEyeHeight, "The eye never left standing height.");
+            Assert.Greater(head.localPosition.y, SeatedEyeHeight(seat), "The eye arrived instantly.");
+
+            player.AdvanceSeatGlide(GlideSeconds);
+            AssertFullySeated(player, motor, head, seat, "after the glide ran out");
+        }
+
+        /// <summary>
+        /// Promise: **fully seated or fully standing, never between** — however the transition is
+        /// interrupted, and at whatever point.
+        /// <para>
+        /// This is the invariant the animation had to earn before it was allowed to exist. The glide
+        /// runs on unscaled time, so it cannot freeze mid-slide when the pause menu stops the clock;
+        /// what makes that safe is that finishing it early is always available and always lands on an
+        /// endpoint. <c>PlayerController.OnDisable</c> is what calls it in the game — every screen and
+        /// the pause menu switch the controller off — and the interruption is swept across the whole
+        /// duration here because "it works if you pause at the halfway mark" is not the claim.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void TheGlide_IsNeverLeftHalfway_WhereverItIsInterrupted()
+        {
+            for (int step = 0; step <= 5; step++)
+            {
+                float interruptedAt = GlideSeconds * step / 5f;
+                string when = $"interrupted {interruptedAt:0.000}s into a {GlideSeconds:0.000}s glide";
+
+                var player = NewPlayer(GlideSeconds, out var motor, out var head);
+                var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 8f);
+                Vector3 standing = seat.StandPosition();
+                player.transform.position = standing;
+
+                Assert.IsTrue(seat.Seat(player));
+                player.AdvanceSeatGlide(interruptedAt);
+                player.FinishSeatGlide();
+                AssertFullySeated(player, motor, head, seat, when);
+
+                seat.Release();
+                player.AdvanceSeatGlide(interruptedAt);
+                player.FinishSeatGlide();
+                AssertFullyStanding(player, motor, head, standing, when);
+            }
+        }
+
+        /// <summary>
+        /// Promise: the same invariant holds at every intermediate frame, not only at the ends. A
+        /// player who can walk has their eyes at standing height and is clear of the chair; a player
+        /// whose eyes are still dropping cannot walk. There is no third state to be caught in.
+        /// </summary>
+        [Test]
+        public void MidGlide_TheLegsAndTheEyesNeverDisagree()
+        {
+            var player = NewPlayer(GlideSeconds, out var motor, out var head);
+            var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 8f);
+            Vector3 standing = seat.StandPosition();
+            player.transform.position = standing;
+
+            Assert.IsTrue(seat.Seat(player));
+            for (int frame = 0; frame < 12; frame++)
+            {
+                AssertLegsAgreeWithEyes(player, motor, head, standing, $"sitting down, frame {frame}");
+                player.AdvanceSeatGlide(GlideSeconds / 8f);
+            }
+
+            seat.Release();
+            for (int frame = 0; frame < 12; frame++)
+            {
+                AssertLegsAgreeWithEyes(player, motor, head, standing, $"standing up, frame {frame}");
+                player.AdvanceSeatGlide(GlideSeconds / 8f);
+            }
+
+            AssertFullyStanding(player, motor, head, standing, "after standing up ran to the end");
+        }
+
+        /// <summary>
+        /// Promise: a glide never starts when nothing will drive it.
+        /// <para>
+        /// <c>PlayerController.Update</c> is the only driver, and it does not run on a controller that
+        /// <c>TerminalScreen.Open</c>, <c>ItemInspectionView.Open</c> or <c>ShiftPause.Begin</c> has
+        /// switched off — the same flag <c>LabSeat.Update</c> reads to decide a screen has the player.
+        /// Starting one there would leave somebody halfway into a chair for as long as the menu was up,
+        /// so the destination is taken immediately instead.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void ASeatTakenFromBehindAScreen_ArrivesInsteadOfGliding()
+        {
+            var player = NewPlayer(GlideSeconds, out var motor, out var head);
+            var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 8f);
+            player.transform.position = seat.StandPosition();
+
+            player.enabled = false;
+
+            Assert.IsTrue(seat.Seat(player));
+            Assert.IsFalse(player.IsSeatGliding,
+                "A glide began on a controller whose Update is not running, so nothing would have " +
+                "advanced it until the screen closed.");
+            AssertFullySeated(player, motor, head, seat, "sat down from behind a screen");
+        }
+
+        /// <summary>
+        /// Promise: the mechanism above is actually wired to the moment it exists for. The check is on
+        /// <c>OnDisable</c> rather than on a direct call, because that is the one line standing between
+        /// a paused player and a chair they are half inside — and it only fires on a component that was
+        /// genuinely enabled, which is why this is the one test in the suite that runs a live
+        /// <see cref="PlayerController"/>.
+        /// </summary>
+        [Test]
+        public void AScreenGoingUpMidGlide_LandsThePlayerInTheChair()
+        {
+            var player = NewLivePlayer(GlideSeconds, out var motor, out var head);
+            var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 8f);
+            player.transform.position = seat.StandPosition();
+
+            Assert.IsTrue(seat.Seat(player));
+            player.AdvanceSeatGlide(GlideSeconds * 0.4f);
+            Assert.IsTrue(player.IsSeatGliding, "Nothing was in flight, so the interruption proves nothing.");
+
+            // Exactly what ShiftPause.Begin and TerminalScreen.Open do to the local player.
+            player.enabled = false;
+
+            Assert.IsFalse(player.IsSeatGliding,
+                "The pause menu left a glide running that only Update can advance, and Update is now " +
+                "switched off: the player is stuck halfway into the chair until the menu closes.");
+            AssertFullySeated(player, motor, head, seat, "a screen went up mid-glide");
+        }
+
+        /// <summary>
+        /// Promise: the chair does not fight the mouse. Its turn towards the desk is an offset paid
+        /// over the glide, so a player looking around on the way down keeps every degree they turned
+        /// and still ends up square to the terminal.
+        /// </summary>
+        [Test]
+        public void LookingAroundOnTheWayDown_IsAddedTo_NotOverwritten()
+        {
+            var player = NewPlayer(GlideSeconds, out _, out _);
+            var seat = NewSeat(new Vector3(3.72f, 0f, 1.02f), 90f);
+            player.transform.SetPositionAndRotation(seat.StandPosition(), Quaternion.identity);
+
+            Assert.IsTrue(seat.Seat(player));
+            player.AdvanceSeatGlide(GlideSeconds * 0.5f);
+
+            // What ApplyLook writes when the player moves the mouse, and it runs first in the frame.
+            player.transform.Rotate(Vector3.up, 30f, Space.World);
+            player.AdvanceSeatGlide(GlideSeconds);
+
+            Assert.AreEqual(120f, player.transform.eulerAngles.y, 0.05f,
+                "The chair's 90 degrees should have landed on top of the player's own 30, not " +
+                "replaced them. A seat that snaps to an absolute heading takes the mouse away.");
+        }
+
+        // -----------------------------------------------------------------------------------------
         // Fixtures
         // -----------------------------------------------------------------------------------------
         //
         // Everything is built on a deactivated GameObject, the house pattern from PlayerScreenTests.
         // An active PlayerController runs its Awake, which logs an error about the InputActionAsset
         // the suite has no reason to give it — and a logged error fails the test that caused it.
+        // NewLivePlayer is the single exception, and says why it has to be.
 
-        private PlayerController NewPlayer(out CharacterController motor, out Transform head)
+        /// <summary>Long enough to have a middle, short enough to be the real feel of the thing.</summary>
+        private const float GlideSeconds = 0.2f;
+
+        /// <summary>
+        /// A player whose seat glide is a hard snap, so a test about the state contract reads the
+        /// endpoints straight back. A zero duration is honestly no animation rather than a test hook:
+        /// <c>PlayerController</c> treats it the same as being behind a screen.
+        /// </summary>
+        private PlayerController NewPlayer(out CharacterController motor, out Transform head) =>
+            NewPlayer(0f, out motor, out head);
+
+        private PlayerController NewPlayer(float glideSeconds, out CharacterController motor,
+            out Transform head)
         {
             var go = new GameObject("Player_UnderTest");
             go.SetActive(false);
@@ -297,8 +502,91 @@ namespace Residue.Tests.EditMode
             var player = go.AddComponent<PlayerController>();
             var so = new UnityEditor.SerializedObject(player);
             so.FindProperty("head").objectReferenceValue = head;
+            so.FindProperty("seatGlideDuration").floatValue = glideSeconds;
             so.ApplyModifiedPropertiesWithoutUndo();
             return player;
+        }
+
+        /// <summary>
+        /// The suite's one live controller, for the one test whose subject is <c>OnDisable</c> — a
+        /// callback that only fires on a component that was genuinely enabled.
+        /// <para>
+        /// Built on an <i>active</i> object with the controller attached last, because attaching a
+        /// script to an active GameObject is the moment the Editor is known to run <c>Awake</c> outside
+        /// play mode; it is the same moment the deactivated fixture above exists to dodge. Two
+        /// consequences are paid for here rather than designed around: <c>Awake</c> logs about the
+        /// <c>InputActionAsset</c> the suite has no reason to give it, so that error is expected; and
+        /// <c>OnEnable</c> grabs the process-global cursor, which is handed straight back before any
+        /// frame could see it. <c>head</c> is wired afterwards, so <c>Awake</c> simply skips it and the
+        /// child keeps the standing eye height the fixture gave it.
+        /// </para>
+        /// </summary>
+        private PlayerController NewLivePlayer(float glideSeconds, out CharacterController motor,
+            out Transform head)
+        {
+            var go = new GameObject("Player_UnderTest_Live");
+            spawned.Add(go);
+
+            motor = go.AddComponent<CharacterController>();
+
+            var headGo = new GameObject("Head");
+            headGo.transform.SetParent(go.transform, false);
+            headGo.transform.localPosition = new Vector3(0f, 1.7f, 0f);
+            head = headGo.transform;
+
+            LogAssert.Expect(LogType.Error,
+                "[PlayerController] No InputActionAsset assigned; movement is dead.");
+            var player = go.AddComponent<PlayerController>();
+            PlayerController.SetCursorLocked(false);
+
+            var so = new UnityEditor.SerializedObject(player);
+            so.FindProperty("head").objectReferenceValue = head;
+            so.FindProperty("seatGlideDuration").floatValue = glideSeconds;
+            so.ApplyModifiedPropertiesWithoutUndo();
+            return player;
+        }
+
+        /// <summary>The chair's authored seated eye height, so the assertions below pin no magic number.</summary>
+        private static float SeatedEyeHeight(LabSeat seat) =>
+            new UnityEditor.SerializedObject(seat).FindProperty("seatedEyeHeight").floatValue;
+
+        private static void AssertFullySeated(PlayerController player, CharacterController motor,
+            Transform head, LabSeat seat, string when)
+        {
+            Assert.IsFalse(player.IsSeatGliding, $"A glide was still running {when}.");
+            Assert.IsTrue(player.IsSeated, $"The player is not seated {when}.");
+            Assert.IsFalse(motor.enabled,
+                $"The player can walk while sat in a chair {when}.");
+            Assert.AreEqual(0f, Vector3.Distance(player.transform.position, seat.transform.position),
+                0.0001f, $"The body was left short of the chair {when}.");
+            Assert.AreEqual(SeatedEyeHeight(seat), head.localPosition.y, 0.0001f,
+                $"The eye was left between standing and seated height {when}.");
+        }
+
+        private static void AssertFullyStanding(PlayerController player, CharacterController motor,
+            Transform head, Vector3 standing, string when)
+        {
+            Assert.IsFalse(player.IsSeatGliding, $"A glide was still running {when}.");
+            Assert.IsFalse(player.IsSeated, $"The player is still seated {when}.");
+            Assert.IsTrue(motor.enabled, $"The motor never came back {when}, so the player cannot walk.");
+            Assert.AreEqual(0f, Vector3.Distance(player.transform.position, standing), 0.0001f,
+                $"The body was left short of the standing spot {when}, which at the terminal desk " +
+                "means inside the chair or inside the desk.");
+            Assert.AreEqual(player.StandEyeHeight, head.localPosition.y, 0.0001f,
+                $"The eye was left between seated and standing height {when}.");
+        }
+
+        /// <summary>
+        /// The whole invariant in one line: the legs and the eyes belong to the same posture. Being
+        /// able to walk means being on your feet, at your own eye height, out of the chair.
+        /// </summary>
+        private static void AssertLegsAgreeWithEyes(PlayerController player, CharacterController motor,
+            Transform head, Vector3 standing, string when)
+        {
+            Assert.AreEqual(player.IsSeated, !motor.enabled,
+                $"Seated and the motor disagree {when}: one of them is the state the player will act on.");
+
+            if (motor.enabled) AssertFullyStanding(player, motor, head, standing, when);
         }
 
         private LabSeat NewSeat(Vector3 position, float yaw)

@@ -29,6 +29,15 @@ namespace Residue.Gameplay.World
     /// </para>
     ///
     /// <para>
+    /// <b>Getting in and out is a short glide, not a cut.</b> Roughly a fifth of a second of eased
+    /// camera travel, owned by <see cref="PlayerController"/> because it owns the transform and the eye
+    /// height the glide writes to — this class hands over two endpoints and never looks again. The
+    /// state changes on the frame <see cref="Seat"/> is called; only the view is late. Sitting down
+    /// also turns you towards the desk, but as an offset paid over the glide rather than as a heading,
+    /// so a player moving the mouse on the way down is never fought for control of it.
+    /// </para>
+    ///
+    /// <para>
     /// Local, like <see cref="LockerDoor"/>: a seated player is a camera position, not lab state. The
     /// host is told nothing and asked for nothing.
     /// </para>
@@ -123,6 +132,14 @@ namespace Residue.Gameplay.World
         /// Give the player back, on their feet and clear of the furniture. Idempotent, and safe on an
         /// occupant that has since been destroyed — leaving a session takes the avatar with it and the
         /// chair still has to let go.
+        /// <para>
+        /// The chair is free the instant this is called, before the player has finished travelling out
+        /// of it. That is the right way round: the alternative is a chair that reports itself occupied
+        /// by somebody who has already decided to leave, and every caller here — <c>OnDisable</c>
+        /// included — needs letting go to be something that has definitely happened by the time it
+        /// returns. <see cref="PlayerController.Stand"/> owns the rest, and finishes it on its own
+        /// <c>OnDisable</c> if nothing else does.
+        /// </para>
         /// </summary>
         public void Release()
         {
@@ -149,7 +166,9 @@ namespace Residue.Gameplay.World
 
             // A screen or the pause menu has the player right now — both switch this component off and
             // both switch it back on. Standing somebody up from under a menu would teleport a person
-            // who is reading, and the movement action they are not driving would decide when.
+            // who is reading, and the movement action they are not driving would decide when. It is the
+            // same flag PlayerController.CanGlide reads, for the same reason: nothing about being in a
+            // chair may change while the world is stopped.
             if (!occupant.enabled) return;
 
             // Something outside put them back in the world (a rejoin placement re-enables the motor,

@@ -73,6 +73,12 @@ namespace Residue.Gameplay.World
 
         [SerializeField] private float maxPitch = 85f;
 
+        [Header("Seating")]
+        [Tooltip("Seconds to glide into or out of a chair. A couple of hundred milliseconds: long " +
+                 "enough to read as sitting down, short enough that it is never something to wait " +
+                 "for. Zero is a hard snap, which is what the headless suite uses.")]
+        [SerializeField] private float seatGlideDuration = 0.22f;
+
         private CharacterController controller;
         private InputAction moveAction, lookAction, sprintAction, jumpAction, crouchAction;
 
@@ -116,8 +122,46 @@ namespace Residue.Gameplay.World
 
         // -- Being parked ----------------------------------------------------------------------------
 
-        /// <summary>True while the body is parked in place: sat at a desk. Looking still works.</summary>
+        /// <summary>
+        /// True while the body is parked in place: sat at a desk. Looking still works.
+        /// <para>
+        /// It is true for the whole of both glides, including the one on the way out — a body that is
+        /// still travelling out of a chair is still parked, and the motor comes back at the same
+        /// instant this goes false. <c>IsSeated == !CharacterController.enabled</c> is the invariant
+        /// that makes "fully seated or fully standing, never between" a thing that can be asserted.
+        /// </para>
+        /// </summary>
         public bool IsSeated { get; private set; }
+
+        /// <summary>Which way an unfinished seat glide is travelling, and whether there is one.</summary>
+        private enum SeatGlide
+        {
+            None,
+            SittingDown,
+            StandingUp
+        }
+
+        private SeatGlide glide;
+        private Vector3 glideFrom, glideTo;
+        private float glideFromEye, glideToEye;
+        private float glideYawOwed, glideYawPaid;
+        private float glideElapsed;
+
+        /// <summary>True while the body is still travelling into or out of a chair.</summary>
+        public bool IsSeatGliding => glide != SeatGlide.None;
+
+        /// <summary>
+        /// Whether starting a glide is honest right now.
+        /// <para>
+        /// <see cref="Update"/> is the only thing that advances one, and it does not run on a
+        /// controller somebody has switched off — which is exactly what <c>TerminalScreen.Open</c>,
+        /// <c>ItemInspectionView.Open</c> and <c>ShiftPause.Begin</c> all do, and the same flag
+        /// <c>LabSeat.Update</c> reads to decide the player is behind a screen. A glide begun there
+        /// would freeze halfway into the chair for as long as the menu is up, so it is refused and
+        /// the destination is taken immediately instead.
+        /// </para>
+        /// </summary>
+        private bool CanGlide => enabled && seatGlideDuration > 0f;
 
         /// <summary>
         /// The motor, resolved on demand.
@@ -153,11 +197,17 @@ namespace Residue.Gameplay.World
         /// </para>
         ///
         /// <para>
-        /// Nothing here is animated. A tween would have to choose between <c>Time.deltaTime</c>, which
-        /// the pause menu freezes at zero mid-slide, and unscaled time, which slides the player around
-        /// a world that has stopped. Sitting is instant instead, so the question does not arise.
+        /// <b>The state commits now; only the view travels.</b> The motor goes off, <see cref="IsSeated"/>
+        /// goes true and the seat has its occupant on the frame it asks for one — the couple of hundred
+        /// milliseconds of glide that follow are the camera catching up, never a period during which it
+        /// is unclear whether the player is in the chair. That is what makes the interruption below safe
+        /// to resolve by simply arriving.
         /// </para>
         /// </summary>
+        /// <param name="yaw">
+        /// The seat's own facing. Delivered as an <i>offset</i> spread over the glide rather than as an
+        /// absolute heading, so a player who looks around on the way down keeps every degree of it.
+        /// </param>
         /// <returns>False if there is no motor, or it is already off, or the player is already sat.</returns>
         public bool Sit(Vector3 position, float yaw, float eyeHeight)
         {
@@ -167,34 +217,136 @@ namespace Residue.Gameplay.World
             Halt();
             crouching = false;
 
-            // Off BEFORE the teleport. An enabled CharacterController caches its own pose and puts
-            // the transform back where it thought it was on the next Move — the same trap
-            // PlayerAvatar.PlaceRpc documents.
+            // Off BEFORE the glide writes a single position. An enabled CharacterController caches its
+            // own pose and puts the transform back where it thought it was on the next Move — the same
+            // trap PlayerAvatar.PlaceRpc documents. It also means nothing sweeps a collider along the
+            // way: the path is a straight line between two spots the seat already vouches for.
             motor.enabled = false;
 
-            transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
-            if (head != null) head.localPosition = new Vector3(0f, eyeHeight, 0f);
-
             IsSeated = true;
+            BeginGlide(SeatGlide.SittingDown, position, eyeHeight,
+                Mathf.DeltaAngle(transform.eulerAngles.y, yaw));
             return true;
         }
 
         /// <summary>
         /// Give the body back at <paramref name="position"/>. Idempotent, and the exact mirror of
         /// <see cref="Sit"/> — the caller picks the spot because only it knows what the seat is tucked
-        /// under.
+        /// under, and the glide runs towards that spot rather than towards one picked mid-flight.
+        /// <para>
+        /// The legs arrive with the body: the motor stays off and <see cref="IsSeated"/> stays true
+        /// until the glide lands, so there is no frame in which the player can walk while their eyes
+        /// are still at chair height.
+        /// </para>
         /// </summary>
         public void Stand(Vector3 position)
         {
-            if (!IsSeated) return;
+            if (!IsSeated || glide == SeatGlide.StandingUp) return;
+            BeginGlide(SeatGlide.StandingUp, position, CurrentEyeHeight, 0f);
+        }
+
+        /// <summary>
+        /// Move the glide on. Driven by <see cref="Update"/> on <b>unscaled</b> time; public so the seat
+        /// can be exercised headlessly, the way <c>LabSeat.Seat</c> is.
+        /// <para>
+        /// Unscaled is only defensible because of <see cref="CanGlide"/>: the one thing that takes
+        /// <c>Time.timeScale</c> to zero is the pause menu, and it switches this component off, which
+        /// both stops this being called and finishes the glide through <see cref="OnDisable"/>. So an
+        /// unscaled tick never runs against a stopped world, and scaled time can never strand the
+        /// player mid-slide under a menu. Both halves of the old objection are answered rather than
+        /// picked between.
+        /// </para>
+        /// </summary>
+        public void AdvanceSeatGlide(float deltaTime)
+        {
+            if (glide == SeatGlide.None) return;
+
+            glideElapsed += Mathf.Max(0f, deltaTime);
+
+            if (glideElapsed >= seatGlideDuration) FinishSeatGlide();
+            else ApplyGlide(Ease(glideElapsed / seatGlideDuration));
+        }
+
+        /// <summary>
+        /// Arrive now, wherever the glide had got to. Idempotent, and the only ending either direction
+        /// has — a settled player is fully in the chair or fully on their feet, never between.
+        /// </summary>
+        public void FinishSeatGlide()
+        {
+            if (glide == SeatGlide.None) return;
+
+            ApplyGlide(1f);
+
+            var finished = glide;
+            glide = SeatGlide.None;
+
+            if (finished != SeatGlide.StandingUp) return;
+
+            // Position first, motor second: enabling a CharacterController is what makes it cache the
+            // pose it will insist on next frame.
             IsSeated = false;
-
-            transform.position = position;
-            if (head != null) head.localPosition = new Vector3(0f, CurrentEyeHeight, 0f);
-
             var motor = Motor;
             if (motor != null) motor.enabled = true;
             Halt();
+        }
+
+        /// <summary>
+        /// Something outside put the player back in the world mid-glide — a rejoin placement
+        /// re-enabling the motor. It has already won the argument over where the body is, so the glide
+        /// is dropped rather than finished; only the eye height is put back, because a player walking
+        /// around with their eyes at chair height is the "stuck between" state wearing a different
+        /// face.
+        /// </summary>
+        private void AbandonSeatGlide()
+        {
+            glide = SeatGlide.None;
+            SetEyeHeight(CurrentEyeHeight);
+        }
+
+        private void BeginGlide(SeatGlide kind, Vector3 position, float eyeHeight, float yawOwed)
+        {
+            glide = kind;
+            glideFrom = transform.position;
+            glideTo = position;
+            glideFromEye = head != null ? head.localPosition.y : eyeHeight;
+            glideToEye = eyeHeight;
+            glideYawOwed = yawOwed;
+            glideYawPaid = 0f;
+            glideElapsed = 0f;
+
+            if (!CanGlide) FinishSeatGlide();
+        }
+
+        private void ApplyGlide(float amount)
+        {
+            transform.position = Vector3.LerpUnclamped(glideFrom, glideTo, amount);
+            SetEyeHeight(Mathf.LerpUnclamped(glideFromEye, glideToEye, amount));
+
+            // Turn by the share of the offset now due, never towards an absolute heading. ApplyLook has
+            // already written the player's own mouse movement into this same yaw earlier in the frame,
+            // and an absolute set would throw it away — the chair would fight the mouse and win. Paying
+            // down a running total keeps the two additive: look where you like on the way in, and the
+            // seat's quarter-turn still lands on top of it.
+            float due = glideYawOwed * amount;
+            if (Mathf.Approximately(due, glideYawPaid)) return;
+
+            transform.Rotate(Vector3.up, due - glideYawPaid, Space.World);
+            glideYawPaid = due;
+        }
+
+        private void SetEyeHeight(float height)
+        {
+            if (head != null) head.localPosition = new Vector3(0f, height, 0f);
+        }
+
+        /// <summary>
+        /// Smoothstep. A body starts and ends at rest, so both ends are eased; a linear slide reads as
+        /// the camera being dragged rather than as somebody sitting down.
+        /// </summary>
+        private static float Ease(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
         }
 
         /// <summary>
@@ -290,6 +442,13 @@ namespace Residue.Gameplay.World
 
         private void OnDisable()
         {
+            // Somebody has just taken the player: a screen, the pause menu, or the object going away.
+            // Update stops here, so an unfinished seat glide would be frozen halfway into a chair until
+            // whoever it was gave them back. Arrive instead — the destination is already committed, so
+            // this only ever skips the last of the travel. This is the same store-and-release discipline
+            // ItemInspectionView keeps on its own OnDisable: nothing may be left parked.
+            FinishSeatGlide();
+
             if (ManagesCursor) SetCursorLocked(false);
         }
 
@@ -307,7 +466,15 @@ namespace Residue.Gameplay.World
             // it back on — PlayerAvatar.PlaceRpc putting a rejoining player down — the seat has
             // already lost the argument, and the flag must not outlive it or the chair would go on
             // believing it holds somebody who has walked away.
-            if (IsSeated && controller.enabled) IsSeated = false;
+            if (IsSeated && controller.enabled)
+            {
+                IsSeated = false;
+                AbandonSeatGlide();
+            }
+
+            // Above the early return: the glide runs with the motor off, which is the whole of what
+            // being seated is.
+            AdvanceSeatGlide(Time.unscaledDeltaTime);
 
             // Everything below drives the CharacterController, and Unity logs an error per frame if
             // it is asked to move while disabled. It is disabled on purpose between spawning and
