@@ -238,6 +238,32 @@ namespace Residue.Data
             table["prompt.sign.lab"] = "LABOR";
             table["prompt.sign.store"] = "LAGER";
             table["prompt.sign.office"] = "BÜRO";
+            table["prompt.sign.kitchen"] = "KÜCHE";
+            // "WINDFANG" is the word on the drawing and the word anybody in the building would use;
+            // "VORRAUM" would be a translation of the English rather than the German for the thing.
+            table["prompt.sign.lobby"] = "WINDFANG";
+            table["prompt.sign.fire_exit"] = "NOTAUSGANG";
+
+            // -- Lockers -----------------------------------------------------------------------------
+
+            table["prompt.locker.open"] = "Spind öffnen";
+            table["prompt.locker.close"] = "Spind schließen";
+
+            // -- The lab coat ------------------------------------------------------------------------
+            //
+            // "Kittel" rather than "Laborkittel": the shorter word is what anybody in a German lab
+            // actually says, and the room it is hanging in leaves no doubt which kind it is.
+
+            table["prompt.coat.wear"] = "Kittel anziehen";
+            table["prompt.coat.hang"] = "Kittel aufhängen";
+            table["prompt.coat.worn"] = "Kittel an.";
+            table["prompt.coat.hung"] = "Kittel hängt wieder am Bügel.";
+
+            // -- Chairs ------------------------------------------------------------------------------
+
+            table["prompt.seat.sit"] = "Hinsetzen";
+            table["prompt.seat.taken"] = "Der Stuhl ist besetzt";
+            table["prompt.seat.seated"] = "Du sitzt. Zum Aufstehen einfach loslaufen.";
         }
     }
 }

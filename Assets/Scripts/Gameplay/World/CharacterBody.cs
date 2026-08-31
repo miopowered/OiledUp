@@ -45,6 +45,19 @@ namespace Residue.Gameplay.World
 
         [SerializeField] private float carryElbowBend = 55f;
 
+        /// <summary>
+        /// The pivot a garment hangs from.
+        /// <para>
+        /// Exposed rather than kept private because clothing is the one thing that has to attach to a
+        /// specific joint and cannot be inferred: parented here it inherits the torso's own sway, so a
+        /// coat moves with the walk cycle instead of floating alongside it. Nothing about wearing
+        /// belongs in this class — see <see cref="LabCoat"/>, which owns the whole of it — so what is
+        /// published is the socket, not a dress/undress pair this component would then have to
+        /// remember the state of.
+        /// </para>
+        /// </summary>
+        public Transform Torso => torso;
+
         private float phase;
         private float carryBlend;
         private float crouchBlend;

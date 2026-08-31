@@ -485,5 +485,54 @@ namespace Residue.Data
         public static readonly LocKey SignStore = new("prompt.sign.store", "STORE");
 
         public static readonly LocKey SignOffice = new("prompt.sign.office", "OFFICE");
+
+        public static readonly LocKey SignKitchen = new("prompt.sign.kitchen", "KITCHEN");
+
+        /// <summary>The draught lobby between the corridor and the outer door.</summary>
+        public static readonly LocKey SignLobby = new("prompt.sign.lobby", "LOBBY");
+
+        /// <summary>
+        /// The outer leaf, and the one plate that names the door rather than the room behind it —
+        /// because what is behind it is not modelled and never will be. This is the only door in the
+        /// building that does not open, and the caption is what explains that rather than leaving the
+        /// player pushing at it.
+        /// </summary>
+        public static readonly LocKey SignFireExit = new("prompt.sign.fire_exit", "FIRE EXIT");
+
+        // -- Lockers ----------------------------------------------------------------------------
+        //
+        // The bank at the dead end of the corridor. The door and what hangs inside it are two
+        // separate targets, so they get two sentences rather than one that has to cover both.
+
+        public static readonly LocKey LockerOpen = new("prompt.locker.open", "Open the locker");
+
+        public static readonly LocKey LockerClose = new("prompt.locker.close", "Close the locker");
+
+        // -- The lab coat -----------------------------------------------------------------------
+        //
+        // Nothing in the lab reads these lines as a condition. Wearing the coat is a beat, never a
+        // gate — see LabCoat for why that is a rule and not a shortcut.
+
+        public static readonly LocKey CoatWear = new("prompt.coat.wear", "Put the lab coat on");
+
+        public static readonly LocKey CoatHang = new("prompt.coat.hang", "Hang the lab coat up");
+
+        public static readonly LocKey CoatWorn = new("prompt.coat.worn", "Lab coat on.");
+
+        public static readonly LocKey CoatHung =
+            new("prompt.coat.hung", "Lab coat back on its hanger.");
+
+        // -- Chairs -----------------------------------------------------------------------------
+
+        public static readonly LocKey SeatSit = new("prompt.seat.sit", "Sit down");
+
+        public static readonly LocKey SeatTaken = new("prompt.seat.taken", "That chair is taken");
+
+        /// <summary>
+        /// Said once on sitting down. It names no key: standing up is any movement input, so the
+        /// sentence survives a rebind and a translator is not handed a bracket to leave alone.
+        /// </summary>
+        public static readonly LocKey SeatSeated =
+            new("prompt.seat.seated", "Seated. Move to stand up.");
     }
 }

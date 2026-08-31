@@ -133,6 +133,42 @@ namespace Residue.Editor.Build
         /// <summary>Where the north wall of the corridor sits, shared with the store and office.</summary>
         private const float PartyZ = 6.6f;
 
+        // -- The east wing: a break room and a way out --------------------------------------------
+        //
+        // Both hang off the east face of the corridor's south tail, and they are there because that
+        // is the only wall left in the building with a clear run and nothing standing against it.
+        // The corridor's other two ends are already dressed — a locker bank closes the south tail
+        // and a notice board closes the west end — the party wall is four openings deep, the lab's
+        // south wall is behind the instrument bench for its whole length, and the store's and
+        // office's own walls are full of shelving and cabinets. Cutting a door anywhere else means
+        // moving something that is already placed.
+        //
+        // Neither room builds a west wall. The corridor's east wall and the splayed pier behind it
+        // already close that side from z = -2.4 to 6.6, exactly as the dock leans on the lab's own
+        // west wall rather than growing a duplicate beside it.
+
+        /// <summary>Outer face of the corridor's east wall, and so the west face of both new rooms.</summary>
+        private const float EastWingWest = CorrEast + WallThickness;
+
+        private const float KitchenCeiling = 2.60f;
+        private const float KitchenEast = 10.6f;
+        private const float KitchenSouth = 2.0f;
+        private const float KitchenNorth = 5.4f;
+        private const float KitchenDoorZ = 4.0f;
+
+        // The Windfang: a draught lobby, an inner door off the corridor and an outer one to the
+        // weather, so the building never opens straight onto it. Lower again than the corridor —
+        // a lobby you step into and a corridor you walk down should not measure the same.
+        //
+        // Its north wall is the kitchen's south wall, built once by the kitchen. Its east wall
+        // carries the outer door, which is a SHUT leaf: there is no exterior modelled, and a hole
+        // to nowhere is worse than a door that does not open. See BuildExitDoorLeafMesh.
+        private const float LobbyCeiling = 2.40f;
+        private const float LobbyEast = KitchenEast;
+        private const float LobbySouth = -0.6f;
+        private const float LobbyNorth = KitchenSouth - WallThickness;
+        private const float LobbyDoorZ = 0.6f;
+
         private static readonly string[] MachineIds =
             { "cooling_curve", "karl_fischer", "viscometer", "centrifuge", "elemental" };
 
@@ -588,8 +624,15 @@ namespace Residue.Editor.Build
             const float deskX = RoomWidth * 0.5f - 1.1f;
             const float deskZ = 1.6f;
 
-            AddProp(root, "Buerostuhl_Terminal", SaveMesh(BuildTaskChairMesh()), palette,
+            var chair = AddProp(root, "Buerostuhl_Terminal", SaveMesh(BuildTaskChairMesh()), palette,
                 new Vector3(deskX - 0.18f, 0f, deskZ - 0.58f), 8f, addCollider: true);
+
+            // The chair is sittable. No wiring: LabSeat parks the player at its own transform, which
+            // is the chair's base centre facing +Z at zero yaw — so the 8 degrees of skew above turns
+            // the seated view with the chair, and moving the chair moves the seat and the spot you are
+            // put back down on. Its mesh collider is the target, so this needs no second one.
+            chair.AddComponent<LabSeat>();
+
             AddProp(root, "Ablagekorb_Terminal", SaveMesh(BuildLetterTrayMesh()), palette,
                 new Vector3(deskX + 0.54f, BenchHeight, deskZ + 0.24f), -9f, addCollider: false);
             AddProp(root, "Papiere_Terminal", SaveMesh(BuildPaperStackMesh()), palette,
@@ -957,6 +1000,8 @@ namespace Residue.Editor.Build
             AddStatic(shell, "Lager", SaveMesh(BuildStoreShell()), palette, Vector3.zero, true);
             AddStatic(shell, "Buero", SaveMesh(BuildOfficeShell()), palette, Vector3.zero, true);
             AddStatic(shell, "Verladehalle", SaveMesh(BuildDockShell()), palette, Vector3.zero, true);
+            AddStatic(shell, "Windfang", SaveMesh(BuildLobbyShell()), palette, Vector3.zero, true);
+            AddStatic(shell, "Kueche", SaveMesh(BuildKitchenShell()), palette, Vector3.zero, true);
 
             // Flur_Eckschraege is deliberately gone. The 45 degree corner used to be a rotated box
             // parented here, which is precisely how it came to sit inside the corner it was meant to
@@ -966,6 +1011,7 @@ namespace Residue.Editor.Build
 
             BuildOpeningTrim(shell, palette);
             BuildBuildingFixtures(shell, palette);
+            BuildEastWingAndOfficeFixtures(shell, palette);
             BuildBuildingLighting(lightRoot, palette, emissivePalette, bigLamp);
         }
 
@@ -995,6 +1041,11 @@ namespace Residue.Editor.Build
                 Opening.Door(OfficeDoorX), Opening.Window(OfficeWindowX)
             };
 
+            // The tail's east flank now serves the Windfang and the kitchen. Both openings are
+            // doors and no windows: everything east of this wall is on the outer envelope, and the
+            // building has no glazing in that at all (see WindowSill).
+            var east = new[] { Opening.Door(LobbyDoorZ), Opening.Door(KitchenDoorZ) };
+
             var b = new ProcMesh.Builder();
 
             AddSlab(b, CorrWest - t, CorrEast + t, CorrSouth, PartyZ, -t, 0f,
@@ -1018,7 +1069,7 @@ namespace Residue.Editor.Build
             // stops two walls claiming the same 0.2 x 0.2 post where they meet.
             AddWall(b, WallAxis.AlongZ, CorrWest - t * 0.5f, CorrSouth, CorrNorth, h, wall, step);
             AddWall(b, WallAxis.AlongX, PartyZ - t * 0.5f, CorrWest - t, SplayX, h, wall, step, north);
-            AddWall(b, WallAxis.AlongZ, CorrEast + t * 0.5f, TailSouth, SplayZ, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, CorrEast + t * 0.5f, TailSouth, SplayZ, h, wall, step, east);
             AddWall(b, WallAxis.AlongX, TailSouth - t * 0.5f, TailWest, CorrEast + t, h, wall, step);
 
             // The splayed corner. A pentagon, not a triangle: north of it is the office, which needs
@@ -1042,7 +1093,7 @@ namespace Residue.Editor.Build
             // stopping 0.2 m either side of it.
             AddSkirting(b, WallAxis.AlongX, CorrNorth, -1f, CorrWest, SplayX - 0.02f, north);
             AddSkirting(b, WallAxis.AlongZ, CorrWest, 1f, CorrSouth, CorrNorth);
-            AddSkirting(b, WallAxis.AlongZ, CorrEast, -1f, TailSouth, SplayZ - 0.02f);
+            AddSkirting(b, WallAxis.AlongZ, CorrEast, -1f, TailSouth, SplayZ - 0.02f, east);
             AddSkirting(b, WallAxis.AlongX, TailSouth, 1f, TailWest, CorrEast);
             AddDiagonalSkirting(b, new Vector2(SplayX, CorrNorth), new Vector2(CorrEast, SplayZ));
 
@@ -1073,11 +1124,17 @@ namespace Residue.Editor.Build
 
             var b = new ProcMesh.Builder();
 
-            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, -t, 0f,
+            // These stop at StoreEast, not StoreEast + t. The office owns the wall between the two
+            // rooms — it builds it, centred on StoreEast + t/2 — and the office's own slabs start at
+            // StoreEast to meet these. Running the store's floor, ceiling and roof the full thickness
+            // across put three plates through the middle of that wall and left their end faces exactly
+            // on its far side, which is a coplanar pair visible from the office as a band at floor and
+            // ceiling. The two rooms now tile the strip rather than both claiming it.
+            AddSlab(b, StoreWest - t, StoreEast, PartyZ, StoreNorth + t, -t, 0f,
                 PaletteUv.Family.NeutralCold, 3);
-            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, StoreCeiling, StoreCeiling + t,
+            AddSlab(b, StoreWest - t, StoreEast, PartyZ, StoreNorth + t, StoreCeiling, StoreCeiling + t,
                 PaletteUv.Family.NeutralCold, 9);
-            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, RoomHeight, RoomHeight + t,
+            AddSlab(b, StoreWest - t, StoreEast, PartyZ, StoreNorth + t, RoomHeight, RoomHeight + t,
                 PaletteUv.Family.NeutralCold, 4);
 
             // The X wall owns the north-west corner and stops at StoreEast, where the office's own
@@ -1196,6 +1253,109 @@ namespace Residue.Editor.Build
             return b.ToMesh("Lab_DockShell");
         }
 
+        /// <summary>
+        /// The break room, east of the corridor's south tail. The lab had a store, an office, a
+        /// corridor and a dock and nowhere at all to make a coffee, which is a strange thing for a
+        /// building four people work a shift in.
+        /// <para>
+        /// It owns the wall it shares with the Windfang below it — one solid between the two rooms,
+        /// rather than each growing a 0.2 m wall of its own with a 0.2 m slot left between them. Its
+        /// west side is the corridor's east wall, which already runs from z -2.4 to 5.2 and is
+        /// carried on north by the splayed pier, so the kitchen's north-west corner butts solid
+        /// geometry rather than opening onto the void above the chamfer.
+        /// </para>
+        /// Warmer walls and a higher ceiling than the Windfang, lower than the lab: with no textures
+        /// to change, height and palette step are the only two levers for telling one room from
+        /// another, and a break room should read as the softest space in the building.
+        /// </summary>
+        private static Mesh BuildKitchenShell()
+        {
+            const float t = WallThickness, h = RoomHeight;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralWarm;
+            const int step = 11;
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, EastWingWest, KitchenEast + t, KitchenSouth - t, KitchenNorth + t, -t, 0f,
+                PaletteUv.Family.NeutralCold, 7);
+
+            // The dropped ceiling stops on the walls' INNER faces, not their outer ones. Floor and
+            // roof can run the full footprint because they sit below and above the walls and only
+            // ever touch them; a dropped ceiling sits at a height the walls are still solid at, so a
+            // slab carried through to the outer face is a slab buried in three walls.
+            AddSlab(b, EastWingWest, KitchenEast, KitchenSouth, KitchenNorth,
+                KitchenCeiling, KitchenCeiling + t, PaletteUv.Family.NeutralCold, 9);
+
+            // The roof over the services void. The walls run to RoomHeight and the ceiling stops at
+            // KitchenCeiling, so without this the room is lit and open at the top at the same time.
+            AddSlab(b, EastWingWest, KitchenEast + t, KitchenSouth - t, KitchenNorth + t,
+                RoomHeight, RoomHeight + t, PaletteUv.Family.NeutralCold, 4);
+
+            // Same convention as every other room here: the walls along X own both corners and carry
+            // through to the outer faces, the wall along Z stops against their inner faces.
+            AddWall(b, WallAxis.AlongX, KitchenSouth - t * 0.5f, EastWingWest, KitchenEast + t, h, wall, step);
+            AddWall(b, WallAxis.AlongX, KitchenNorth + t * 0.5f, EastWingWest, KitchenEast + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, KitchenEast + t * 0.5f, KitchenSouth, KitchenNorth, h, wall, step);
+
+            AddSkirting(b, WallAxis.AlongX, KitchenSouth, 1f, EastWingWest, KitchenEast);
+            AddSkirting(b, WallAxis.AlongX, KitchenNorth, -1f, EastWingWest, KitchenEast);
+            AddSkirting(b, WallAxis.AlongZ, KitchenEast, -1f, KitchenSouth, KitchenNorth);
+            // Against the corridor's east face, built from this side for the same reason the corridor
+            // skirts the lab's walls rather than the lab growing trim it did not ask for.
+            AddSkirting(b, WallAxis.AlongZ, EastWingWest, 1f, KitchenSouth, KitchenNorth,
+                Opening.Door(KitchenDoorZ));
+
+            // One beam, placed between the table and the run so it lands on neither.
+            AddBeam(b, WallAxis.AlongX, 3.7f, EastWingWest, KitchenEast, KitchenCeiling);
+
+            return b.ToMesh("Lab_KitchenShell");
+        }
+
+        /// <summary>
+        /// The Windfang: a draught lobby between the corridor and the outside, so the building never
+        /// opens straight onto the weather.
+        /// <para>
+        /// <b>It is an exit that does not open, deliberately.</b> There is no exterior world modelled
+        /// and a hole in the envelope is the player walking out of the building into nothing, so the
+        /// outer door is a shut leaf with a collider filling its whole clear aperture — see
+        /// <see cref="BuildExitDoorLeafMesh"/>. A vestibule is exactly the shape that lets the
+        /// building read as having a front door without ever having to model what is beyond it: you
+        /// can stand in the lobby, and the thing you cannot pass is one door further out than the one
+        /// you just came through.
+        /// </para>
+        /// It builds no north wall — that is the kitchen's south wall — and no west wall, which is
+        /// the corridor's east wall. Its ceiling is the lowest in the building.
+        /// </summary>
+        private static Mesh BuildLobbyShell()
+        {
+            const float t = WallThickness, h = RoomHeight;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralCold;
+            const int step = 5;
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, EastWingWest, LobbyEast + t, LobbySouth - t, LobbyNorth, -t, 0f,
+                PaletteUv.Family.Sump, 6);
+            // Inner faces, for the reason BuildKitchenShell gives.
+            AddSlab(b, EastWingWest, LobbyEast, LobbySouth, LobbyNorth,
+                LobbyCeiling, LobbyCeiling + t, PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, EastWingWest, LobbyEast + t, LobbySouth - t, LobbyNorth,
+                RoomHeight, RoomHeight + t, PaletteUv.Family.NeutralCold, 4);
+
+            AddWall(b, WallAxis.AlongX, LobbySouth - t * 0.5f, EastWingWest, LobbyEast + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, LobbyEast + t * 0.5f, LobbySouth, LobbyNorth, h, wall, step,
+                Opening.Door(LobbyDoorZ));
+
+            AddSkirting(b, WallAxis.AlongX, LobbySouth, 1f, EastWingWest, LobbyEast);
+            AddSkirting(b, WallAxis.AlongX, LobbyNorth, -1f, EastWingWest, LobbyEast);
+            AddSkirting(b, WallAxis.AlongZ, LobbyEast, -1f, LobbySouth, LobbyNorth,
+                Opening.Door(LobbyDoorZ));
+            AddSkirting(b, WallAxis.AlongZ, EastWingWest, 1f, LobbySouth, LobbyNorth,
+                Opening.Door(LobbyDoorZ));
+
+            return b.ToMesh("Lab_LobbyShell");
+        }
+
         // -- Openings: reveals, sills and signage -------------------------------------------------
 
         private static void BuildOpeningTrim(GameObject parent, Material palette)
@@ -1208,6 +1368,8 @@ namespace Residue.Editor.Build
             const float labNorth = RoomDepth * 0.5f + WallThickness * 0.5f;
             const float labEast = RoomWidth * 0.5f + WallThickness * 0.5f;
             const float partyWall = PartyZ - WallThickness * 0.5f;
+            const float tailEast = CorrEast + WallThickness * 0.5f;
+            const float lobbyOuter = LobbyEast + WallThickness * 0.5f;
 
             // Both lab doors say LABORATORY: they are the two ways into the same room, and a sign that
             // named the door rather than the room behind it would be furniture pretending to be
@@ -1224,6 +1386,27 @@ namespace Residue.Editor.Build
             AddFramedDoor(parent, palette, doorFrame, sign, "Buero",
                 WallAxis.AlongX, partyWall, OfficeDoorX, OfficeDoorX + 0.92f, -1f,
                 PromptStrings.SignOffice);
+
+            // The east wing. Both plates go on the corridor side, which is the only side either door
+            // is ever approached from, and both name the room behind them rather than the door.
+            AddFramedDoor(parent, palette, doorFrame, sign, "Kueche",
+                WallAxis.AlongZ, tailEast, KitchenDoorZ, KitchenDoorZ - 0.92f, -1f,
+                PromptStrings.SignKitchen);
+            AddFramedDoor(parent, palette, doorFrame, sign, "Windfang",
+                WallAxis.AlongZ, tailEast, LobbyDoorZ, LobbyDoorZ - 0.92f, -1f,
+                PromptStrings.SignLobby);
+
+            // The outer door. It says what it is rather than what is behind it, because what is
+            // behind it is the only thing in the building the player is never allowed to reach — and
+            // NOTAUSGANG on a barred leaf is the explanation, not a taunt.
+            AddFramedDoor(parent, palette, doorFrame, sign, "Windfang_Aussen",
+                WallAxis.AlongZ, lobbyOuter, LobbyDoorZ, LobbyDoorZ + 0.92f, -1f,
+                PromptStrings.SignFireExit);
+
+            // And the leaf that fills it. Structural, not dressing: it is what keeps the outer
+            // envelope closed, so it lives with the opening rather than with the furniture.
+            AddProp(parent, "Tuerblatt_Windfang_Aussen", SaveMesh(BuildExitDoorLeafMesh()), palette,
+                new Vector3(lobbyOuter, 0f, LobbyDoorZ), 0f, addCollider: true);
 
             AddFramedWindow(parent, palette, windowFrame, "Labor_Ost",
                 WallAxis.AlongZ, labEast, LabEastWindowZ);
@@ -1329,6 +1512,69 @@ namespace Residue.Editor.Build
                 .ToMesh("Lab_WindowFrame");
         }
 
+        /// <summary>
+        /// The shut leaf in the Windfang's outer door — the one thing standing between the player and
+        /// a hole in the outer envelope.
+        /// <para>
+        /// It fills the lining's <i>whole</i> clear aperture: 1.20 wide by 2.13 high, running from the
+        /// top of the threshold strip to the underside of the head, with a 14 mm meeting stile
+        /// closing the joint between the two leaves. A 5 mm gap anywhere here is a slot the player can
+        /// see the unmodelled outside through, which is the entire failure this leaf exists to
+        /// prevent, so every dimension below is derived from <see cref="BuildDoorFrameMesh"/> rather
+        /// than eyeballed.
+        /// </para>
+        /// <para>
+        /// The bar across it is the answer to "why can I not go out?". A fire exit barred on the
+        /// inside is a building telling you where the door is and that it is not for you, which is a
+        /// better answer than a door that simply refuses to move.
+        /// </para>
+        /// Authored in final world orientation — thickness along X, width along Z — because the wall
+        /// it closes runs along Z and <c>ProcMesh</c> has no rotation.
+        /// </summary>
+        private static Mesh BuildExitDoorLeafMesh()
+        {
+            const float clear = DoorStructWidth - DoorFrameDepth * 2f;   // 1.20, the aperture width
+            const float head = DoorStructHeight - DoorFrameDepth;        // 2.15, underside of the head
+            const float sill = 0.02f;                                    // top of the threshold strip
+            const float stile = 0.014f;
+
+            const float leaf = (clear - stile) * 0.5f;
+            const float centre = (stile + leaf) * 0.5f;
+            const float height = head - sill;
+            const float midY = (head + sill) * 0.5f;
+
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, midY, 0f), new Vector3(0.07f, height, stile),
+                    PaletteUv.Family.Steel, 6);
+
+            foreach (float side in new[] { -1f, 1f })
+            {
+                float z = side * centre;
+
+                b.Box(new Vector3(0f, midY, z), new Vector3(0.06f, height, leaf),
+                    PaletteUv.Family.NeutralCold, 6);
+
+                // Kick plate, push bar and its two stubs all stand proud of the inside face only, so
+                // no two solids in here share a millimetre with the leaf or with each other.
+                b.Box(new Vector3(-0.037f, sill + 0.15f, z), new Vector3(0.014f, 0.30f, leaf - 0.05f),
+                    PaletteUv.Family.Steel, 8);
+                b.Box(new Vector3(-0.075f, 1.05f, z), new Vector3(0.05f, 0.06f, leaf - 0.09f),
+                    PaletteUv.Family.Steel, 7);
+
+                foreach (float offset in new[] { -0.18f, 0.18f })
+                {
+                    b.Box(new Vector3(-0.04f, 1.05f, z + offset), new Vector3(0.02f, 0.05f, 0.05f),
+                        PaletteUv.Family.Steel, 5);
+                }
+            }
+
+            // Stops 10 mm short of each jamb lining, which is the only reason it is not 1.20 long.
+            b.Box(new Vector3(-0.075f, 1.55f, 0f), new Vector3(0.05f, 0.09f, clear - 0.02f),
+                PaletteUv.Family.Steel, 4);
+
+            return b.ToMesh("Lab_ExitDoorLeaf");
+        }
+
         // -- Furniture ----------------------------------------------------------------------------
 
         /// <summary>
@@ -1341,12 +1587,16 @@ namespace Residue.Editor.Build
             var props = new GameObject("Einbauten");
             props.transform.SetParent(parent.transform, false);
 
-            var locker = SaveMesh(new ProcMesh.Builder()
-                .Box(new Vector3(0f, 0.95f, 0f), new Vector3(0.40f, 1.90f, 0.48f), PaletteUv.Family.Steel, 6)
-                .Box(new Vector3(0f, 1.30f, 0.25f), new Vector3(0.03f, 0.18f, 0.02f), PaletteUv.Family.Sump, 4)
-                .Box(new Vector3(0f, 1.80f, 0.25f), new Vector3(0.24f, 0.09f, 0.012f),
-                    PaletteUv.Family.DeepBlue, 9)
-                .ToMesh("Lab_Locker"));
+            var locker = SaveMesh(BuildLockerCarcassMesh());
+            var lockerDoor = SaveMesh(BuildLockerDoorMesh());
+            var lockerBox = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.06f, 0f), new Vector3(0.24f, 0.12f, 0.20f),
+                    PaletteUv.Family.NeutralWarm, 9)
+                .Box(new Vector3(0f, 0.06f, 0f), new Vector3(0.25f, 0.024f, 0.21f),
+                    PaletteUv.Family.Sump, 4)
+                .ToMesh("Lab_LockerBox"));
+            var coatHanger = SaveMesh(BuildCoatHangerMesh());
+            var labCoat = SaveMesh(BuildLabCoatMesh());
 
             var crate = SaveMesh(new ProcMesh.Builder()
                 .Box(new Vector3(0f, 0.22f, 0f), new Vector3(0.58f, 0.44f, 0.58f),
@@ -1370,10 +1620,19 @@ namespace Residue.Editor.Build
 
             // Corridor: a locker bank closing the dead end of the south leg, and a notice board at
             // the west one, so neither end of the corridor is a blank wall you walk up to.
-            foreach (float x in new[] { 5.75f, 6.20f, 6.65f, 7.10f })
+            //
+            // The doors open now, and one of them has the lab coat in it. Which one is arbitrary and
+            // hardcoded rather than random: the scene is a build artefact and has to come out the same
+            // on every machine, and "search all four" is a game the lockers are not worth.
+            const int CoatLocker = 1;
+            var lockerXs = new[] { 5.75f, 6.20f, 6.65f, 7.10f };
+
+            for (int i = 0; i < lockerXs.Length; i++)
             {
-                AddProp(props, $"Spind_{x:0.00}", locker, palette,
-                    new Vector3(x, 0f, TailSouth + 0.24f), 0f, addCollider: true);
+                AddLocker(props, palette, $"Spind_{lockerXs[i]:0.00}",
+                    new Vector3(lockerXs[i], 0f, TailSouth + 0.24f),
+                    locker, lockerDoor, lockerBox, coatHanger,
+                    i == CoatLocker ? labCoat : null);
             }
 
             AddProp(props, "Anschlagtafel_Flur", board, palette,
@@ -1431,6 +1690,199 @@ namespace Residue.Editor.Build
             AddProp(props, "Fass_Halle_C", drum, palette, new Vector3(-6.20f, 0f, 3.70f), 0f, addCollider: true);
         }
 
+        // -- Lockers ------------------------------------------------------------------------------
+        //
+        // Locker geometry in one place, because five numbers are shared between the carcass, the leaf
+        // and the transforms that hinge it, and a door that is 4 mm out of its own hole is a bug you
+        // find by walking up to it.
+
+        private const float LockerWidth = 0.44f;
+        private const float LockerHeight = 1.90f;
+        private const float LockerDepth = 0.48f;
+        private const float LockerPanel = 0.02f;
+
+        /// <summary>Inside face to inside face, less 2 mm so no internal panel is coplanar with a side.</summary>
+        private const float LockerInner = LockerWidth - 2f * LockerPanel - 0.004f;
+
+        /// <summary>Where the hinge line sits in the carcass, and where the leaf's own origin goes.</summary>
+        private const float LockerHingeX = -(LockerWidth * 0.5f - 0.002f);
+
+        private const float LockerLeafWidth = LockerWidth - 0.004f;
+        private const float LockerLeafThickness = 0.018f;
+
+        /// <summary>Leaf centre plane: its back face lands exactly on the carcass front face.</summary>
+        private const float LockerLeafZ = LockerDepth * 0.5f + LockerLeafThickness * 0.5f;
+
+        /// <summary>
+        /// One locker: a carcass with the front open, a leaf on a hinge, and either a coat on a hanger
+        /// or a box on the hat shelf.
+        /// <para>
+        /// <b>Two colliders, on two objects.</b> Opening the door and taking the coat are two verbs,
+        /// and <see cref="Interactable.HoldSeconds"/> — and the prompt, and whether either is reachable
+        /// at all — belong to whichever the ray hit. This is the arrangement <c>CartonProp</c> and
+        /// <c>CartonLid</c> already carry a comment about: one collider spanning both would answer
+        /// first every time and the coat could never be reached. The carcass's own <c>MeshCollider</c>
+        /// is a third, and it is the reason this works at all — it is built from panels with no front
+        /// face, so once the leaf has swung aside the ray goes straight in.
+        /// </para>
+        /// The leaf and the coat are added with <see cref="AddChild"/> rather than
+        /// <see cref="AddStatic"/>: both move, and batching-static geometry that turns is baked in the
+        /// pose it was authored in.
+        /// </summary>
+        private static void AddLocker(GameObject parent, Material palette, string name,
+                                      Vector3 position, Mesh carcass, Mesh door, Mesh shelfBox,
+                                      Mesh hanger, Mesh coat)
+        {
+            var root = AddProp(parent, name, carcass, palette, position, 0f, addCollider: true);
+
+            var leaf = AddChild(root, "Tuer", door, palette,
+                new Vector3(LockerHingeX, 0f, LockerLeafZ), addCollider: false);
+
+            // A box rather than the leaf's own mesh: this collider turns every time the door is used,
+            // and a BoxCollider is the cheap shape to move. Sized a little proud of the panel in z so
+            // the handle standing off the face is inside it and the whole door is one target.
+            var leafCollider = leaf.AddComponent<BoxCollider>();
+            leafCollider.center = new Vector3(LockerLeafWidth * 0.5f, 0.95f, 0.006f);
+            leafCollider.size = new Vector3(LockerLeafWidth, 1.86f, 0.05f);
+            leaf.AddComponent<LockerDoor>();
+
+            if (coat == null)
+            {
+                // The other three are not empty. A locker you open onto nothing reads as a locker that
+                // failed to open.
+                AddChild(root, "Kiste", shelfBox, palette, new Vector3(0f, 1.54f, 0.02f),
+                    addCollider: false);
+                return;
+            }
+
+            var hangerGo = AddChild(root, "Buegel", hanger, palette, new Vector3(0f, 1.42f, 0f),
+                addCollider: false);
+
+            // The reach: aimed at the coat's own volume rather than at the 1 cm bar, and left in place
+            // when the coat leaves so there is still something to aim at to hang it back up.
+            var reach = hangerGo.AddComponent<BoxCollider>();
+            reach.center = new Vector3(0f, -0.42f, 0f);
+            reach.size = new Vector3(0.40f, 0.82f, 0.30f);
+
+            var garment = AddChild(hangerGo, "Kittel", coat, palette, new Vector3(0f, -0.02f, 0f),
+                addCollider: false);
+
+            var wardrobe = hangerGo.AddComponent<LabCoat>();
+            var so = new SerializedObject(wardrobe);
+            so.FindProperty("garment").objectReferenceValue = garment.transform;
+            so.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        /// <summary>
+        /// The carcass: five panels and the fittings, with the +Z face left open for the door.
+        /// <para>
+        /// It was a solid box until the doors opened, and a solid box has no inside for anything to be
+        /// in. Every panel stops short of the one it meets rather than running through it, so no two
+        /// solids share volume and no two faces are coplanar — the failure this file has already been
+        /// through once with the room shells, and which shows up as shimmer rather than as an error.
+        /// </para>
+        /// Keeps the name <c>Lab_Locker</c> so <see cref="SaveMesh"/> updates the existing asset in
+        /// place and its GUID survives.
+        /// </summary>
+        private static Mesh BuildLockerCarcassMesh()
+        {
+            const float w = LockerWidth, h = LockerHeight, d = LockerDepth, t = LockerPanel;
+            const float inner = LockerInner;
+
+            return new ProcMesh.Builder()
+                .Box(new Vector3(-(w - t) * 0.5f, h * 0.5f, 0f), new Vector3(t, h, d),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3((w - t) * 0.5f, h * 0.5f, 0f), new Vector3(t, h, d),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, t * 0.5f, 0f), new Vector3(inner, t, d),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, h - t * 0.5f, 0f), new Vector3(inner, t, d),
+                    PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, h * 0.5f, -(d - t) * 0.5f),
+                    new Vector3(inner, h - 2f * t - 0.004f, t), PaletteUv.Family.Steel, 4)
+                // Hat shelf and the rail under it.
+                .Box(new Vector3(0f, 1.53f, 0.01f), new Vector3(inner, t, d - t),
+                    PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, 1.47f, 0f), new Vector3(inner, 0.016f, 0.016f),
+                    PaletteUv.Family.Steel, 3)
+                .ToMesh("Lab_Locker");
+        }
+
+        /// <summary>
+        /// The door leaf, authored with its hinge at the mesh origin and the panel running out along
+        /// +X. <see cref="ProcMesh"/> has no rotation, so a hinge has to be a transform — which means
+        /// the geometry is offset instead of the pivot.
+        /// <para>
+        /// The handle and the name card came off the carcass and onto the leaf, because they are on
+        /// the part that moves.
+        /// </para>
+        /// </summary>
+        private static Mesh BuildLockerDoorMesh()
+        {
+            const float lw = LockerLeafWidth, lt = LockerLeafThickness;
+            float face = lt * 0.5f;
+
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(lw * 0.5f, 0.95f, 0f), new Vector3(lw, 1.86f, lt),
+                    PaletteUv.Family.Steel, 7);
+
+            // Ventilation slots, high on the leaf where a real locker has them.
+            for (int i = 0; i < 4; i++)
+            {
+                b.Box(new Vector3(lw * 0.5f, 1.60f + i * 0.05f, face + 0.003f),
+                    new Vector3(0.24f, 0.012f, 0.006f), PaletteUv.Family.Sump, 3);
+            }
+
+            // Handle near the free edge, and the name card above it.
+            b.Box(new Vector3(lw - 0.07f, 1.30f, face + 0.011f), new Vector3(0.03f, 0.18f, 0.022f),
+                PaletteUv.Family.Sump, 4);
+            b.Box(new Vector3(lw * 0.5f, 1.80f, face + 0.006f), new Vector3(0.24f, 0.09f, 0.012f),
+                PaletteUv.Family.DeepBlue, 9);
+
+            return b.ToMesh("Lab_LockerDoor");
+        }
+
+        /// <summary>A wire hanger: a bar and the hook that puts it over the rail.</summary>
+        private static Mesh BuildCoatHangerMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, -0.006f, 0f), new Vector3(0.30f, 0.012f, 0.012f),
+                    PaletteUv.Family.Steel, 8)
+                .Box(new Vector3(0f, 0.028f, 0f), new Vector3(0.008f, 0.056f, 0.008f),
+                    PaletteUv.Family.Steel, 8)
+                .ToMesh("Lab_CoatHanger");
+
+        /// <summary>
+        /// The coat, authored hanging from its own shoulder line at the mesh origin. That origin is
+        /// what lets one mesh read correctly in two places — on a hanger, and on
+        /// <see cref="CharacterBody.Torso"/>, whose pivot is 0.46 m below the shoulders.
+        /// <para>
+        /// No sleeves. The arms swing 22 degrees off a joint the coat cannot follow, so a sleeve would
+        /// spend the whole walk cycle inside the arm it covers; a shoulder line and a body is what
+        /// reads as a lab coat at this fidelity anyway. Off-white through
+        /// <see cref="PaletteUv.Family.NeutralCold"/> at its lightest step — never row 4.
+        /// </para>
+        /// It is 0.38 m across, which fits both the 0.40 m clear width inside a locker and the 0.36 m
+        /// torso it has to cover.
+        /// </summary>
+        private static Mesh BuildLabCoatMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, -0.022f, -0.01f), new Vector3(0.22f, 0.045f, 0.20f),
+                    PaletteUv.Family.NeutralCold, 13)
+                .Box(new Vector3(0f, -0.10f, 0f), new Vector3(0.38f, 0.14f, 0.26f),
+                    PaletteUv.Family.NeutralCold, 15)
+                .Box(new Vector3(0f, -0.38f, 0f), new Vector3(0.34f, 0.44f, 0.24f),
+                    PaletteUv.Family.NeutralCold, 15)
+                .Box(new Vector3(0f, -0.695f, 0f), new Vector3(0.36f, 0.21f, 0.26f),
+                    PaletteUv.Family.NeutralCold, 14)
+                // Placket and pockets, standing proud of both the body and the flared skirt.
+                .Box(new Vector3(0f, -0.40f, 0.136f), new Vector3(0.04f, 0.62f, 0.012f),
+                    PaletteUv.Family.NeutralCold, 11)
+                .Box(new Vector3(-0.10f, -0.62f, 0.132f), new Vector3(0.10f, 0.10f, 0.010f),
+                    PaletteUv.Family.NeutralCold, 12)
+                .Box(new Vector3(0.10f, -0.62f, 0.132f), new Vector3(0.10f, 0.10f, 0.010f),
+                    PaletteUv.Family.NeutralCold, 12)
+                .ToMesh("Lab_LabCoat");
+
         private static Mesh BuildShelvingMesh()
         {
             const float w = 1.80f, d = 0.46f, h = 2.00f;
@@ -1487,6 +1939,522 @@ namespace Residue.Editor.Build
             go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
             return go;
         }
+
+        // -- The east wing's fittings, and the office's promotion ---------------------------------
+
+        // Where the office desk stands. Mirrored from BuildBuildingFixtures rather than shared with
+        // it, because that method belongs to another change in flight and this one must not reach
+        // into it. If the desk ever moves, the lamp and the name plate move with these two numbers.
+        private const float OfficeDeskX = 4.40f;
+        private const float OfficeDeskZ = NookNorth - 0.42f;
+        private const float OfficeDeskTop = 0.745f;
+
+        /// <summary>Centre of the kitchen run, so the loose worktop props can be placed off it.</summary>
+        private const float KitchenRunX = 8.76f;
+        private const float KitchenRunZ = KitchenNorth - 0.31f;
+
+        /// <summary>
+        /// Fittings for the two new rooms, and the furniture that turns the office from a spare desk
+        /// into somebody's office.
+        /// <para>
+        /// Separate from <see cref="BuildBuildingFixtures"/> deliberately, and it takes nothing away
+        /// from it: the office desk, its two filing cabinets and the pinboard all stay exactly where
+        /// that method puts them, and every position below was measured around them. What the office
+        /// was missing was not furniture but rank — a chair behind the desk, chairs in front of it to
+        /// be sat in by somebody being talked to, a table to hold a meeting at, a sideboard, a wall
+        /// with something on it. Seniority in a room is who else the room expects.
+        /// </para>
+        /// One <c>Lab_SideChair</c> serves the meeting table, the visitor positions and the break
+        /// room, because a building buys one chair.
+        /// </summary>
+        private static void BuildEastWingAndOfficeFixtures(GameObject parent, Material palette)
+        {
+            var chair = SaveMesh(BuildSideChairMesh());
+
+            BuildKitchenFixtures(parent, palette, chair);
+            BuildLobbyFixtures(parent, palette);
+            BuildManagerOfficeFixtures(parent, palette, chair);
+        }
+
+        private static void BuildKitchenFixtures(GameObject parent, Material palette, Mesh chair)
+        {
+            var props = new GameObject("Einbauten_Kueche");
+            props.transform.SetParent(parent.transform, false);
+
+            var cupboard = SaveMesh(BuildWallCupboardMesh());
+            var mug = SaveMesh(BuildMugMesh());
+
+            // The run against the north wall, worktop at the 0.9 m the style contract fixes for a
+            // bench — the same height as the lab's, because it is the same joinery.
+            AddProp(props, "Kuechenzeile", SaveMesh(BuildKitchenRunMesh()), palette,
+                new Vector3(KitchenRunX, 0f, KitchenRunZ), 0f, addCollider: true);
+
+            AddProp(props, "Haengeschrank_West", cupboard, palette,
+                new Vector3(8.15f, 0f, KitchenNorth - 0.17f), 0f, addCollider: true);
+            AddProp(props, "Haengeschrank_Ost", cupboard, palette,
+                new Vector3(9.15f, 0f, KitchenNorth - 0.17f), 0f, addCollider: true);
+
+            AddProp(props, "Kuehlschrank", SaveMesh(BuildFridgeMesh()), palette,
+                new Vector3(10.25f, 0f, KitchenNorth - 0.31f), 0f, addCollider: true);
+
+            // Table in the middle with a chair on each side. Four seats because a shift is up to
+            // four people and a break room with three is a break room somebody stands up in.
+            AddProp(props, "Kuechentisch", SaveMesh(BuildBreakTableMesh()), palette,
+                new Vector3(9.20f, 0f, 3.00f), 0f, addCollider: true);
+
+            AddProp(props, "Kuechenstuhl_Sued", chair, palette,
+                new Vector3(9.20f, 0f, 2.35f), 0f, addCollider: true);
+            AddProp(props, "Kuechenstuhl_Nord", chair, palette,
+                new Vector3(9.20f, 0f, 3.65f), 180f, addCollider: true);
+            AddProp(props, "Kuechenstuhl_West", chair, palette,
+                new Vector3(8.35f, 0f, 3.00f), 90f, addCollider: true);
+            AddProp(props, "Kuechenstuhl_Ost", chair, palette,
+                new Vector3(10.05f, 0f, 3.00f), -90f, addCollider: true);
+
+            AddProp(props, "Abfalleimer", SaveMesh(BuildBinMesh()), palette,
+                new Vector3(7.85f, 0f, 2.35f), 0f, addCollider: true);
+
+            // On the worktop. No colliders: these are the things a hand would move, and giving a
+            // 9 cm mug a collider only means bumping into it.
+            AddProp(props, "Kaffeemaschine", SaveMesh(BuildCoffeeMachineMesh()), palette,
+                new Vector3(9.55f, BenchHeight, 5.12f), 0f, addCollider: false);
+            AddProp(props, "Wasserkocher", SaveMesh(BuildKettleMesh()), palette,
+                new Vector3(9.05f, BenchHeight, 5.15f), 0f, addCollider: false);
+            AddProp(props, "Tasse_A", mug, palette,
+                new Vector3(8.82f, BenchHeight, 5.02f), 20f, addCollider: false);
+            AddProp(props, "Tasse_B", mug, palette,
+                new Vector3(8.64f, BenchHeight, 5.02f), -140f, addCollider: false);
+
+            // The clock. A break room is the one room in the building where the time on the wall is
+            // the point of the room.
+            AddProp(props, "Wanduhr", SaveMesh(BuildWallClockMesh()), palette,
+                new Vector3(EastWingWest + 0.03f, 2.05f, 2.90f), 90f, addCollider: false);
+        }
+
+        private static void BuildLobbyFixtures(GameObject parent, Material palette)
+        {
+            var props = new GameObject("Einbauten_Windfang");
+            props.transform.SetParent(parent.transform, false);
+
+            // A grating mat under the outer door, a bench along the south wall and somewhere to put
+            // a wet umbrella. Three props is all a draught lobby is: the room is the point, not the
+            // furniture in it.
+            AddProp(props, "Fussmatte", SaveMesh(BuildEntranceMatMesh()), palette,
+                new Vector3(9.85f, 0f, LobbyDoorZ), 0f, addCollider: false);
+            AddProp(props, "Sitzbank", SaveMesh(BuildLobbyBenchMesh()), palette,
+                new Vector3(8.90f, 0f, LobbySouth + 0.20f), 0f, addCollider: true);
+            AddProp(props, "Schirmstaender", SaveMesh(BuildUmbrellaStandMesh()), palette,
+                new Vector3(7.90f, 0f, LobbySouth + 0.25f), 0f, addCollider: true);
+        }
+
+        private static void BuildManagerOfficeFixtures(GameObject parent, Material palette, Mesh chair)
+        {
+            var props = new GameObject("Einbauten_Chefbuero");
+            props.transform.SetParent(parent.transform, false);
+
+            var print = SaveMesh(BuildFramedPrintMesh());
+
+            // Behind the desk, and it is the single biggest change in the room: a swivel chair with
+            // arms and a headrest says somebody sits there all day and it is theirs.
+            AddProp(props, "Chefsessel", SaveMesh(BuildExecutiveChairMesh()), palette,
+                new Vector3(OfficeDeskX, 0f, 10.45f), 0f, addCollider: true);
+
+            // And two in front of it, facing back. Chairs on the visitor's side are what turn a desk
+            // into a place decisions are handed down at.
+            AddProp(props, "Besucherstuhl_West", chair, palette,
+                new Vector3(3.80f, 0f, 9.95f), 0f, addCollider: true);
+            AddProp(props, "Besucherstuhl_Ost", chair, palette,
+                new Vector3(5.00f, 0f, 9.95f), 0f, addCollider: true);
+
+            AddProp(props, "Schreibtischlampe", SaveMesh(BuildDeskLampMesh()), palette,
+                new Vector3(OfficeDeskX + 0.55f, OfficeDeskTop, OfficeDeskZ + 0.12f), 0f,
+                addCollider: false);
+            AddProp(props, "Namensschild", SaveMesh(BuildNamePlateMesh()), palette,
+                new Vector3(OfficeDeskX - 0.45f, OfficeDeskTop, OfficeDeskZ - 0.26f), 0f,
+                addCollider: false);
+
+            // A round table clear of the cabinets, with three chairs round it.
+            AddProp(props, "Besprechungstisch", SaveMesh(BuildMeetingTableMesh()), palette,
+                new Vector3(5.70f, 0f, 8.05f), 0f, addCollider: true);
+            AddProp(props, "Besprechungsstuhl_Sued", chair, palette,
+                new Vector3(5.70f, 0f, 7.15f), 0f, addCollider: true);
+            AddProp(props, "Besprechungsstuhl_West", chair, palette,
+                new Vector3(4.80f, 0f, 8.05f), 90f, addCollider: true);
+            AddProp(props, "Besprechungsstuhl_Nord", chair, palette,
+                new Vector3(5.70f, 0f, 8.95f), 180f, addCollider: true);
+
+            var credenza = AddProp(props, "Sideboard", SaveMesh(BuildCredenzaMesh()), palette,
+                new Vector3(2.18f, 0f, OfficeNorth - 0.24f), 0f, addCollider: true);
+            AddProp(props, "Ordnerstapel", SaveMesh(BuildBinderStackMesh()), palette,
+                new Vector3(2.60f, 0.77f, credenza.transform.localPosition.z), 0f, addCollider: false);
+
+            AddProp(props, "Ordnerregal", SaveMesh(BuildBinderShelfMesh()), palette,
+                new Vector3(6.60f, 0f, OfficeNorth - 0.18f), 0f, addCollider: true);
+
+            // Under the middle of the room rather than under the desk: every leg in here would
+            // otherwise stand in it, and a chair sunk 14 mm into a rug is the kind of thing that
+            // reads as a modelling fault rather than as furnishing.
+            AddProp(props, "Teppich", SaveMesh(BuildOfficeRugMesh()), palette,
+                new Vector3(3.60f, 0f, 8.90f), 0f, addCollider: false);
+
+            AddProp(props, "Bild_Sued", print, palette,
+                new Vector3(OfficeWest + 0.03f, 1.70f, 7.20f), 90f, addCollider: false);
+            AddProp(props, "Bild_Nord", print, palette,
+                new Vector3(OfficeWest + 0.03f, 1.70f, 9.60f), 90f, addCollider: false);
+        }
+
+        // -- The east wing's and the office's meshes ----------------------------------------------
+
+        /// <summary>
+        /// One stacking chair, used at the meeting table, in front of the desk and round the break
+        /// room table. The sitter faces local +Z, so a chair is aimed with yaw alone.
+        /// </summary>
+        private static Mesh BuildSideChairMesh()
+        {
+            const float w = 0.46f, seat = 0.45f;
+            var b = new ProcMesh.Builder();
+
+            foreach (float x in new[] { -0.20f, 0.20f })
+            {
+                foreach (float z in new[] { -0.20f, 0.20f })
+                    b.Box(new Vector3(x, seat * 0.5f, z), new Vector3(0.04f, seat, 0.04f),
+                        PaletteUv.Family.Steel, 5);
+            }
+
+            return b
+                .Box(new Vector3(0f, 0.4725f, 0f), new Vector3(w, 0.045f, w),
+                    PaletteUv.Family.NeutralWarm, 10)
+                .Box(new Vector3(-0.19f, 0.6275f, -0.20f), new Vector3(0.04f, 0.265f, 0.04f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0.19f, 0.6275f, -0.20f), new Vector3(0.04f, 0.265f, 0.04f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, 0.64f, -0.20f), new Vector3(0.34f, 0.22f, 0.035f),
+                    PaletteUv.Family.NeutralWarm, 10)
+                .ToMesh("Lab_SideChair");
+        }
+
+        /// <summary>
+        /// The kitchen run: plinth, carcass, worktop, upstand, a sink cut as a frame of four bars
+        /// round an inset rather than as a box buried in the worktop, and a tap. Back to local +Z.
+        /// <para>
+        /// The worktop lands at exactly 0.90 m because §2.1 fixes bench height, and a break room
+        /// worktop that missed it by a centimetre would be the one surface in the building at the
+        /// wrong height.
+        /// </para>
+        /// </summary>
+        private static Mesh BuildKitchenRunMesh()
+        {
+            const float length = 2.20f, depth = 0.58f, sinkX = -0.55f;
+
+            var b = new ProcMesh.Builder()
+                // The toe kick is a set-back plinth, not a second box inside the carcass.
+                .Box(new Vector3(0f, 0.06f, 0.04f), new Vector3(length - 0.04f, 0.12f, depth - 0.08f),
+                    PaletteUv.Family.Sump, 3)
+                .Box(new Vector3(0f, 0.49f, 0f), new Vector3(length, 0.74f, depth),
+                    PaletteUv.Family.NeutralCold, 12)
+                .Box(new Vector3(0f, 0.88f, 0f), new Vector3(length + 0.08f, 0.04f, depth + 0.04f),
+                    PaletteUv.Family.Sump, 7)
+                .Box(new Vector3(0f, 1.00f, depth * 0.5f + 0.01f),
+                    new Vector3(length + 0.08f, 0.20f, 0.02f), PaletteUv.Family.NeutralCold, 13)
+                .Box(new Vector3(-0.55f, 0.79f, -depth * 0.5f - 0.015f), new Vector3(0.30f, 0.02f, 0.03f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.55f, 0.79f, -depth * 0.5f - 0.015f), new Vector3(0.30f, 0.02f, 0.03f),
+                    PaletteUv.Family.Steel, 6);
+
+            foreach (float z in new[] { -0.20f, 0.20f })
+                b.Box(new Vector3(sinkX, 0.905f, z), new Vector3(0.58f, 0.01f, 0.04f),
+                    PaletteUv.Family.Steel, 9);
+
+            foreach (float x in new[] { -0.27f, 0.27f })
+                b.Box(new Vector3(sinkX + x, 0.905f, 0f), new Vector3(0.04f, 0.01f, 0.36f),
+                    PaletteUv.Family.Steel, 9);
+
+            return b
+                .Box(new Vector3(sinkX, 0.903f, 0f), new Vector3(0.50f, 0.006f, 0.32f),
+                    PaletteUv.Family.Sump, 2)
+                .Cylinder(new Vector3(sinkX, 0.90f, 0.24f), 0.02f, 0.24f, 10,
+                    PaletteUv.Family.Steel, 9)
+                .Box(new Vector3(sinkX, 1.1575f, 0.145f), new Vector3(0.035f, 0.035f, 0.22f),
+                    PaletteUv.Family.Steel, 9)
+                .ToMesh("Lab_KitchenRun");
+        }
+
+        /// <summary>A wall unit. Pivots at floor level like every other prop, so it is placed by the
+        /// same rule as the things standing under it.</summary>
+        private static Mesh BuildWallCupboardMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 1.75f, 0f), new Vector3(0.90f, 0.60f, 0.34f),
+                    PaletteUv.Family.NeutralCold, 12)
+                .Box(new Vector3(0f, 1.50f, -0.185f), new Vector3(0.36f, 0.02f, 0.03f),
+                    PaletteUv.Family.Steel, 6)
+                .ToMesh("Lab_WallCupboard");
+
+        private static Mesh BuildFridgeMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.85f, 0f), new Vector3(0.60f, 1.70f, 0.62f),
+                    PaletteUv.Family.NeutralCold, 13)
+                .Box(new Vector3(0f, 1.20f, -0.315f), new Vector3(0.56f, 0.012f, 0.01f),
+                    PaletteUv.Family.Sump, 4)
+                .Box(new Vector3(0.22f, 1.60f, -0.335f), new Vector3(0.04f, 0.50f, 0.04f),
+                    PaletteUv.Family.Steel, 7)
+                .ToMesh("Lab_Fridge");
+
+        private static Mesh BuildBreakTableMesh()
+        {
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.735f, 0f), new Vector3(1.20f, 0.05f, 0.80f),
+                    PaletteUv.Family.NeutralWarm, 11)
+                .Box(new Vector3(0f, 0.665f, 0f), new Vector3(1.10f, 0.09f, 0.70f),
+                    PaletteUv.Family.Steel, 6);
+
+            foreach (float x in new[] { -0.53f, 0.53f })
+            {
+                foreach (float z in new[] { -0.33f, 0.33f })
+                    b.Box(new Vector3(x, 0.31f, z), new Vector3(0.06f, 0.62f, 0.06f),
+                        PaletteUv.Family.Steel, 5);
+            }
+
+            return b.ToMesh("Lab_BreakTable");
+        }
+
+        private static Mesh BuildBinMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.185f, 0.03f, 12, PaletteUv.Family.Sump, 4)
+                .Cylinder(new Vector3(0f, 0.03f, 0f), 0.18f, 0.49f, 12, PaletteUv.Family.Steel, 7)
+                .Cylinder(new Vector3(0f, 0.52f, 0f), 0.19f, 0.05f, 12, PaletteUv.Family.Sump, 5)
+                .ToMesh("Lab_Bin");
+
+        private static Mesh BuildCoffeeMachineMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.20f, 0.06f), new Vector3(0.26f, 0.40f, 0.18f),
+                    PaletteUv.Family.NeutralCold, 4)
+                .Box(new Vector3(0f, 0.04f, -0.105f), new Vector3(0.26f, 0.08f, 0.15f),
+                    PaletteUv.Family.NeutralCold, 4)
+                .Box(new Vector3(0f, 0.15f, -0.105f), new Vector3(0.14f, 0.14f, 0.13f),
+                    PaletteUv.Family.DeepBlue, 4)
+                .Box(new Vector3(0f, 0.28f, -0.06f), new Vector3(0.06f, 0.04f, 0.06f),
+                    PaletteUv.Family.Steel, 6)
+                .ToMesh("Lab_CoffeeMachine");
+
+        private static Mesh BuildKettleMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.10f, 0.02f, 12, PaletteUv.Family.Sump, 4)
+                .Cylinder(new Vector3(0f, 0.02f, 0f), 0.085f, 0.20f, 12,
+                    PaletteUv.Family.NeutralCold, 14)
+                .Cylinder(new Vector3(0f, 0.22f, 0f), 0.07f, 0.03f, 12, PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0.105f, 0.14f, 0f), new Vector3(0.04f, 0.14f, 0.05f),
+                    PaletteUv.Family.NeutralCold, 14)
+                .Box(new Vector3(-0.11f, 0.185f, 0f), new Vector3(0.05f, 0.04f, 0.04f),
+                    PaletteUv.Family.NeutralCold, 14)
+                .ToMesh("Lab_Kettle");
+
+        private static Mesh BuildMugMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.042f, 0.095f, 10, PaletteUv.Family.NeutralCold, 15)
+                .Box(new Vector3(0.058f, 0.05f, 0f), new Vector3(0.032f, 0.05f, 0.012f),
+                    PaletteUv.Family.NeutralCold, 15)
+                .ToMesh("Lab_Mug");
+
+        /// <summary>
+        /// A wall clock, dial on local +Z so it mounts with the same yaw the pinboards use. Hands are
+        /// stepped forward in z rather than crossing, since two boxes through one another is a solid
+        /// sharing volume even at this size.
+        /// </summary>
+        private static Mesh BuildWallClockMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0f, -0.015f), new Vector3(0.30f, 0.30f, 0.03f),
+                    PaletteUv.Family.NeutralCold, 6)
+                .Box(new Vector3(0f, 0f, 0.005f), new Vector3(0.26f, 0.26f, 0.01f),
+                    PaletteUv.Family.NeutralCold, 15)
+                .Box(new Vector3(0f, 0.055f, 0.015f), new Vector3(0.018f, 0.11f, 0.01f),
+                    PaletteUv.Family.Sump, 3)
+                .Box(new Vector3(0.035f, 0f, 0.025f), new Vector3(0.07f, 0.016f, 0.01f),
+                    PaletteUv.Family.Sump, 3)
+                .ToMesh("Lab_WallClock");
+
+        private static Mesh BuildEntranceMatMesh()
+        {
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.009f, 0f), new Vector3(1.20f, 0.018f, 1.40f),
+                    PaletteUv.Family.Sump, 3);
+
+            for (int i = 0; i < 7; i++)
+            {
+                b.Box(new Vector3(-0.51f + i * 0.17f, 0.023f, 0f), new Vector3(0.09f, 0.010f, 1.32f),
+                    PaletteUv.Family.Steel, 4);
+            }
+
+            return b.ToMesh("Lab_EntranceMat");
+        }
+
+        private static Mesh BuildLobbyBenchMesh()
+        {
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.435f, 0f), new Vector3(1.40f, 0.05f, 0.38f),
+                    PaletteUv.Family.NeutralWarm, 10)
+                .Box(new Vector3(0f, 0.28f, 0f), new Vector3(1.16f, 0.05f, 0.06f),
+                    PaletteUv.Family.Steel, 5);
+
+            foreach (float x in new[] { -0.62f, 0.62f })
+                b.Box(new Vector3(x, 0.205f, 0f), new Vector3(0.06f, 0.41f, 0.34f),
+                    PaletteUv.Family.Steel, 5);
+
+            return b.ToMesh("Lab_LobbyBench");
+        }
+
+        private static Mesh BuildUmbrellaStandMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.16f, 0.02f, 12, PaletteUv.Family.Sump, 4)
+                .Cylinder(new Vector3(0f, 0.02f, 0f), 0.14f, 0.50f, 12, PaletteUv.Family.Steel, 6)
+                .Cylinder(new Vector3(0f, 0.52f, 0f), 0.15f, 0.03f, 12, PaletteUv.Family.Steel, 8)
+                .ToMesh("Lab_UmbrellaStand");
+
+        /// <summary>
+        /// The chair behind the desk. Everything about it is the opposite of the stacking chair: a
+        /// spider base, a gas column, arms and a headrest.
+        /// <para>
+        /// The base is three boxes rather than a cross of two, because a cross is two solids sharing
+        /// the volume where they meet — the same mistake as the corridor's old splayed corner, at
+        /// 1/500th the scale and just as visible when the faces start to shimmer.
+        /// </para>
+        /// </summary>
+        private static Mesh BuildExecutiveChairMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.03f, 0f), new Vector3(0.62f, 0.06f, 0.10f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, 0.03f, 0.20f), new Vector3(0.10f, 0.06f, 0.22f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, 0.03f, -0.20f), new Vector3(0.10f, 0.06f, 0.22f),
+                    PaletteUv.Family.Steel, 5)
+                .Cylinder(new Vector3(0f, 0.06f, 0f), 0.045f, 0.35f, 10, PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, 0.455f, 0f), new Vector3(0.52f, 0.09f, 0.50f),
+                    PaletteUv.Family.DeepBlue, 5)
+                .Box(new Vector3(0f, 0.79f, -0.22f), new Vector3(0.48f, 0.58f, 0.08f),
+                    PaletteUv.Family.DeepBlue, 5)
+                .Box(new Vector3(0f, 1.15f, -0.22f), new Vector3(0.34f, 0.14f, 0.08f),
+                    PaletteUv.Family.DeepBlue, 5)
+                .Box(new Vector3(-0.29f, 0.5225f, 0.10f), new Vector3(0.05f, 0.145f, 0.05f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.29f, 0.5225f, 0.10f), new Vector3(0.05f, 0.145f, 0.05f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(-0.28f, 0.62f, -0.02f), new Vector3(0.06f, 0.05f, 0.34f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.28f, 0.62f, -0.02f), new Vector3(0.06f, 0.05f, 0.34f),
+                    PaletteUv.Family.Steel, 6)
+                .ToMesh("Lab_ExecutiveChair");
+
+        private static Mesh BuildMeetingTableMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.32f, 0.06f, 16, PaletteUv.Family.Steel, 5)
+                .Cylinder(new Vector3(0f, 0.06f, 0f), 0.07f, 0.65f, 12, PaletteUv.Family.Steel, 6)
+                .Cylinder(new Vector3(0f, 0.71f, 0f), 0.55f, 0.04f, 20,
+                    PaletteUv.Family.NeutralWarm, 11)
+                .ToMesh("Lab_MeetingTable");
+
+        private static Mesh BuildCredenzaMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.05f, 0.02f), new Vector3(1.34f, 0.10f, 0.41f),
+                    PaletteUv.Family.Sump, 3)
+                .Box(new Vector3(0f, 0.42f, 0f), new Vector3(1.40f, 0.64f, 0.45f),
+                    PaletteUv.Family.NeutralWarm, 9)
+                .Box(new Vector3(0f, 0.755f, 0f), new Vector3(1.46f, 0.03f, 0.48f),
+                    PaletteUv.Family.Sump, 7)
+                .Box(new Vector3(0f, 0.42f, -0.235f), new Vector3(0.015f, 0.60f, 0.02f),
+                    PaletteUv.Family.Sump, 4)
+                .Box(new Vector3(-0.33f, 0.60f, -0.235f), new Vector3(0.26f, 0.02f, 0.03f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.33f, 0.60f, -0.235f), new Vector3(0.26f, 0.02f, 0.03f),
+                    PaletteUv.Family.Steel, 6)
+                .ToMesh("Lab_Credenza");
+
+        private static Mesh BuildBinderStackMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(-0.10f, 0.145f, 0f), new Vector3(0.07f, 0.29f, 0.24f),
+                    PaletteUv.Family.Sump, 6)
+                .Box(new Vector3(-0.02f, 0.145f, 0f), new Vector3(0.06f, 0.29f, 0.24f),
+                    PaletteUv.Family.DeepBlue, 6)
+                .Box(new Vector3(0.06f, 0.145f, 0f), new Vector3(0.08f, 0.29f, 0.24f),
+                    PaletteUv.Family.NeutralWarm, 8)
+                .ToMesh("Lab_BinderStack");
+
+        /// <summary>Open shelving with the ring binders an office of this kind actually holds. The
+        /// spine colours cycle through four families deterministically, so a rebuild reproduces the
+        /// same wall of files.</summary>
+        private static Mesh BuildBinderShelfMesh()
+        {
+            var spines = new (PaletteUv.Family Family, int Step)[]
+            {
+                (PaletteUv.Family.Sump, 6), (PaletteUv.Family.DeepBlue, 6),
+                (PaletteUv.Family.NeutralWarm, 8), (PaletteUv.Family.NeutralCold, 9)
+            };
+
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(-0.435f, 0.91f, 0f), new Vector3(0.03f, 1.82f, 0.34f),
+                    PaletteUv.Family.NeutralWarm, 9)
+                .Box(new Vector3(0.435f, 0.91f, 0f), new Vector3(0.03f, 1.82f, 0.34f),
+                    PaletteUv.Family.NeutralWarm, 9)
+                .Box(new Vector3(0f, 0.925f, 0.175f), new Vector3(0.90f, 1.85f, 0.01f),
+                    PaletteUv.Family.NeutralWarm, 7)
+                .Box(new Vector3(0f, 1.835f, 0f), new Vector3(0.90f, 0.03f, 0.34f),
+                    PaletteUv.Family.NeutralWarm, 9);
+
+            // The top row of binders reaches shelf + 0.295, so the highest shelf has to sit clear of
+            // the 1.82 m top board or the two share the last centimetre.
+            int ink = 0;
+            foreach (float shelf in new[] { 0.40f, 0.76f, 1.12f, 1.48f })
+            {
+                b.Box(new Vector3(0f, shelf, 0f), new Vector3(0.84f, 0.03f, 0.34f),
+                    PaletteUv.Family.NeutralWarm, 9);
+
+                for (int j = 0; j < 6; j++, ink++)
+                {
+                    var spine = spines[ink % spines.Length];
+                    b.Box(new Vector3(-0.325f + j * 0.13f, shelf + 0.155f, -0.02f),
+                        new Vector3(0.10f, 0.28f, 0.24f), spine.Family, spine.Step);
+                }
+            }
+
+            return b.ToMesh("Lab_BinderShelf");
+        }
+
+        private static Mesh BuildOfficeRugMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.007f, 0f), new Vector3(2.00f, 0.014f, 1.20f),
+                    PaletteUv.Family.DeepBlue, 4)
+                .Box(new Vector3(0f, 0.017f, 0f), new Vector3(1.78f, 0.006f, 0.98f),
+                    PaletteUv.Family.DeepBlue, 7)
+                .ToMesh("Lab_OfficeRug");
+
+        private static Mesh BuildDeskLampMesh() =>
+            new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.075f, 0.02f, 12, PaletteUv.Family.Steel, 5)
+                .Cylinder(new Vector3(0f, 0.02f, 0f), 0.012f, 0.325f, 8, PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, 0.36f, -0.09f), new Vector3(0.02f, 0.03f, 0.20f),
+                    PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, 0.3325f, -0.17f), new Vector3(0.018f, 0.025f, 0.018f),
+                    PaletteUv.Family.Steel, 7)
+                .Cylinder(new Vector3(0f, 0.25f, -0.17f), 0.07f, 0.07f, 12,
+                    PaletteUv.Family.NeutralCold, 12)
+                .ToMesh("Lab_DeskLamp");
+
+        private static Mesh BuildNamePlateMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.012f, 0f), new Vector3(0.22f, 0.024f, 0.07f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0f, 0.055f, 0f), new Vector3(0.20f, 0.062f, 0.012f),
+                    PaletteUv.Family.DeepBlue, 9)
+                .ToMesh("Lab_NamePlate");
+
+        /// <summary>A framed print, face on local +Z so it hangs with the same yaw as a pinboard.</summary>
+        private static Mesh BuildFramedPrintMesh() =>
+            new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0f, -0.012f), new Vector3(0.62f, 0.46f, 0.024f),
+                    PaletteUv.Family.Sump, 5)
+                .Box(new Vector3(0f, 0f, 0.006f), new Vector3(0.56f, 0.40f, 0.012f),
+                    PaletteUv.Family.NeutralCold, 14)
+                .Box(new Vector3(0f, 0f, 0.014f), new Vector3(0.44f, 0.28f, 0.004f),
+                    PaletteUv.Family.DeepBlue, 6)
+                .ToMesh("Lab_FramedPrint");
 
         // -- Lighting -----------------------------------------------------------------------------
 
@@ -1551,6 +2519,27 @@ namespace Residue.Editor.Build
             {
                 bigLamp.Place(dock, $"Hallenleuchte_{p.x:0.0}_{p.y:0.0}",
                     new Vector3(p.x, DockHeight - 0.35f, p.y), 0f, 9f, 2.40f, new Color(0.88f, 0.93f, 1f));
+            }
+
+            // The break room is the warmest light in the building and the only room that gets one.
+            // It is the one place nobody is reading an instrument, so it is the one place the cold
+            // 4000 K everything else is lit with would be wrong.
+            var kitchen = new GameObject("Kueche");
+            kitchen.transform.SetParent(lightRoot.transform, false);
+            var kitchenColour = new Color(1f, 0.96f, 0.88f);
+            foreach (float z in new[] { 2.8f, 4.6f })
+            {
+                slim.Place(kitchen, $"Kuechenleuchte_{z:0.0}",
+                    new Vector3(9.10f, KitchenCeiling - 0.30f, z), 0f, 6.0f, 1.80f, kitchenColour);
+            }
+
+            var lobby = new GameObject("Windfang");
+            lobby.transform.SetParent(lightRoot.transform, false);
+            foreach (float x in new[] { 8.6f, 9.9f })
+            {
+                slim.Place(lobby, $"Windfangleuchte_{x:0.0}",
+                    new Vector3(x, LobbyCeiling - 0.22f, LobbyDoorZ), 90f, 5.0f, 1.55f,
+                    new Color(0.84f, 0.89f, 0.98f));
             }
         }
 

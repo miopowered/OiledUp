@@ -114,6 +114,107 @@ namespace Residue.Gameplay.World
         public float StandEyeHeight => standEyeHeight;
         public float CurrentEyeHeight => crouching ? crouchEyeHeight : standEyeHeight;
 
+        // -- Being parked ----------------------------------------------------------------------------
+
+        /// <summary>True while the body is parked in place: sat at a desk. Looking still works.</summary>
+        public bool IsSeated { get; private set; }
+
+        /// <summary>
+        /// The motor, resolved on demand.
+        /// <para>
+        /// <see cref="Awake"/> assigns it too, but <see cref="Sit"/> is reachable on a controller
+        /// whose <c>Awake</c> has not run — a component on a deactivated object, which is exactly how
+        /// the edit-mode suite builds one, since an active player logs errors about the input asset it
+        /// has not been given.
+        /// </para>
+        /// </summary>
+        private CharacterController Motor
+        {
+            get
+            {
+                if (controller == null) controller = GetComponent<CharacterController>();
+                return controller;
+            }
+        }
+
+        /// <summary>
+        /// Park the body at a fixed spot and drop the eye to a seated height. Look, the interaction
+        /// ray, the crosshair and every screen carry on working; walking does not.
+        ///
+        /// <para>
+        /// <b>The motor is what gets switched off, not this component, and that is the whole design.</b>
+        /// <c>TerminalScreen.Open</c>/<c>Close</c> and <c>ShiftPause.Begin</c>/<c>End</c> both own
+        /// <see cref="Behaviour.enabled"/> on this controller and both set it unconditionally back to
+        /// true when they are done. A seat that locked the player by disabling the controller would
+        /// therefore be unlocked by closing the very terminal the player sat down to use, and again by
+        /// resuming from the pause menu. <see cref="CharacterController.enabled"/> is nobody else's
+        /// flag, and <see cref="Update"/> already treats it as the "looking around is fine, walking is
+        /// not" switch.
+        /// </para>
+        ///
+        /// <para>
+        /// Nothing here is animated. A tween would have to choose between <c>Time.deltaTime</c>, which
+        /// the pause menu freezes at zero mid-slide, and unscaled time, which slides the player around
+        /// a world that has stopped. Sitting is instant instead, so the question does not arise.
+        /// </para>
+        /// </summary>
+        /// <returns>False if there is no motor, or it is already off, or the player is already sat.</returns>
+        public bool Sit(Vector3 position, float yaw, float eyeHeight)
+        {
+            var motor = Motor;
+            if (IsSeated || motor == null || !motor.enabled) return false;
+
+            Halt();
+            crouching = false;
+
+            // Off BEFORE the teleport. An enabled CharacterController caches its own pose and puts
+            // the transform back where it thought it was on the next Move — the same trap
+            // PlayerAvatar.PlaceRpc documents.
+            motor.enabled = false;
+
+            transform.SetPositionAndRotation(position, Quaternion.Euler(0f, yaw, 0f));
+            if (head != null) head.localPosition = new Vector3(0f, eyeHeight, 0f);
+
+            IsSeated = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Give the body back at <paramref name="position"/>. Idempotent, and the exact mirror of
+        /// <see cref="Sit"/> — the caller picks the spot because only it knows what the seat is tucked
+        /// under.
+        /// </summary>
+        public void Stand(Vector3 position)
+        {
+            if (!IsSeated) return;
+            IsSeated = false;
+
+            transform.position = position;
+            if (head != null) head.localPosition = new Vector3(0f, CurrentEyeHeight, 0f);
+
+            var motor = Motor;
+            if (motor != null) motor.enabled = true;
+            Halt();
+        }
+
+        /// <summary>
+        /// Stop the body dead. Without this a player who sat down mid-stride keeps the velocity that
+        /// got them there — <see cref="ApplyMovement"/> is not running to bleed it off — so
+        /// <see cref="SpeedFraction"/> stays high and the head bob and the walk cycle both carry on
+        /// over a seated technician.
+        /// </summary>
+        private void Halt()
+        {
+            planarVelocity = Vector3.zero;
+            verticalVelocity = 0f;
+            pendingLandingImpact = 0f;
+            IsSprinting = false;
+            IsGrounded = true;
+            wasGrounded = true;
+            lastGroundedTime = Time.time;
+            lastJumpPressedTime = -99f;
+        }
+
         // -- Lifecycle -----------------------------------------------------------------------------
 
         private void Awake()
@@ -201,6 +302,12 @@ namespace Residue.Gameplay.World
         private void Update()
         {
             if (Cursor.lockState == CursorLockMode.Locked) ApplyLook();
+
+            // A seat parks the body by switching the motor off (see Sit). If something else switches
+            // it back on — PlayerAvatar.PlaceRpc putting a rejoining player down — the seat has
+            // already lost the argument, and the flag must not outlive it or the chair would go on
+            // believing it holds somebody who has walked away.
+            if (IsSeated && controller.enabled) IsSeated = false;
 
             // Everything below drives the CharacterController, and Unity logs an error per frame if
             // it is asked to move while disabled. It is disabled on purpose between spawning and
