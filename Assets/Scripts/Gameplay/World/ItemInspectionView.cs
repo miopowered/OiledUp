@@ -23,7 +23,24 @@ namespace Residue.Gameplay.World
         [SerializeField] private float rotationSensitivity = 0.22f;
         [SerializeField] private float viewportHeight = 0.42f;
         [SerializeField] private float minimumDistance = 0.18f;
-        [SerializeField] private float zoomSensitivity = 0.0015f;
+        /// <summary>
+        /// Metres of zoom per unit of wheel, exponentially. A Windows notch reports 120, so this is
+        /// about a third closer per notch — the old 0.0015 was a sixth, which took half a dozen
+        /// notches to cross a range that only went 55% of the way in anyway.
+        /// </summary>
+        [SerializeField] private float zoomSensitivity = 0.0035f;
+
+        /// <summary>
+        /// Closest the item may come, as a fraction of its framing distance.
+        /// <para>
+        /// This, not <see cref="zoomSensitivity"/>, was what made the reference books hard to read:
+        /// the wheel bottomed out at 45% of the framing distance, so however far you rolled it the
+        /// page could not get much bigger. A book is the one inspectable whose whole point is reading
+        /// small print, so the floor is now a quarter — the near-plane guard below is what actually
+        /// stops the item being pushed through the camera, and it is unchanged.
+        /// </para>
+        /// </summary>
+        private const float ClosestFraction = 0.25f;
 
         private PlayerController player;
         private PlayerInteractor interactor;
@@ -70,7 +87,8 @@ namespace Residue.Gameplay.World
             float distance = Mathf.Max(minimumDistance,
                 radius / Mathf.Tan(halfFov * viewportHeight) * 0.5f);
             inspectionDistance = distance;
-            minimumZoomDistance = Mathf.Max(eye.nearClipPlane + radius * 0.4f, distance * 0.45f);
+            minimumZoomDistance = Mathf.Max(eye.nearClipPlane + radius * 0.4f,
+                                            distance * ClosestFraction);
             maximumZoomDistance = distance * 2.5f;
 
             item.transform.SetParent(eye.transform, worldPositionStays: false);

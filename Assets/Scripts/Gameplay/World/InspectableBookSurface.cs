@@ -353,7 +353,14 @@ namespace Residue.Gameplay.World
                 // sheet of paper does and what a single smoothstep is a little too brisk to sell.
                 float eased = Mathf.SmoothStep(0f, 1f, Mathf.SmoothStep(0f, 1f, raw));
 
-                UpdateLeafBow(LeafCurl * Mathf.Sin(Mathf.PI * raw));
+                // The bow displaces along the leaf's own +Y, and the leaf turns 180 degrees about the
+                // spine — so past vertical its "up" points down into the paper. Without the cosine
+                // the sheet sank about 3 mm through a 1.2 mm clearance for the last fifth of the
+                // turn, and the page underneath showed through the one being laid on top of it.
+                // Multiplying by cos of the angle keeps the displacement on the outside of the sheet
+                // whichever way up it is, and lands it at zero at both ends and edge-on in the middle,
+                // where a bow could not be seen anyway.
+                UpdateLeafBow(LeafCurl * Mathf.Sin(Mathf.PI * raw) * Mathf.Cos(Mathf.PI * eased));
                 leafObject.transform.localRotation = Quaternion.Euler(0f, 0f, direction * 180f * eased);
                 yield return null;
             }
