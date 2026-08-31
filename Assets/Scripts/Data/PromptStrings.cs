@@ -474,5 +474,16 @@ namespace Residue.Data
 
         public static readonly LocKey DropHandsEmpty =
             new("prompt.drop.hands_empty", "Your hands are empty.");
+
+        // -- Door signs ---------------------------------------------------------------------------
+        //
+        // Printed on the plates beside each door (SignPlate). Short by necessity: the plate is 26 cm
+        // across and the word is set to fit it, so a long caption shrinks rather than wraps.
+
+        public static readonly LocKey SignLab = new("prompt.sign.lab", "LABORATORY");
+
+        public static readonly LocKey SignStore = new("prompt.sign.store", "STORE");
+
+        public static readonly LocKey SignOffice = new("prompt.sign.office", "OFFICE");
     }
 }

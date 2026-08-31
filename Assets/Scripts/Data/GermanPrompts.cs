@@ -232,6 +232,12 @@ namespace Residue.Data
             table["prompt.drop.nothing_underfoot"] =
                 "Unter deinen Füßen ist nichts, worauf du das abstellen könntest.";
             table["prompt.drop.hands_empty"] = "Deine Hände sind leer.";
+
+            // Door signs. "LABOR" rather than "LABORATORIUM": the plate is 26 cm wide and the German
+            // word is set to fit it, so the short form is the readable one.
+            table["prompt.sign.lab"] = "LABOR";
+            table["prompt.sign.store"] = "LAGER";
+            table["prompt.sign.office"] = "BÜRO";
         }
     }
 }

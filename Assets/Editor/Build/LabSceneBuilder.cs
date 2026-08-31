@@ -539,7 +539,10 @@ namespace Residue.Editor.Build
                     new Vector3(0.18f, 0.018f, 0.018f), PaletteUv.Family.Brass, 8);
             }
 
-            // Keyboard shelf, pulled out and loaded, on runners beneath it.
+            // The shelf stays and is now empty, because a keyboard on it could not be seen. It sat at
+            // 0.7735 — under a worktop whose surface is at 0.900, tucked back at z -0.275 behind the
+            // desk lip — so from standing eye height there was a keyboard shelf with a keyboard on it
+            // and no angle from which either was visible. It reads as under-desk storage instead.
             b.Box(new Vector3(-0.22f, OnBench(0.750f), -0.270f), new Vector3(0.64f, 0.025f, 0.30f),
                 PaletteUv.Family.Steel, 8);
             foreach (float x in new[] { -0.5275f, 0.0875f })
@@ -547,10 +550,16 @@ namespace Residue.Editor.Build
                 b.Box(new Vector3(x, OnBench(0.7225f), -0.270f), new Vector3(0.025f, 0.03f, 0.30f),
                     PaletteUv.Family.Sump, 3);
             }
-            b.Box(new Vector3(-0.22f, OnBench(0.7735f), -0.275f), new Vector3(0.42f, 0.022f, 0.14f),
-                PaletteUv.Family.Sump, 5);
-            b.Box(new Vector3(0.22f, OnBench(0.913f), -0.28f), new Vector3(0.055f, 0.026f, 0.09f),
-                PaletteUv.Family.Sump, 5);
+
+            // Keyboard and mouse on the worktop, in front of the monitor foot and clear of it in z.
+            // Dark against a light top on purpose: the previous mouse was 55 mm of Sump on a
+            // NeutralCold surface and simply did not register as an object.
+            b.Box(new Vector3(-0.16f, OnBench(0.912f), -0.235f), new Vector3(0.46f, 0.024f, 0.155f),
+                PaletteUv.Family.Sump, 4);
+            b.Box(new Vector3(-0.16f, OnBench(0.9245f), -0.240f), new Vector3(0.42f, 0.004f, 0.115f),
+                PaletteUv.Family.Sump, 8);
+            b.Box(new Vector3(0.20f, OnBench(0.915f), -0.225f), new Vector3(0.070f, 0.030f, 0.105f),
+                PaletteUv.Family.Sump, 4);
 
             // Trunking gathered along the back and dropped to the floor in a riser at the corner.
             b.Box(new Vector3(-0.10f, OnBench(0.790f), 0.310f), new Vector3(0.90f, 0.06f, 0.08f),
@@ -1200,14 +1209,21 @@ namespace Residue.Editor.Build
             const float labEast = RoomWidth * 0.5f + WallThickness * 0.5f;
             const float partyWall = PartyZ - WallThickness * 0.5f;
 
+            // Both lab doors say LABORATORY: they are the two ways into the same room, and a sign that
+            // named the door rather than the room behind it would be furniture pretending to be
+            // information.
             AddFramedDoor(parent, palette, doorFrame, sign, "Labor_Nord",
-                WallAxis.AlongX, labNorth, LabNorthDoorX, LabNorthDoorX + 0.92f, 1f);
+                WallAxis.AlongX, labNorth, LabNorthDoorX, LabNorthDoorX + 0.92f, 1f,
+                PromptStrings.SignLab);
             AddFramedDoor(parent, palette, doorFrame, sign, "Labor_Ost",
-                WallAxis.AlongZ, labEast, LabEastDoorZ, LabEastDoorZ - 0.92f, 1f);
+                WallAxis.AlongZ, labEast, LabEastDoorZ, LabEastDoorZ - 0.92f, 1f,
+                PromptStrings.SignLab);
             AddFramedDoor(parent, palette, doorFrame, sign, "Lager",
-                WallAxis.AlongX, partyWall, StoreDoorX, StoreDoorX + 0.92f, -1f);
+                WallAxis.AlongX, partyWall, StoreDoorX, StoreDoorX + 0.92f, -1f,
+                PromptStrings.SignStore);
             AddFramedDoor(parent, palette, doorFrame, sign, "Buero",
-                WallAxis.AlongX, partyWall, OfficeDoorX, OfficeDoorX + 0.92f, -1f);
+                WallAxis.AlongX, partyWall, OfficeDoorX, OfficeDoorX + 0.92f, -1f,
+                PromptStrings.SignOffice);
 
             AddFramedWindow(parent, palette, windowFrame, "Labor_Ost",
                 WallAxis.AlongZ, labEast, LabEastWindowZ);
@@ -1221,7 +1237,7 @@ namespace Residue.Editor.Build
         /// </summary>
         private static void AddFramedDoor(GameObject parent, Material palette, Mesh frame, Mesh sign,
                                           string name, WallAxis axis, float wallV, float u, float signU,
-                                          float signSide)
+                                          float signSide, LocKey caption)
         {
             float yaw = axis == WallAxis.AlongX ? 0f : 90f;
             var position = axis == WallAxis.AlongX ? new Vector3(u, 0f, wallV) : new Vector3(wallV, 0f, u);
@@ -1235,7 +1251,17 @@ namespace Residue.Editor.Build
                 : new Vector3(wallV + outward, 1.70f, signU);
 
             var plate = AddStatic(parent, $"Schild_{name}", sign, palette, signPosition, addCollider: false);
-            plate.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            // SignPlate always prints on its own local -Z, so a plate whose reader stands on the far
+            // side of the wall is turned to put that face outward. One orientation in the component
+            // and one flip here beats two mirrored quads and two chances to wind one backwards.
+            plate.transform.localRotation = Quaternion.Euler(0f, signSide > 0f ? yaw + 180f : yaw, 0f);
+
+            var printed = plate.AddComponent<SignPlate>();
+            var so = new SerializedObject(printed);
+            so.FindProperty("plate").objectReferenceValue = plate.GetComponent<MeshRenderer>();
+            so.ApplyModifiedPropertiesWithoutUndo();
+            printed.Show(caption);
         }
 
         private static void AddFramedWindow(GameObject parent, Material palette, Mesh frame, string name,
