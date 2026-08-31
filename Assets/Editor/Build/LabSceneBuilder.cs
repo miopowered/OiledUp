@@ -64,6 +64,73 @@ namespace Residue.Editor.Build
         private const float BayHeight = 2.3f;
         private const float BayCenterZ = 1.6f;
 
+        // -- The building the lab sits in (#84) ---------------------------------------------------
+        //
+        // Aesthetic only. Not one station moves: every wall below was placed around the benches,
+        // island, desk, wash station, book case, bay and truck where they already stand, and where a
+        // wall wanted to be somewhere a bench already was, the wall gave way. See BuildBuilding.
+        //
+        // Doorways are sized from the CharacterController the player actually drives (PlayerController:
+        // radius 0.3, skinWidth 0.02, standHeight 1.8), so the capsule is 0.64 m across and 1.8 m
+        // tall. A structural hole of 1.4 x 2.25 lined with a 0.1 m reveal leaves 1.2 x 2.15 clear —
+        // nearly twice the capsule's width so two technicians pass, and 0.35 m over a standing head.
+        private const float DoorStructWidth = 1.4f;
+        private const float DoorStructHeight = 2.25f;
+        private const float DoorFrameDepth = 0.10f;
+
+        // Interior windows. The sill is above the 0.85 m jump apex (PlayerController.jumpHeight), so
+        // a window is a view and never a shortcut — and every one of them opens onto another sealed
+        // room anyway, so the outer envelope has no glazing in it at all.
+        private const float WindowStructWidth = 1.6f;
+        private const float WindowSill = 1.10f;
+        private const float WindowHead = 2.10f;
+
+        // Openings cut into the lab itself. The north wall is clear from the island (z = -1.0) to
+        // the wall; the east wall has gaps either side of the terminal desk (z 1.2..2.0) and north
+        // of the book case (z 0.07..0.93).
+        private const float LabNorthDoorX = 1.5f;
+        private const float LabEastDoorZ = 3.0f;
+        private const float LabEastWindowZ = -1.2f;
+
+        // Corridor: an L wrapping the lab's north-east corner, so the two lab doors make a loop
+        // rather than a cul-de-sac. Its outer corner is cut at 45 degrees (CorridorSplay*).
+        private const float CorridorCeiling = 2.55f;
+        private const float CorrWest = -5.0f;
+        private const float CorrEast = 7.4f;
+        private const float CorrSouth = 4.2f;
+        private const float CorrNorth = 6.4f;
+        private const float TailWest = 5.2f;
+        private const float TailSouth = -2.4f;
+        private const float SplayX = 6.2f;   // where the 45 degree cut leaves the north wall
+        private const float SplayZ = 5.2f;   // and where it meets the east wall
+
+        private const float StoreCeiling = 2.80f;
+        private const float StoreWest = -5.0f;
+        private const float StoreEast = 1.2f;
+        private const float StoreNorth = 9.4f;
+
+        private const float OfficeCeiling = 3.00f;
+        private const float OfficeWest = 1.4f;
+        private const float OfficeEast = 7.4f;
+        private const float OfficeNorth = 10.4f;
+
+        // The office's north wall steps back into a recess — a desk nook with a lower ceiling, which
+        // is what stops the room being one more rectangle.
+        private const float NookWest = 3.0f;
+        private const float NookEast = 5.8f;
+        private const float NookNorth = 11.4f;
+        private const float NookCeiling = 2.60f;
+
+        // A covered loading dock west of the bay. Without it the bay opening is a hole in the outer
+        // envelope that the player can simply walk out of, and the truck is parked in a void.
+        private const float DockHeight = 3.2f;
+        private const float DockWest = -10.4f;
+        private const float DockSouth = -1.2f;
+        private const float DockNorth = 4.2f;
+
+        /// <summary>Where the north wall of the corridor sits, shared with the store and office.</summary>
+        private const float PartyZ = 6.6f;
+
         private static readonly string[] MachineIds =
             { "cooling_curve", "karl_fischer", "viscometer", "centrifuge", "elemental" };
 
@@ -220,34 +287,28 @@ namespace Residue.Editor.Build
             // leaking through inverted faces. §2.4 wants baked lightmaps here eventually; realtime
             // points are the greybox stand-in so the lab is playable in the meantime.
             var lightRoot = NewRoot(scene, "Lighting");
+            var labLights = new GameObject("Labor");
+            labLights.transform.SetParent(lightRoot.transform, false);
+
             float[] lampX = { -3f, 0f, 3f };
             float[] lampZ = { -2.4f, 1.6f };
             var luminaireMesh = SaveMesh(ProcMesh.Box("Lab_FluorescentLuminaire",
                 new Vector3(1.45f, 0.035f, 0.24f), PaletteUv.Family.NeutralCold, 15));
             var ballastMesh = SaveMesh(ProcMesh.Box("Lab_FluorescentBallast",
                 new Vector3(1.55f, 0.055f, 0.30f), PaletteUv.Family.Steel, 5));
+            var lamp = new Luminaire(ballastMesh, luminaireMesh, palette, emissivePalette);
 
             foreach (float x in lampX)
             {
                 foreach (float z in lampZ)
                 {
-                    var lamp = new GameObject($"Lamp_{x:0}_{z:0}");
-                    lamp.transform.SetParent(lightRoot.transform, false);
-                    lamp.transform.position = new Vector3(x, RoomHeight - 0.35f, z);
-
-                    AddChild(lamp, "DIN_Leuchtenwanne", ballastMesh, palette,
-                        new Vector3(0f, 0.035f, 0f), addCollider: false);
-                    AddChild(lamp, "Leuchtstoffroehre_4000K", luminaireMesh, emissivePalette,
-                        Vector3.zero, addCollider: false);
-
-                    var point = lamp.AddComponent<Light>();
-                    point.type = LightType.Point;
-                    point.range = 7.5f;
-                    point.intensity = 2.35f;
-                    point.color = new Color(0.90f, 1f, 0.94f);
-                    point.shadows = LightShadows.None; // greybox: shadow cost is not worth it yet
+                    lamp.Place(labLights, $"Lamp_{x:0}_{z:0}",
+                        new Vector3(x, RoomHeight - 0.35f, z), 0f,
+                        7.5f, 2.35f, new Color(0.90f, 1f, 0.94f));
                 }
             }
+
+            BuildBuilding(root, lightRoot, palette, emissivePalette, lamp);
 
             var post = NewRoot(scene, "PostProcessing_Labor");
             var volume = post.AddComponent<Volume>();
@@ -271,14 +332,16 @@ namespace Residue.Editor.Build
         }
 
         /// <summary>
-        /// The room shell, minus a bay opening in the west wall (#33).
+        /// The lab's own shell: floor, ceiling and four walls, with the bay opening in the west wall
+        /// (#33) and, since #84, a door north into the corridor, a door east into it, and one
+        /// interior window beside that door.
         /// <para>
-        /// <see cref="ProcMesh.Builder.Room"/> builds a fully sealed box, one <c>Box</c> call per
-        /// wall, so cutting an opening into it means reproducing that same construction by hand:
-        /// floor, ceiling and the other three walls are copied verbatim, and the west wall's single
-        /// box becomes two piers either side of the hole plus a header above it. Same family, same
-        /// steps, same per-wall thickness box as <c>Room</c> uses, so the seam is invisible.
+        /// <see cref="ProcMesh.Builder.Room"/> builds a fully sealed box and cannot express a hole,
+        /// so the walls go through <see cref="AddWall"/> instead — same per-wall thickness box, same
+        /// family and steps, so the seam with <c>Room()</c>-built geometry is invisible.
         /// </para>
+        /// No opening moved a station. The south wall has none because the instrument bench runs its
+        /// entire length; the north and east ones sit in the gaps the desk and book case leave.
         /// </summary>
         private static Mesh BuildRoomShellWithBay()
         {
@@ -286,30 +349,23 @@ namespace Residue.Editor.Build
             const PaletteUv.Family family = PaletteUv.Family.NeutralCold;
             const int step = 4;
 
-            float bayZMin = BayCenterZ - BayWidth * 0.5f;
-            float bayZMax = BayCenterZ + BayWidth * 0.5f;
-            float southLength = bayZMin - (-d * 0.5f);
-            float northLength = d * 0.5f - bayZMax;
-
             var b = new ProcMesh.Builder()
                 // Floor and ceiling, identical to Room().
                 .Box(new Vector3(0f, -t * 0.5f, 0f), new Vector3(w + t * 2f, t, d + t * 2f), family, step)
-                .Box(new Vector3(0f, h + t * 0.5f, 0f), new Vector3(w + t * 2f, t, d + t * 2f), family, step + 2)
-                // North/south (Z) walls and the east (+X) wall: unbroken, identical to Room().
-                .Box(new Vector3(0f, h * 0.5f, d * 0.5f + t * 0.5f), new Vector3(w + t * 2f, h, t), family, step + 1)
-                .Box(new Vector3(0f, h * 0.5f, -d * 0.5f - t * 0.5f), new Vector3(w + t * 2f, h, t), family, step + 1)
-                .Box(new Vector3(w * 0.5f + t * 0.5f, h * 0.5f, 0f), new Vector3(t, h, d), family, step + 1);
+                .Box(new Vector3(0f, h + t * 0.5f, 0f), new Vector3(w + t * 2f, t, d + t * 2f), family, step + 2);
 
-            // West wall, split around the bay: a pier south of the opening, a pier north of it, and
-            // a header spanning the opening's width above BayHeight. The opening itself is left
-            // empty from the floor up to BayHeight — that gap is the bay.
-            float wallX = -w * 0.5f - t * 0.5f;
-            b.Box(new Vector3(wallX, h * 0.5f, -d * 0.5f + southLength * 0.5f),
-                new Vector3(t, h, southLength), family, step + 1);
-            b.Box(new Vector3(wallX, h * 0.5f, d * 0.5f - northLength * 0.5f),
-                new Vector3(t, h, northLength), family, step + 1);
-            b.Box(new Vector3(wallX, (BayHeight + h) * 0.5f, BayCenterZ),
-                new Vector3(t, h - BayHeight, BayWidth), family, step + 1);
+            AddWall(b, WallAxis.AlongX, -d * 0.5f - t * 0.5f, -(w * 0.5f + t), w * 0.5f + t,
+                h, family, step + 1);
+
+            AddWall(b, WallAxis.AlongX, d * 0.5f + t * 0.5f, -(w * 0.5f + t), w * 0.5f + t,
+                h, family, step + 1, Opening.Door(LabNorthDoorX));
+
+            AddWall(b, WallAxis.AlongZ, w * 0.5f + t * 0.5f, -d * 0.5f, d * 0.5f,
+                h, family, step + 1,
+                Opening.Window(LabEastWindowZ), Opening.Door(LabEastDoorZ));
+
+            AddWall(b, WallAxis.AlongZ, -w * 0.5f - t * 0.5f, -d * 0.5f, d * 0.5f,
+                h, family, step + 1, new Opening(BayCenterZ, BayWidth, 0f, BayHeight));
 
             return b.ToMesh("Lab_Room");
         }
@@ -334,6 +390,837 @@ namespace Residue.Editor.Build
             AddStatic(root, "Bay_TrackNorth", trackMesh, palette,
                 new Vector3(-RoomWidth * 0.5f + 0.05f, BayHeight * 0.5f, BayCenterZ + BayWidth * 0.5f - 0.04f),
                 addCollider: false);
+        }
+
+        // -- The building around the lab (#84) ----------------------------------------------------
+
+        /// <summary>Which way a wall runs. Its two faces look along the other horizontal axis.</summary>
+        private enum WallAxis
+        {
+            AlongX,
+            AlongZ
+        }
+
+        /// <summary>
+        /// A hole in a wall, measured along that wall's own run.
+        /// <para>
+        /// A door and a window differ only in where the hole starts and stops vertically, so one type
+        /// describes both and <see cref="AddWall"/> never has to know which it is cutting.
+        /// </para>
+        /// </summary>
+        private readonly struct Opening
+        {
+            public readonly float Centre;
+            public readonly float Width;
+            public readonly float Sill;
+            public readonly float Head;
+
+            public Opening(float centre, float width, float sill, float head)
+            {
+                Centre = centre;
+                Width = width;
+                Sill = sill;
+                Head = head;
+            }
+
+            public float Min => Centre - Width * 0.5f;
+            public float Max => Centre + Width * 0.5f;
+
+            /// <summary>True for a hole you can walk through, which is also a hole skirting stops at.</summary>
+            public bool IsDoor => Sill <= 0.001f;
+
+            public static Opening Door(float centre) =>
+                new(centre, DoorStructWidth, 0f, DoorStructHeight);
+
+            public static Opening Window(float centre) =>
+                new(centre, WindowStructWidth, WindowSill, WindowHead);
+        }
+
+        /// <summary>
+        /// A ceiling light fitting: housing, emissive tube, and the point light that does the work.
+        /// <para>
+        /// Bundled because the three must never be separated. §2.4 wants baked lightmaps eventually,
+        /// but until then a room with a luminaire mesh and no <see cref="Light"/> in it is a black
+        /// room with a white stripe on the ceiling — and a room that looks lit with neither is light
+        /// leaking through inverted faces, which is the bug this file already carries a note about.
+        /// </para>
+        /// </summary>
+        private readonly struct Luminaire
+        {
+            private readonly Mesh housing;
+            private readonly Mesh tube;
+            private readonly Material palette;
+            private readonly Material emissive;
+
+            public Luminaire(Mesh housing, Mesh tube, Material palette, Material emissive)
+            {
+                this.housing = housing;
+                this.tube = tube;
+                this.palette = palette;
+                this.emissive = emissive;
+            }
+
+            public void Place(GameObject parent, string name, Vector3 position, float yaw,
+                              float range, float intensity, Color colour)
+            {
+                var go = new GameObject(name);
+                go.transform.SetParent(parent.transform, false);
+                go.transform.localPosition = position;
+                go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+                AddChild(go, "DIN_Leuchtenwanne", housing, palette, new Vector3(0f, 0.035f, 0f), false);
+                AddChild(go, "Leuchtstoffroehre_4000K", tube, emissive, Vector3.zero, false);
+
+                var point = go.AddComponent<Light>();
+                point.type = LightType.Point;
+                point.range = range;
+                point.intensity = intensity;
+                point.color = colour;
+                point.shadows = LightShadows.None; // greybox: shadow cost is not worth it yet
+            }
+        }
+
+        // -- Wall and slab primitives -------------------------------------------------------------
+
+        private const float SkirtingHeight = 0.12f;
+        private const float SkirtingProud = 0.02f;
+        private const float BeamDepth = 0.20f;
+        private const float BeamWidth = 0.24f;
+
+        /// <summary>One rectangle of wall. Degenerate spans are skipped, so callers never special-case
+        /// an opening that reaches a corner.</summary>
+        private static void AddWallSegment(ProcMesh.Builder b, WallAxis axis, float v,
+                                           float u0, float u1, float y0, float y1,
+                                           PaletteUv.Family family, int step)
+        {
+            float length = u1 - u0;
+            float height = y1 - y0;
+            if (length <= 0.001f || height <= 0.001f) return;
+
+            float uc = (u0 + u1) * 0.5f;
+            float yc = (y0 + y1) * 0.5f;
+
+            var centre = axis == WallAxis.AlongX ? new Vector3(uc, yc, v) : new Vector3(v, yc, uc);
+            var size = axis == WallAxis.AlongX
+                ? new Vector3(length, height, WallThickness)
+                : new Vector3(WallThickness, height, length);
+
+            b.Box(centre, size, family, step);
+        }
+
+        /// <summary>
+        /// A wall running from <paramref name="u0"/> to <paramref name="u1"/> with holes cut in it:
+        /// a pier between each pair of openings, a band under each sill and a header over each head.
+        /// <para>
+        /// Every opening in the building goes through here rather than being hand-assembled, because
+        /// hand-assembling one is exactly how a wall ends up with a hole nobody meant to leave — and
+        /// a hole in an outer wall is the player walking out of the building.
+        /// </para>
+        /// </summary>
+        private static void AddWall(ProcMesh.Builder b, WallAxis axis, float v, float u0, float u1,
+                                    float height, PaletteUv.Family family, int step,
+                                    params Opening[] openings)
+        {
+            if (openings == null || openings.Length == 0)
+            {
+                AddWallSegment(b, axis, v, u0, u1, 0f, height, family, step);
+                return;
+            }
+
+            var sorted = (Opening[])openings.Clone();
+            System.Array.Sort(sorted, (a, c) => a.Min.CompareTo(c.Min));
+
+            float cursor = u0;
+            foreach (var opening in sorted)
+            {
+                AddWallSegment(b, axis, v, cursor, opening.Min, 0f, height, family, step);
+                AddWallSegment(b, axis, v, opening.Min, opening.Max, 0f, opening.Sill, family, step);
+                AddWallSegment(b, axis, v, opening.Min, opening.Max, opening.Head, height, family, step);
+                cursor = Mathf.Max(cursor, opening.Max);
+            }
+
+            AddWallSegment(b, axis, v, cursor, u1, 0f, height, family, step);
+        }
+
+        /// <summary>A floor or ceiling plate, given as its bounds rather than a centre and a size.</summary>
+        private static void AddSlab(ProcMesh.Builder b, float xMin, float xMax, float zMin, float zMax,
+                                    float yBottom, float yTop, PaletteUv.Family family, int step)
+        {
+            if (xMax - xMin <= 0.001f || zMax - zMin <= 0.001f) return;
+
+            b.Box(new Vector3((xMin + xMax) * 0.5f, (yBottom + yTop) * 0.5f, (zMin + zMax) * 0.5f),
+                new Vector3(xMax - xMin, yTop - yBottom, zMax - zMin), family, step);
+        }
+
+        /// <summary>
+        /// Skirting along the inside face of a wall. <paramref name="inward"/> is +1 when the room is
+        /// on the positive side of <paramref name="face"/>. Runs are broken at doorways: skirting
+        /// across a threshold is the sort of detail that reads as a modelling mistake.
+        /// </summary>
+        private static void AddSkirting(ProcMesh.Builder b, WallAxis axis, float face, float inward,
+                                        float u0, float u1, params Opening[] openings)
+        {
+            var doors = new List<Opening>();
+            if (openings != null)
+            {
+                foreach (var opening in openings)
+                    if (opening.IsDoor) doors.Add(opening);
+            }
+            doors.Sort((a, c) => a.Min.CompareTo(c.Min));
+
+            float cursor = u0;
+            foreach (var door in doors)
+            {
+                AddSkirtingRun(b, axis, face, inward, cursor, Mathf.Min(door.Min, u1));
+                cursor = Mathf.Max(cursor, door.Max);
+            }
+            AddSkirtingRun(b, axis, face, inward, cursor, u1);
+        }
+
+        private static void AddSkirtingRun(ProcMesh.Builder b, WallAxis axis, float face, float inward,
+                                           float u0, float u1)
+        {
+            float length = u1 - u0;
+            if (length <= 0.001f) return;
+
+            float uc = (u0 + u1) * 0.5f;
+            float v = face + inward * SkirtingProud * 0.5f;
+
+            var centre = axis == WallAxis.AlongX
+                ? new Vector3(uc, SkirtingHeight * 0.5f, v)
+                : new Vector3(v, SkirtingHeight * 0.5f, uc);
+            var size = axis == WallAxis.AlongX
+                ? new Vector3(length, SkirtingHeight, SkirtingProud)
+                : new Vector3(SkirtingProud, SkirtingHeight, length);
+
+            b.Box(centre, size, PaletteUv.Family.Sump, 5);
+        }
+
+        /// <summary>A downstand beam, so a ceiling has structure in it rather than being a flat lid.</summary>
+        private static void AddBeam(ProcMesh.Builder b, WallAxis axis, float v, float u0, float u1,
+                                    float ceiling)
+        {
+            float length = u1 - u0;
+            if (length <= 0.001f) return;
+
+            float uc = (u0 + u1) * 0.5f;
+            float y = ceiling - BeamDepth * 0.5f;
+
+            var centre = axis == WallAxis.AlongX ? new Vector3(uc, y, v) : new Vector3(v, y, uc);
+            var size = axis == WallAxis.AlongX
+                ? new Vector3(length, BeamDepth, BeamWidth)
+                : new Vector3(BeamWidth, BeamDepth, length);
+
+            b.Box(centre, size, PaletteUv.Family.NeutralCold, 6);
+        }
+
+        /// <summary>A pilaster: a shallow pier standing proud of a wall, where a beam lands on it.</summary>
+        private static void AddPilaster(ProcMesh.Builder b, WallAxis axis, float face, float inward,
+                                        float u, float height)
+        {
+            const float width = 0.40f, proud = 0.14f;
+            float v = face + inward * proud * 0.5f;
+
+            var centre = axis == WallAxis.AlongX
+                ? new Vector3(u, height * 0.5f, v)
+                : new Vector3(v, height * 0.5f, u);
+            var size = axis == WallAxis.AlongX
+                ? new Vector3(width, height, proud)
+                : new Vector3(proud, height, width);
+
+            b.Box(centre, size, PaletteUv.Family.NeutralCold, 7);
+        }
+
+        // -- The rooms ----------------------------------------------------------------------------
+
+        // Where the corridor's north wall is broken. Two doors and two interior windows: a window
+        // between two rooms costs four boxes and is most of what makes a corridor worth walking
+        // down, because a lit room seen from a dim one is somewhere to go.
+        private const float StoreWindowX = -4.0f;
+        private const float StoreDoorX = -2.2f;
+        private const float OfficeDoorX = 3.2f;
+        // 5.1 rather than 5.2: the splayed corner's west end is embedded in this wall and reaches
+        // back to x = 5.99, so the window has to stop short of it.
+        private const float OfficeWindowX = 5.1f;
+
+        /// <summary>
+        /// The building the lab is a room in (#84): a corridor that turns, a store, an office with a
+        /// recessed nook, and a covered loading dock behind the delivery bay.
+        /// <para>
+        /// <b>Aesthetic only, and that is the whole point.</b> §5.5 makes lab layout a player-facing
+        /// mechanic and re-pacing the loop belongs to that work, so not one bench, machine, rack,
+        /// desk, book case or truck moved by a millimetre for any of this. Every wall below was
+        /// routed around them: the lab's south wall gets no door because the instrument bench runs
+        /// its whole length, and the east wall's door and window sit in the gaps the terminal desk
+        /// and the book case happen to leave.
+        /// </para>
+        /// The footprint is an L with a cut corner rather than a box with more boxes bolted on. The
+        /// corridor leaves the lab's north wall, runs east, splays through 45 degrees at its outer
+        /// corner and comes back down the lab's east flank to a second door, so circulation is a
+        /// loop with the lab in the middle of it; the office's north wall steps back into a nook with
+        /// a lower ceiling; and the dock is what turns the bay opening from a hole in the outer
+        /// envelope into a room the truck is parked in.
+        /// </summary>
+        private static void BuildBuilding(GameObject root, GameObject lightRoot, Material palette,
+                                          Material emissivePalette, Luminaire bigLamp)
+        {
+            var shell = new GameObject("Gebaeude");
+            shell.transform.SetParent(root.transform, false);
+
+            AddStatic(shell, "Flur", SaveMesh(BuildCorridorShell()), palette, Vector3.zero, true);
+            AddStatic(shell, "Lager", SaveMesh(BuildStoreShell()), palette, Vector3.zero, true);
+            AddStatic(shell, "Buero", SaveMesh(BuildOfficeShell()), palette, Vector3.zero, true);
+            AddStatic(shell, "Verladehalle", SaveMesh(BuildDockShell()), palette, Vector3.zero, true);
+
+            // The 45 degree cut across the corridor's outer corner, and the only piece of the
+            // building that is not axis-aligned — which is exactly why it is its own object.
+            // ProcMesh.Builder writes axis-aligned boxes only, so the angle lives in a transform.
+            var splayMesh = SaveMesh(ProcMesh.Box("Lab_CorridorSplay",
+                new Vector3(2.10f, RoomHeight, WallThickness), PaletteUv.Family.NeutralCold, 6));
+            var splay = AddStatic(shell, "Flur_Eckschraege", splayMesh, palette,
+                new Vector3((SplayX + CorrEast) * 0.5f, RoomHeight * 0.5f, (CorrNorth + SplayZ) * 0.5f),
+                addCollider: true);
+            splay.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+
+            BuildOpeningTrim(shell, palette);
+            BuildBuildingFixtures(shell, palette);
+            BuildBuildingLighting(lightRoot, palette, emissivePalette, bigLamp);
+        }
+
+        /// <summary>
+        /// The corridor: an L that leaves the lab's north wall, runs east and turns south down its
+        /// east flank to a second door. Lower ceiling than the lab, warmer and darker floor — the
+        /// style contract has no textures to change, so ceiling height and palette step are the only
+        /// two levers there are for saying "you have left the big room".
+        /// </summary>
+        private static Mesh BuildCorridorShell()
+        {
+            const float t = WallThickness, h = RoomHeight;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralCold;
+            const int step = 6;
+
+            var north = new[]
+            {
+                Opening.Window(StoreWindowX), Opening.Door(StoreDoorX),
+                Opening.Door(OfficeDoorX), Opening.Window(OfficeWindowX)
+            };
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, CorrWest - t, CorrEast + t, CorrSouth, PartyZ, -t, 0f,
+                PaletteUv.Family.NeutralWarm, 6);
+            AddSlab(b, TailWest, CorrEast + t, TailSouth - t, CorrSouth, -t, 0f,
+                PaletteUv.Family.NeutralWarm, 6);
+            AddSlab(b, CorrWest - t, CorrEast + t, CorrSouth, PartyZ, CorridorCeiling, CorridorCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, TailWest, CorrEast + t, TailSouth - t, CorrSouth, CorridorCeiling, CorridorCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+
+            // The roof, above the services void the dropped ceiling leaves. Not optional: the walls
+            // run to RoomHeight, so without it the void is a hole in the top of the building.
+            AddSlab(b, CorrWest - t, CorrEast + t, CorrSouth, PartyZ, RoomHeight, RoomHeight + t,
+                PaletteUv.Family.NeutralCold, 4);
+            AddSlab(b, TailWest, CorrEast + t, TailSouth - t, CorrSouth, RoomHeight, RoomHeight + t,
+                PaletteUv.Family.NeutralCold, 4);
+
+            AddWall(b, WallAxis.AlongZ, CorrWest - t * 0.5f, CorrSouth, CorrNorth, h, wall, step);
+            AddWall(b, WallAxis.AlongX, PartyZ - t * 0.5f, CorrWest - t, CorrEast + t, h, wall, step, north);
+            AddWall(b, WallAxis.AlongZ, CorrEast + t * 0.5f, TailSouth - t, PartyZ, h, wall, step);
+            AddWall(b, WallAxis.AlongX, TailSouth - t * 0.5f, TailWest - t, CorrEast + t, h, wall, step);
+
+            // Trim against the lab's own walls is built here rather than into Lab_Room: those two
+            // faces belong to the corridor from the corridor's side, and the lab must not grow
+            // geometry that only exists because something outside it was added.
+            AddSkirting(b, WallAxis.AlongX, CorrSouth, 1f, CorrWest, TailWest, Opening.Door(LabNorthDoorX));
+            AddSkirting(b, WallAxis.AlongZ, TailWest, 1f, TailSouth, CorrSouth, Opening.Door(LabEastDoorZ));
+            // Both runs stop 0.2 m short of the splayed corner, which is where they would otherwise
+            // start passing through it: a 45 degree wall meets an orthogonal one over a span, not at
+            // a point.
+            AddSkirting(b, WallAxis.AlongX, CorrNorth, -1f, CorrWest, SplayX - 0.2f, north);
+            AddSkirting(b, WallAxis.AlongZ, CorrWest, 1f, CorrSouth, CorrNorth);
+            AddSkirting(b, WallAxis.AlongZ, CorrEast, -1f, TailSouth, SplayZ - 0.2f);
+            AddSkirting(b, WallAxis.AlongX, TailSouth, 1f, TailWest, CorrEast);
+
+            // Beams land on pilasters. Both are placed clear of the lab's north doorway (x 0.8..2.2)
+            // and clear of the luminaires, which sit in the bays between them.
+            foreach (float x in new[] { -4.2f, -1.8f, 0.4f, 3.0f })
+            {
+                AddPilaster(b, WallAxis.AlongX, CorrSouth, 1f, x, h);
+                AddBeam(b, WallAxis.AlongZ, x, CorrSouth, CorrNorth, CorridorCeiling);
+            }
+
+            foreach (float z in new[] { -2.2f, -0.4f, 1.4f, 3.4f })
+                AddBeam(b, WallAxis.AlongX, z, TailWest, CorrEast, CorridorCeiling);
+
+            return b.ToMesh("Lab_CorridorShell");
+        }
+
+        /// <summary>
+        /// The store, north-west of the corridor. Its south wall belongs to the corridor (which
+        /// carries the door and window) and its east wall to the office, which needs that wall to
+        /// run further north than the store does.
+        /// </summary>
+        private static Mesh BuildStoreShell()
+        {
+            const float t = WallThickness, h = RoomHeight;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralCold;
+            const int step = 4;
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, -t, 0f,
+                PaletteUv.Family.NeutralCold, 3);
+            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, StoreCeiling, StoreCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, RoomHeight, RoomHeight + t,
+                PaletteUv.Family.NeutralCold, 4);
+
+            AddWall(b, WallAxis.AlongZ, StoreWest - t * 0.5f, PartyZ, StoreNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongX, StoreNorth + t * 0.5f, StoreWest - t, StoreEast + t, h, wall, step);
+
+            AddSkirting(b, WallAxis.AlongZ, StoreWest, 1f, PartyZ, StoreNorth);
+            AddSkirting(b, WallAxis.AlongZ, StoreEast, -1f, PartyZ, StoreNorth);
+            AddSkirting(b, WallAxis.AlongX, StoreNorth, -1f, StoreWest, StoreEast);
+            AddSkirting(b, WallAxis.AlongX, PartyZ, 1f, StoreWest, StoreEast, Opening.Door(StoreDoorX));
+
+            AddBeam(b, WallAxis.AlongX, 7.2f, StoreWest, StoreEast, StoreCeiling);
+            AddBeam(b, WallAxis.AlongX, 8.8f, StoreWest, StoreEast, StoreCeiling);
+
+            return b.ToMesh("Lab_StoreShell");
+        }
+
+        /// <summary>
+        /// The office, north-east of the corridor, with the recess that stops it being one more
+        /// rectangle: the north wall steps back over 2.8 m into a nook with its own lower ceiling.
+        /// The 0.4 m void that leaves above the nook is closed by the roof slab and by a header
+        /// across the mouth — an unclosed one would be a hole looking straight out of the building.
+        /// </summary>
+        private static Mesh BuildOfficeShell()
+        {
+            const float t = WallThickness, h = RoomHeight;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralWarm;
+            const int step = 8;
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, StoreEast, OfficeEast + t, PartyZ, OfficeNorth + t, -t, 0f,
+                PaletteUv.Family.NeutralWarm, 9);
+            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth, NookNorth + t, -t, 0f,
+                PaletteUv.Family.NeutralWarm, 9);
+            AddSlab(b, StoreEast, OfficeEast + t, PartyZ, OfficeNorth + t, OfficeCeiling, OfficeCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth, NookNorth + t, OfficeCeiling, OfficeCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, NookWest, NookEast, OfficeNorth, NookNorth, NookCeiling, NookCeiling + t,
+                PaletteUv.Family.NeutralCold, 9);
+            AddSlab(b, NookWest, NookEast, OfficeNorth, OfficeNorth + t, NookCeiling, OfficeCeiling,
+                PaletteUv.Family.NeutralWarm, 8);
+
+            AddWall(b, WallAxis.AlongZ, StoreEast + t * 0.5f, PartyZ, OfficeNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, OfficeEast + t * 0.5f, PartyZ, OfficeNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongX, OfficeNorth + t * 0.5f, StoreEast, NookWest, h, wall, step);
+            AddWall(b, WallAxis.AlongX, OfficeNorth + t * 0.5f, NookEast, OfficeEast + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, NookWest - t * 0.5f, OfficeNorth, NookNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, NookEast + t * 0.5f, OfficeNorth, NookNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongX, NookNorth + t * 0.5f, NookWest - t, NookEast + t, h, wall, step);
+
+            AddSkirting(b, WallAxis.AlongZ, OfficeWest, 1f, PartyZ, OfficeNorth);
+            AddSkirting(b, WallAxis.AlongZ, OfficeEast, -1f, PartyZ, OfficeNorth);
+            AddSkirting(b, WallAxis.AlongX, OfficeNorth, -1f, OfficeWest, NookWest);
+            AddSkirting(b, WallAxis.AlongX, OfficeNorth, -1f, NookEast, OfficeEast);
+            AddSkirting(b, WallAxis.AlongX, PartyZ, 1f, OfficeWest, OfficeEast, Opening.Door(OfficeDoorX));
+            AddSkirting(b, WallAxis.AlongZ, NookWest, 1f, OfficeNorth, NookNorth);
+            AddSkirting(b, WallAxis.AlongZ, NookEast, -1f, OfficeNorth, NookNorth);
+            AddSkirting(b, WallAxis.AlongX, NookNorth, -1f, NookWest, NookEast);
+
+            AddBeam(b, WallAxis.AlongZ, NookWest, PartyZ, OfficeNorth, OfficeCeiling);
+            AddBeam(b, WallAxis.AlongZ, NookEast, PartyZ, OfficeNorth, OfficeCeiling);
+
+            return b.ToMesh("Lab_OfficeShell");
+        }
+
+        /// <summary>
+        /// The covered loading dock behind the delivery bay (#33).
+        /// <para>
+        /// Without it the bay is a hole in the outer envelope — the player walks out of it into
+        /// nothing — and the truck is parked in a void. Its east wall is the lab's own west wall, and
+        /// it is 3.2 m to the underside so it closes exactly against the edge of the lab's roof slab
+        /// with the truck's 2.85 m roof clearing under the beams.
+        /// </para>
+        /// The shutter at the far end is closed and does not open: deliveries arrive through the bay,
+        /// and a door out of the building is not something this issue is adding.
+        /// </summary>
+        private static Mesh BuildDockShell()
+        {
+            const float t = WallThickness;
+            const PaletteUv.Family wall = PaletteUv.Family.NeutralCold;
+            const int step = 3;
+
+            // The lab's west wall is this room's east wall, so the dock never builds one of its own.
+            const float east = -RoomWidth * 0.5f - t;
+
+            var b = new ProcMesh.Builder();
+
+            AddSlab(b, DockWest - t, east, DockSouth - t, DockNorth + t, -t, 0f, PaletteUv.Family.Sump, 6);
+            AddSlab(b, DockWest - t, east, DockSouth - t, DockNorth + t, DockHeight, DockHeight + t,
+                PaletteUv.Family.NeutralCold, 5);
+
+            AddWall(b, WallAxis.AlongZ, DockWest - t * 0.5f, DockSouth - t, DockNorth + t, DockHeight, wall, step);
+            AddWall(b, WallAxis.AlongX, DockSouth - t * 0.5f, DockWest - t, east, DockHeight, wall, step);
+            AddWall(b, WallAxis.AlongX, DockNorth + t * 0.5f, DockWest - t, east, DockHeight, wall, step);
+
+            AddSkirting(b, WallAxis.AlongZ, DockWest, 1f, DockSouth, DockNorth);
+            AddSkirting(b, WallAxis.AlongX, DockSouth, 1f, DockWest, east);
+            AddSkirting(b, WallAxis.AlongX, DockNorth, -1f, DockWest, east);
+            AddSkirting(b, WallAxis.AlongZ, east, -1f, DockSouth, DockNorth,
+                new Opening(BayCenterZ, BayWidth, 0f, BayHeight));
+
+            AddBeam(b, WallAxis.AlongZ, -7.4f, DockSouth, DockNorth, DockHeight);
+            AddBeam(b, WallAxis.AlongX, 0f, DockWest, east, DockHeight);
+            AddBeam(b, WallAxis.AlongX, 3f, DockWest, east, DockHeight);
+
+            return b.ToMesh("Lab_DockShell");
+        }
+
+        // -- Openings: reveals, sills and signage -------------------------------------------------
+
+        private static void BuildOpeningTrim(GameObject parent, Material palette)
+        {
+            var doorFrame = SaveMesh(BuildDoorFrameMesh());
+            var windowFrame = SaveMesh(BuildWindowFrameMesh());
+            var sign = SaveMesh(ProcMesh.Box("Lab_SignPlate", new Vector3(0.26f, 0.16f, 0.012f),
+                PaletteUv.Family.DeepBlue, 9));
+
+            const float labNorth = RoomDepth * 0.5f + WallThickness * 0.5f;
+            const float labEast = RoomWidth * 0.5f + WallThickness * 0.5f;
+            const float partyWall = PartyZ - WallThickness * 0.5f;
+
+            AddFramedDoor(parent, palette, doorFrame, sign, "Labor_Nord",
+                WallAxis.AlongX, labNorth, LabNorthDoorX, LabNorthDoorX + 0.92f, 1f);
+            AddFramedDoor(parent, palette, doorFrame, sign, "Labor_Ost",
+                WallAxis.AlongZ, labEast, LabEastDoorZ, LabEastDoorZ - 0.92f, 1f);
+            AddFramedDoor(parent, palette, doorFrame, sign, "Lager",
+                WallAxis.AlongX, partyWall, StoreDoorX, StoreDoorX + 0.92f, -1f);
+            AddFramedDoor(parent, palette, doorFrame, sign, "Buero",
+                WallAxis.AlongX, partyWall, OfficeDoorX, OfficeDoorX + 0.92f, -1f);
+
+            AddFramedWindow(parent, palette, windowFrame, "Labor_Ost",
+                WallAxis.AlongZ, labEast, LabEastWindowZ);
+            AddFramedWindow(parent, palette, windowFrame, "Lager", WallAxis.AlongX, partyWall, StoreWindowX);
+            AddFramedWindow(parent, palette, windowFrame, "Buero", WallAxis.AlongX, partyWall, OfficeWindowX);
+        }
+
+        /// <summary>
+        /// A door lining, and the plate beside it. <paramref name="signSide"/> is +1 when the plate
+        /// belongs on the positive side of the wall — always the side you approach the door from.
+        /// </summary>
+        private static void AddFramedDoor(GameObject parent, Material palette, Mesh frame, Mesh sign,
+                                          string name, WallAxis axis, float wallV, float u, float signU,
+                                          float signSide)
+        {
+            float yaw = axis == WallAxis.AlongX ? 0f : 90f;
+            var position = axis == WallAxis.AlongX ? new Vector3(u, 0f, wallV) : new Vector3(wallV, 0f, u);
+
+            var go = AddStatic(parent, $"Tuerzarge_{name}", frame, palette, position, addCollider: true);
+            go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+            float outward = (WallThickness * 0.5f + 0.008f) * signSide;
+            var signPosition = axis == WallAxis.AlongX
+                ? new Vector3(signU, 1.70f, wallV + outward)
+                : new Vector3(wallV + outward, 1.70f, signU);
+
+            var plate = AddStatic(parent, $"Schild_{name}", sign, palette, signPosition, addCollider: false);
+            plate.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+        }
+
+        private static void AddFramedWindow(GameObject parent, Material palette, Mesh frame, string name,
+                                            WallAxis axis, float wallV, float u)
+        {
+            float y = (WindowSill + WindowHead) * 0.5f;
+            var position = axis == WallAxis.AlongX ? new Vector3(u, y, wallV) : new Vector3(wallV, y, u);
+
+            var go = AddStatic(parent, $"Innenfenster_{name}", frame, palette, position, addCollider: true);
+            go.transform.localRotation = Quaternion.Euler(0f, axis == WallAxis.AlongX ? 0f : 90f, 0f);
+        }
+
+        /// <summary>
+        /// The lining of a doorway, built once and instanced so every door in the building is the
+        /// same door.
+        /// <para>
+        /// The reveal is <i>subtracted</i> from an oversized structural hole rather than added to a
+        /// minimum one: 1.4 x 2.25 of hole less a 0.1 m lining leaves 1.2 x 2.15 clear, so no amount
+        /// of trim can ever leave an opening narrower than the 0.64 m capsule that has to fit it.
+        /// </para>
+        /// </summary>
+        private static Mesh BuildDoorFrameMesh()
+        {
+            const float w = DoorStructWidth, height = DoorStructHeight, d = DoorFrameDepth;
+            const float depth = WallThickness + 0.06f;
+
+            return new ProcMesh.Builder()
+                .Box(new Vector3(-w * 0.5f + d * 0.5f, height * 0.5f, 0f), new Vector3(d, height, depth),
+                    PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(w * 0.5f - d * 0.5f, height * 0.5f, 0f), new Vector3(d, height, depth),
+                    PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, height - d * 0.5f, 0f), new Vector3(w, d, depth),
+                    PaletteUv.Family.Steel, 7)
+                // A threshold strip, well under the controller's 0.35 m step offset so it is a
+                // detail rather than something to catch on.
+                .Box(new Vector3(0f, 0.01f, 0f), new Vector3(w, 0.02f, depth), PaletteUv.Family.Sump, 6)
+                .ToMesh("Lab_DoorFrame");
+        }
+
+        /// <summary>
+        /// An interior window's lining, sill and mullion. Every window in the building is between two
+        /// enclosed rooms, and its sill at 1.10 m is above the 0.85 m the player's jump reaches, so
+        /// glazing is genuinely absent rather than implied — there is nothing to see through it that
+        /// is outside, and nothing to climb through it either.
+        /// </summary>
+        private static Mesh BuildWindowFrameMesh()
+        {
+            const float w = WindowStructWidth, d = 0.05f;
+            const float height = WindowHead - WindowSill;
+            const float depth = WallThickness + 0.06f;
+
+            return new ProcMesh.Builder()
+                .Box(new Vector3(0f, -height * 0.5f + d * 0.5f, 0f), new Vector3(w, d, depth),
+                    PaletteUv.Family.Steel, 8)
+                .Box(new Vector3(0f, height * 0.5f - d * 0.5f, 0f), new Vector3(w, d, depth),
+                    PaletteUv.Family.Steel, 8)
+                .Box(new Vector3(-w * 0.5f + d * 0.5f, 0f, 0f), new Vector3(d, height, depth),
+                    PaletteUv.Family.Steel, 8)
+                .Box(new Vector3(w * 0.5f - d * 0.5f, 0f, 0f), new Vector3(d, height, depth),
+                    PaletteUv.Family.Steel, 8)
+                .Box(Vector3.zero, new Vector3(0.06f, height - d * 2f, WallThickness + 0.02f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, -height * 0.5f - 0.02f, 0f),
+                    new Vector3(w + 0.10f, 0.04f, depth + 0.12f), PaletteUv.Family.NeutralCold, 11)
+                .ToMesh("Lab_WindowFrame");
+        }
+
+        // -- Furniture ----------------------------------------------------------------------------
+
+        /// <summary>
+        /// What makes each new room worth walking into. Nothing here is interactive and nothing here
+        /// is near a station: every position was checked against the truck's parked footprint
+        /// (x -9.7..-5.3, z 0.34..2.86) and against the doorways it must not stand in.
+        /// </summary>
+        private static void BuildBuildingFixtures(GameObject parent, Material palette)
+        {
+            var props = new GameObject("Einbauten");
+            props.transform.SetParent(parent.transform, false);
+
+            var locker = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.95f, 0f), new Vector3(0.40f, 1.90f, 0.48f), PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, 1.30f, 0.25f), new Vector3(0.03f, 0.18f, 0.02f), PaletteUv.Family.Sump, 4)
+                .Box(new Vector3(0f, 1.80f, 0.25f), new Vector3(0.24f, 0.09f, 0.012f),
+                    PaletteUv.Family.DeepBlue, 9)
+                .ToMesh("Lab_Locker"));
+
+            var crate = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.22f, 0f), new Vector3(0.58f, 0.44f, 0.58f),
+                    PaletteUv.Family.NeutralWarm, 8)
+                .Box(new Vector3(0f, 0.22f, 0f), new Vector3(0.60f, 0.06f, 0.60f), PaletteUv.Family.Sump, 4)
+                .ToMesh("Lab_Crate"));
+
+            var drum = SaveMesh(new ProcMesh.Builder()
+                .Cylinder(Vector3.zero, 0.29f, 0.86f, 14, PaletteUv.Family.Sump, 6)
+                .Cylinder(new Vector3(0f, 0.24f, 0f), 0.305f, 0.05f, 14, PaletteUv.Family.Steel, 5)
+                .Cylinder(new Vector3(0f, 0.57f, 0f), 0.305f, 0.05f, 14, PaletteUv.Family.Steel, 5)
+                .ToMesh("Lab_Drum"));
+
+            var pallet = SaveMesh(BuildPalletMesh());
+            var shelving = SaveMesh(BuildShelvingMesh());
+            var board = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0f, -0.012f), new Vector3(1.26f, 0.86f, 0.02f),
+                    PaletteUv.Family.Sump, 5)
+                .Box(Vector3.zero, new Vector3(1.18f, 0.78f, 0.03f), PaletteUv.Family.NeutralWarm, 12)
+                .ToMesh("Lab_Pinboard"));
+
+            // Corridor: a locker bank closing the dead end of the south leg, and a notice board at
+            // the west one, so neither end of the corridor is a blank wall you walk up to.
+            foreach (float x in new[] { 5.75f, 6.20f, 6.65f, 7.10f })
+            {
+                AddProp(props, $"Spind_{x:0.00}", locker, palette,
+                    new Vector3(x, 0f, TailSouth + 0.24f), 0f, addCollider: true);
+            }
+
+            AddProp(props, "Anschlagtafel_Flur", board, palette,
+                new Vector3(CorrWest + 0.02f, 1.55f, 5.30f), 90f, addCollider: false);
+
+            // Store: two bays of shelving on the back wall, and floor stock clear of the doorway.
+            AddProp(props, "Regal_West", shelving, palette,
+                new Vector3(-3.9f, 0f, StoreNorth - 0.24f), 0f, addCollider: true);
+            AddProp(props, "Regal_Ost", shelving, palette,
+                new Vector3(-1.8f, 0f, StoreNorth - 0.24f), 0f, addCollider: true);
+            AddProp(props, "Kiste_A", crate, palette, new Vector3(-4.50f, 0f, 7.30f), 12f, addCollider: true);
+            AddProp(props, "Kiste_B", crate, palette, new Vector3(-3.85f, 0f, 7.25f), -6f, addCollider: true);
+            AddProp(props, "Kiste_C", crate, palette, new Vector3(-4.46f, 0.44f, 7.32f), 4f, addCollider: true);
+            AddProp(props, "Palette_Lager", pallet, palette, new Vector3(0.30f, 0f, 8.60f), 0f, addCollider: true);
+            AddProp(props, "Fass_Lager", drum, palette, new Vector3(0.40f, 0.14f, 8.60f), 0f, addCollider: true);
+
+            // Office: a desk in the nook facing back into the room, cabinets on the east wall, and a
+            // board opposite them.
+            var desk = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.72f, 0f), new Vector3(1.60f, 0.05f, 0.72f),
+                    PaletteUv.Family.NeutralWarm, 11)
+                .Box(new Vector3(0f, 0.36f, -0.30f), new Vector3(1.50f, 0.68f, 0.03f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(-0.75f, 0.35f, 0f), new Vector3(0.06f, 0.70f, 0.68f),
+                    PaletteUv.Family.Steel, 5)
+                .Box(new Vector3(0.75f, 0.35f, 0f), new Vector3(0.06f, 0.70f, 0.68f),
+                    PaletteUv.Family.Steel, 5)
+                .ToMesh("Lab_OfficeDesk"));
+
+            var cabinet = SaveMesh(new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.66f, 0f), new Vector3(0.48f, 1.32f, 0.60f), PaletteUv.Family.Steel, 7)
+                .Box(new Vector3(0f, 0.35f, 0.31f), new Vector3(0.40f, 0.02f, 0.02f), PaletteUv.Family.Sump, 4)
+                .Box(new Vector3(0f, 0.70f, 0.31f), new Vector3(0.40f, 0.02f, 0.02f), PaletteUv.Family.Sump, 4)
+                .Box(new Vector3(0f, 1.05f, 0.31f), new Vector3(0.40f, 0.02f, 0.02f), PaletteUv.Family.Sump, 4)
+                .ToMesh("Lab_FilingCabinet"));
+
+            AddProp(props, "Schreibtisch", desk, palette,
+                new Vector3(4.40f, 0f, NookNorth - 0.42f), 180f, addCollider: true);
+            AddProp(props, "Aktenschrank_A", cabinet, palette,
+                new Vector3(OfficeEast - 0.31f, 0f, 7.90f), -90f, addCollider: true);
+            AddProp(props, "Aktenschrank_B", cabinet, palette,
+                new Vector3(OfficeEast - 0.31f, 0f, 8.55f), -90f, addCollider: true);
+            AddProp(props, "Anschlagtafel_Buero", board, palette,
+                new Vector3(OfficeWest + 0.02f, 1.55f, 8.60f), 90f, addCollider: false);
+
+            // Dock: a closed roller shutter at the far end, plus stock parked clear of the truck.
+            AddProp(props, "Rolltor", SaveMesh(BuildRollerShutterMesh()), palette,
+                new Vector3(DockWest + 0.03f, 0f, 1.50f), 90f, addCollider: false);
+            AddProp(props, "Palette_Halle_A", pallet, palette,
+                new Vector3(-8.00f, 0f, -0.45f), 0f, addCollider: true);
+            AddProp(props, "Palette_Halle_B", pallet, palette,
+                new Vector3(-9.20f, 0f, 3.45f), 8f, addCollider: true);
+            AddProp(props, "Fass_Halle_A", drum, palette, new Vector3(-6.20f, 0f, -0.70f), 0f, addCollider: true);
+            AddProp(props, "Fass_Halle_B", drum, palette, new Vector3(-6.85f, 0f, -0.62f), 0f, addCollider: true);
+            AddProp(props, "Fass_Halle_C", drum, palette, new Vector3(-6.20f, 0f, 3.70f), 0f, addCollider: true);
+        }
+
+        private static Mesh BuildShelvingMesh()
+        {
+            const float w = 1.80f, d = 0.46f, h = 2.00f;
+            var b = new ProcMesh.Builder();
+
+            foreach (float x in new[] { -w * 0.5f + 0.03f, w * 0.5f - 0.03f })
+            {
+                foreach (float z in new[] { -d * 0.5f + 0.03f, d * 0.5f - 0.03f })
+                    b.Box(new Vector3(x, h * 0.5f, z), new Vector3(0.06f, h, 0.06f), PaletteUv.Family.Steel, 5);
+            }
+
+            for (int i = 0; i < 4; i++)
+                b.Box(new Vector3(0f, 0.35f + i * 0.52f, 0f), new Vector3(w, 0.04f, d),
+                    PaletteUv.Family.Steel, 8);
+
+            b.Box(new Vector3(0f, h - 0.03f, -d * 0.5f + 0.03f), new Vector3(w, 0.06f, 0.06f),
+                PaletteUv.Family.Steel, 5);
+
+            return b.ToMesh("Lab_Shelving");
+        }
+
+        private static Mesh BuildPalletMesh()
+        {
+            var b = new ProcMesh.Builder();
+
+            foreach (float z in new[] { -0.36f, 0f, 0.36f })
+                b.Box(new Vector3(0f, 0.05f, z), new Vector3(1.20f, 0.10f, 0.10f),
+                    PaletteUv.Family.NeutralWarm, 7);
+
+            for (int i = 0; i < 5; i++)
+                b.Box(new Vector3(0f, 0.125f, -0.40f + i * 0.20f), new Vector3(1.20f, 0.03f, 0.12f),
+                    PaletteUv.Family.NeutralWarm, 9);
+
+            return b.ToMesh("Lab_Pallet");
+        }
+
+        private static Mesh BuildRollerShutterMesh()
+        {
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, 1.45f, 0f), new Vector3(3.60f, 2.90f, 0.05f), PaletteUv.Family.Steel, 4);
+
+            for (int i = 0; i < 11; i++)
+                b.Box(new Vector3(0f, 0.18f + i * 0.26f, 0.035f), new Vector3(3.60f, 0.22f, 0.03f),
+                    PaletteUv.Family.Steel, 6);
+
+            b.Box(new Vector3(0f, 3.02f, 0.06f), new Vector3(3.80f, 0.26f, 0.30f), PaletteUv.Family.Sump, 5);
+            return b.ToMesh("Lab_RollerShutter");
+        }
+
+        private static GameObject AddProp(GameObject parent, string name, Mesh mesh, Material palette,
+                                          Vector3 position, float yaw, bool addCollider)
+        {
+            var go = AddStatic(parent, name, mesh, palette, position, addCollider);
+            go.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+            return go;
+        }
+
+        // -- Lighting -----------------------------------------------------------------------------
+
+        /// <summary>
+        /// One fitting per bay in every new space. Nothing here is optional: the sun is outside a
+        /// sealed shell and reaches none of these rooms, so a room without a lamp in it is a black
+        /// room — and a room that looks lit without one is the inverted-face leak this file already
+        /// carries a warning about, not a room that is lit.
+        /// </summary>
+        private static void BuildBuildingLighting(GameObject lightRoot, Material palette,
+                                                  Material emissivePalette, Luminaire bigLamp)
+        {
+            // Shorter than the lab's fitting, so a run of them fits between the downstand beams.
+            var slim = new Luminaire(
+                SaveMesh(ProcMesh.Box("Lab_CorridorBallast", new Vector3(1.00f, 0.055f, 0.26f),
+                    PaletteUv.Family.Steel, 5)),
+                SaveMesh(ProcMesh.Box("Lab_CorridorLuminaire", new Vector3(0.90f, 0.035f, 0.20f),
+                    PaletteUv.Family.NeutralCold, 15)),
+                palette, emissivePalette);
+
+            var corridorColour = new Color(0.84f, 0.90f, 1f);
+            var corridor = new GameObject("Flur");
+            corridor.transform.SetParent(lightRoot.transform, false);
+
+            foreach (float x in new[] { -3.0f, -0.7f, 1.7f, 4.2f, 6.2f })
+                slim.Place(corridor, $"Flurleuchte_West_{x:0.0}",
+                    new Vector3(x, CorridorCeiling - 0.30f, 5.30f), 0f, 6.5f, 1.85f, corridorColour);
+
+            foreach (float z in new[] { -1.3f, 0.4f, 2.4f })
+                slim.Place(corridor, $"Flurleuchte_Sued_{z:0.0}",
+                    new Vector3(6.30f, CorridorCeiling - 0.30f, z), 90f, 6.5f, 1.85f, corridorColour);
+
+            var store = new GameObject("Lager");
+            store.transform.SetParent(lightRoot.transform, false);
+            foreach (float x in new[] { -3.4f, -0.8f })
+                slim.Place(store, $"Lagerleuchte_{x:0.0}", new Vector3(x, StoreCeiling - 0.30f, 8.0f),
+                    0f, 6.0f, 1.70f, new Color(0.86f, 0.90f, 0.98f));
+
+            var office = new GameObject("Buero");
+            office.transform.SetParent(lightRoot.transform, false);
+            var officeColour = new Color(1f, 0.97f, 0.90f);
+            foreach (var p in new[]
+                     {
+                         new Vector2(2.2f, 8.5f), new Vector2(4.4f, 7.5f),
+                         new Vector2(4.4f, 9.5f), new Vector2(6.6f, 8.5f)
+                     })
+            {
+                slim.Place(office, $"Bueroleuchte_{p.x:0.0}_{p.y:0.0}",
+                    new Vector3(p.x, OfficeCeiling - 0.30f, p.y), 0f, 6.5f, 1.95f, officeColour);
+            }
+
+            slim.Place(office, "Bueroleuchte_Nische",
+                new Vector3(4.40f, NookCeiling - 0.28f, 10.90f), 0f, 4.5f, 1.60f, officeColour);
+
+            var dock = new GameObject("Verladehalle");
+            dock.transform.SetParent(lightRoot.transform, false);
+            foreach (var p in new[]
+                     {
+                         new Vector2(-6.2f, -0.6f), new Vector2(-8.8f, -0.6f),
+                         new Vector2(-6.2f, 3.6f), new Vector2(-8.8f, 3.6f)
+                     })
+            {
+                bigLamp.Place(dock, $"Hallenleuchte_{p.x:0.0}_{p.y:0.0}",
+                    new Vector3(p.x, DockHeight - 0.35f, p.y), 0f, 9f, 2.40f, new Color(0.88f, 0.93f, 1f));
+            }
         }
 
         /// <summary>
