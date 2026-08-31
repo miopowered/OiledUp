@@ -70,6 +70,73 @@ namespace Residue.Editor.Art
                 return this;
             }
 
+            /// <summary>
+            /// A vertical prism: a convex plan polygon extruded between two heights. Plan points are
+            /// <c>(x, z)</c> in the mesh's own space, so the shape is authored where it stands rather
+            /// than built at the origin and rotated into place.
+            /// <para>
+            /// That distinction is the whole reason this exists. A wall that runs at 45 degrees cannot
+            /// be a box, and the usual workaround — an overlong box turned by a transform — can only
+            /// close its mitres by burying its square ends inside the walls it meets. Two solids then
+            /// share volume, which is invisible until the coincident faces start to shimmer. A prism
+            /// mitres exactly, so the shell it joins can be notched back to meet it.
+            /// </para>
+            /// Winding is normalised here, so a caller may list the plan either way round without
+            /// turning the mesh inside out. The polygon must be convex: the caps are fanned from the
+            /// first point.
+            /// </summary>
+            public Builder Prism(float yBottom, float yTop, PaletteUv.Family family, int step,
+                                 params Vector2[] plan)
+            {
+                if (plan == null || plan.Length < 3 || yTop - yBottom <= 0.0001f) return this;
+
+                var p = new List<Vector2>(plan);
+                if (SignedArea(p) < 0f) p.Reverse();
+
+                Vector2 uv = PaletteUv.TexelCenter(family, step);
+                float yMid = (yBottom + yTop) * 0.5f;
+                var up = new Vector3(0f, (yTop - yBottom) * 0.5f, 0f);
+
+                for (int i = 0; i < p.Count; i++)
+                {
+                    Vector2 a = p[i], c = p[(i + 1) % p.Count];
+                    Vector2 edge = c - a;
+                    if (edge.sqrMagnitude <= 1e-8f) continue;
+
+                    // For a plan wound so its signed area is positive, the outward normal of the edge
+                    // a->c is (dz, -dx); "right" is the reverse of the edge so that cross(right, up)
+                    // lands on that normal, which is the invariant AddQuad is built on.
+                    var normal = new Vector3(edge.y, 0f, -edge.x).normalized;
+                    var centre = new Vector3((a.x + c.x) * 0.5f, yMid, (a.y + c.y) * 0.5f);
+                    AddQuad(centre, normal, new Vector3(-edge.x * 0.5f, 0f, -edge.y * 0.5f), up, uv);
+                }
+
+                for (int i = 1; i < p.Count - 1; i++)
+                {
+                    AddTri(new Vector3(p[0].x, yTop, p[0].y),
+                           new Vector3(p[i].x, yTop, p[i].y),
+                           new Vector3(p[i + 1].x, yTop, p[i + 1].y), Vector3.up, uv);
+                    AddTri(new Vector3(p[0].x, yBottom, p[0].y),
+                           new Vector3(p[i + 1].x, yBottom, p[i + 1].y),
+                           new Vector3(p[i].x, yBottom, p[i].y), Vector3.down, uv);
+                }
+                return this;
+            }
+
+            /// <summary>Twice the shoelace area of a plan polygon, halved. Positive is the winding
+            /// <see cref="Prism"/> builds its normals for; negative means the caller listed it the
+            /// other way round.</summary>
+            private static float SignedArea(List<Vector2> p)
+            {
+                float sum = 0f;
+                for (int i = 0; i < p.Count; i++)
+                {
+                    Vector2 a = p[i], b = p[(i + 1) % p.Count];
+                    sum += a.x * b.y - b.x * a.y;
+                }
+                return sum * 0.5f;
+            }
+
             /// <summary>A hollow room: floor, ceiling and four walls, built inward-facing.</summary>
             public Builder Room(Vector3 innerSize, float wallThickness, PaletteUv.Family family, int step)
             {

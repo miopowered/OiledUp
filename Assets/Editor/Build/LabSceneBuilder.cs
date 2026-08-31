@@ -93,7 +93,9 @@ namespace Residue.Editor.Build
         private const float LabEastWindowZ = -1.2f;
 
         // Corridor: an L wrapping the lab's north-east corner, so the two lab doors make a loop
-        // rather than a cul-de-sac. Its outer corner is cut at 45 degrees (CorridorSplay*).
+        // rather than a cul-de-sac. Its inner corner is cut at 45 degrees — see BuildCorridorShell,
+        // where the splay is a solid pier the two walls stop against rather than a panel standing
+        // inside the corner they still fill.
         private const float CorridorCeiling = 2.55f;
         private const float CorrWest = -5.0f;
         private const float CorrEast = 7.4f;
@@ -243,33 +245,26 @@ namespace Residue.Editor.Build
             AddStatic(root, "Room", SaveMesh(room), palette, Vector3.zero, addCollider: true);
             BuildBayDressing(root, palette);
 
-            // Bench along the far wall, machines sit on it. 0.9 m per §2.1.
-            var bench = new ProcMesh.Builder()
-                .Box(Vector3.zero, new Vector3(8f, BenchHeight, 0.7f), PaletteUv.Family.Steel, 5)
-                .ToMesh("Lab_Bench");
-            AddStatic(root, "Bench_Machines", SaveMesh(bench), palette,
-                new Vector3(0f, BenchHeight * 0.5f, -RoomDepth * 0.5f + 0.55f), addCollider: true);
+            // Bench along the far wall, machines sit on it. 0.9 m per §2.1. Back to the wall, so it
+            // gets the upstand.
+            AddStatic(root, "Bench_Machines", SaveMesh(BuildBenchMesh("Lab_Bench", 8f, 0.7f, -1)),
+                palette, new Vector3(0f, BenchPivot, -RoomDepth * 0.5f + 0.55f), addCollider: true);
 
-            var intakeBench = new ProcMesh.Builder()
-                .Box(Vector3.zero, new Vector3(1.6f, BenchHeight, 0.8f), PaletteUv.Family.Steel, 5)
-                .ToMesh("Lab_IntakeBench");
-            AddStatic(root, "Bench_Intake", SaveMesh(intakeBench), palette,
-                new Vector3(-RoomWidth * 0.5f + 1.1f, BenchHeight * 0.5f, 1.6f), addCollider: true);
+            // No shelf under the intake bench: two of DeliveryBay's four standings fall inside its
+            // footprint at floor height, so whatever is under this bench has to stay clear floor.
+            AddStatic(root, "Bench_Intake",
+                SaveMesh(BuildBenchMesh("Lab_IntakeBench", 1.6f, 0.8f, 0, underShelf: false)),
+                palette, new Vector3(-RoomWidth * 0.5f + 1.1f, BenchPivot, 1.6f), addCollider: true);
 
-            var desk = new ProcMesh.Builder()
-                .Box(Vector3.zero, new Vector3(1.6f, BenchHeight, 0.8f), PaletteUv.Family.Steel, 5)
-                .ToMesh("Lab_Desk");
-            AddStatic(root, "Bench_Terminal", SaveMesh(desk), palette,
-                new Vector3(RoomWidth * 0.5f - 1.1f, BenchHeight * 0.5f, 1.6f), addCollider: true);
+            AddStatic(root, "Bench_Terminal", SaveMesh(BuildTerminalDeskMesh()), palette,
+                new Vector3(RoomWidth * 0.5f - 1.1f, BenchPivot, 1.6f), addCollider: true);
+            BuildTerminalDeskDressing(root, palette);
 
             // Island between the door and the instruments. Staging space is not decoration: with one
             // pair of hands and four machines, somewhere to put a vial down is what stops the loop
-            // deadlocking the moment every instrument is busy.
-            var island = new ProcMesh.Builder()
-                .Box(Vector3.zero, new Vector3(3.2f, BenchHeight, 0.8f), PaletteUv.Family.Steel, 6)
-                .ToMesh("Lab_Island");
-            AddStatic(root, "Bench_Island", SaveMesh(island), palette,
-                new Vector3(0f, BenchHeight * 0.5f, -1.4f), addCollider: true);
+            // deadlocking the moment every instrument is busy. Worked from both sides, so no upstand.
+            AddStatic(root, "Bench_Island", SaveMesh(BuildBenchMesh("Lab_Island", 3.2f, 0.8f, 0)),
+                palette, new Vector3(0f, BenchPivot, -1.4f), addCollider: true);
 
             BuildWashStation(root, palette);
 
@@ -390,6 +385,266 @@ namespace Residue.Editor.Build
             AddStatic(root, "Bay_TrackNorth", trackMesh, palette,
                 new Vector3(-RoomWidth * 0.5f + 0.05f, BayHeight * 0.5f, BayCenterZ + BayWidth * 0.5f - 0.04f),
                 addCollider: false);
+        }
+
+        // -- Benches -------------------------------------------------------------------------------
+
+        // Every bench is placed with its transform 0.45 m off the floor and a mesh centred on that,
+        // which is how they were authored when each was a single box. Heights below are measured from
+        // the floor and shifted by this, so the geometry can change completely while the transform,
+        // the footprint and the 0.9 m working height stay exactly where the machines and racks expect
+        // them.
+        private const float BenchPivot = BenchHeight * 0.5f;
+
+        private const float BenchTop = 0.045f;
+        private const float BenchRail = 0.09f;
+        private const float BenchRailThickness = 0.03f;
+        private const float BenchLeg = 0.06f;
+        private const float BenchInset = 0.05f;
+
+        /// <summary>Floor height to bench-mesh local Y.</summary>
+        private static float OnBench(float fromFloor) => fromFloor - BenchPivot;
+
+        /// <summary>
+        /// A bench from the lab's own furniture range: a worktop with a nosing under each long edge,
+        /// a perimeter apron rail carried on legs, an under-bench shelf, cable trunking along the
+        /// back, and — where the bench stands against something — a splash upstand.
+        /// <para>
+        /// An extruded box reads as a placeholder because a real bench is mostly the space underneath
+        /// it. The toe space, the shelf and the shadow under the nosing are what say "furniture" from
+        /// across the room, and none of them cost a texture. Every part is inside the original
+        /// footprint and the top is still at <see cref="BenchHeight"/>, so nothing standing on a bench
+        /// moves by a millimetre.
+        /// </para>
+        /// Rails along Z own the corners and the ones along X stop against their inner faces — the
+        /// same rule the building's walls follow, for the same reason.
+        /// </summary>
+        /// <param name="upstandSide">-1, 0 or +1: which Z edge carries the upstand and the trunking.
+        /// 0 is an island, worked from both sides, which gets neither an upstand nor a back.</param>
+        private static Mesh BuildBenchMesh(string name, float width, float depth, int upstandSide,
+                                           bool underShelf = true)
+        {
+            float hw = width * 0.5f, hd = depth * 0.5f;
+            float topY = BenchHeight - BenchTop * 0.5f;
+            float underside = BenchHeight - BenchTop;
+            float railY = underside - BenchRail * 0.5f;
+            float legTop = underside - BenchRail;
+
+            var b = new ProcMesh.Builder();
+
+            b.Box(new Vector3(0f, OnBench(topY), 0f), new Vector3(width, BenchTop, depth),
+                PaletteUv.Family.NeutralCold, 12);
+
+            foreach (int side in new[] { -1, 1 })
+            {
+                // Nosing: flush with the worktop's edge and tucked under it, so the two coplanar
+                // faces never overlap and the join is a shadow line rather than a fight.
+                b.Box(new Vector3(0f, OnBench(underside - 0.01f), side * (hd - 0.0075f)),
+                    new Vector3(width, 0.02f, 0.015f), PaletteUv.Family.Sump, 5);
+
+                b.Box(new Vector3(side * (hw - BenchInset), OnBench(railY), 0f),
+                    new Vector3(BenchRailThickness, BenchRail, depth - 2f * BenchInset + BenchRailThickness),
+                    PaletteUv.Family.Steel, 5);
+                b.Box(new Vector3(0f, OnBench(railY), side * (hd - BenchInset)),
+                    new Vector3(width - 2f * BenchInset - BenchRailThickness, BenchRail, BenchRailThickness),
+                    PaletteUv.Family.Steel, 5);
+            }
+
+            // A leg pair every 1.7 m or so. Four legs under an 8 m bench reads as a plank on stilts.
+            int bays = Mathf.Max(1, Mathf.RoundToInt(width / 1.7f));
+            for (int i = 0; i <= bays; i++)
+            {
+                float x = Mathf.Lerp(-(hw - BenchInset), hw - BenchInset, i / (float)bays);
+                foreach (int side in new[] { -1, 1 })
+                {
+                    b.Box(new Vector3(x, OnBench(legTop * 0.5f), side * (hd - BenchInset)),
+                        new Vector3(BenchLeg, legTop, BenchLeg), PaletteUv.Family.Steel, 4);
+                }
+            }
+
+            if (underShelf)
+            {
+                // Sized to the legs' inner faces exactly, so it spans between them without entering
+                // one of them.
+                float shelfInset = BenchInset + BenchLeg * 0.5f;
+                b.Box(new Vector3(0f, OnBench(0.28f), 0f),
+                    new Vector3(width - 2f * shelfInset, 0.03f, depth - 2f * shelfInset),
+                    PaletteUv.Family.Steel, 8);
+            }
+
+            int back = upstandSide != 0 ? upstandSide : 1;
+            b.Box(new Vector3(0f, OnBench(0.79f), back * (hd - 0.16f)),
+                new Vector3(width - 0.26f, 0.06f, 0.07f), PaletteUv.Family.Sump, 4);
+
+            if (upstandSide != 0)
+            {
+                b.Box(new Vector3(0f, OnBench(BenchHeight + 0.02f), upstandSide * (hd - 0.01f)),
+                    new Vector3(width, 0.04f, 0.02f), PaletteUv.Family.NeutralCold, 12);
+            }
+
+            return b.ToMesh(name);
+        }
+
+        // -- The terminal desk -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Where every verdict is signed off, so it should look like somewhere work is signed off
+        /// rather than a cube with a screen on it.
+        /// <para>
+        /// A worktop over a knee well, an end gable one side and a three-drawer pedestal the other,
+        /// a pulled-out keyboard shelf, cable trunking gathered into a riser at the back corner, and
+        /// a foot and neck under the terminal so the monitor stands on the desk instead of floating
+        /// 0.13 m above it.
+        /// </para>
+        /// The transform, the footprint and the 0.9 m top are unchanged: the terminal, its screen and
+        /// its interaction points are anchored to this desk and none of them may move. The operator's
+        /// side is -Z, away from the east wall and clear of the east doorway, which is why the modesty
+        /// panel, the riser and the trunking are all on +Z.
+        /// </summary>
+        private static Mesh BuildTerminalDeskMesh()
+        {
+            var b = new ProcMesh.Builder();
+
+            b.Box(new Vector3(0f, OnBench(0.880f), 0f), new Vector3(1.68f, 0.04f, 0.86f),
+                PaletteUv.Family.NeutralCold, 12);
+            b.Box(new Vector3(0f, OnBench(0.850f), -0.4225f), new Vector3(1.68f, 0.02f, 0.015f),
+                PaletteUv.Family.Sump, 5);
+            b.Box(new Vector3(0f, OnBench(0.850f), 0.4225f), new Vector3(1.68f, 0.02f, 0.015f),
+                PaletteUv.Family.Sump, 5);
+
+            // End gable west, pedestal east, knee well between them.
+            b.Box(new Vector3(-0.80f, OnBench(0.430f), 0f), new Vector3(0.04f, 0.86f, 0.78f),
+                PaletteUv.Family.Steel, 5);
+
+            // Modesty panel stops dead against the gable at -0.78 and the riser at +0.70.
+            b.Box(new Vector3(-0.04f, OnBench(0.560f), 0.360f), new Vector3(1.48f, 0.34f, 0.025f),
+                PaletteUv.Family.Steel, 6);
+
+            b.Box(new Vector3(0.59f, OnBench(0.445f), 0f), new Vector3(0.42f, 0.83f, 0.60f),
+                PaletteUv.Family.Steel, 7);
+            b.Box(new Vector3(0.59f, OnBench(0.015f), 0f), new Vector3(0.38f, 0.03f, 0.56f),
+                PaletteUv.Family.Sump, 4);
+
+            foreach (float y in new[] { 0.135f, 0.395f, 0.655f })
+            {
+                b.Box(new Vector3(0.59f, OnBench(y), -0.310f), new Vector3(0.38f, 0.185f, 0.02f),
+                    PaletteUv.Family.NeutralCold, 9);
+                b.Box(new Vector3(0.59f, OnBench(y + 0.060f), -0.329f),
+                    new Vector3(0.18f, 0.018f, 0.018f), PaletteUv.Family.Brass, 8);
+            }
+
+            // Keyboard shelf, pulled out and loaded, on runners beneath it.
+            b.Box(new Vector3(-0.22f, OnBench(0.750f), -0.270f), new Vector3(0.64f, 0.025f, 0.30f),
+                PaletteUv.Family.Steel, 8);
+            foreach (float x in new[] { -0.5275f, 0.0875f })
+            {
+                b.Box(new Vector3(x, OnBench(0.7225f), -0.270f), new Vector3(0.025f, 0.03f, 0.30f),
+                    PaletteUv.Family.Sump, 3);
+            }
+            b.Box(new Vector3(-0.22f, OnBench(0.7735f), -0.275f), new Vector3(0.42f, 0.022f, 0.14f),
+                PaletteUv.Family.Sump, 5);
+            b.Box(new Vector3(0.22f, OnBench(0.913f), -0.28f), new Vector3(0.055f, 0.026f, 0.09f),
+                PaletteUv.Family.Sump, 5);
+
+            // Trunking gathered along the back and dropped to the floor in a riser at the corner.
+            b.Box(new Vector3(-0.10f, OnBench(0.790f), 0.310f), new Vector3(0.90f, 0.06f, 0.08f),
+                PaletteUv.Family.Sump, 4);
+            b.Box(new Vector3(0.75f, OnBench(0.430f), 0.350f), new Vector3(0.10f, 0.86f, 0.10f),
+                PaletteUv.Family.Steel, 5);
+
+            // Foot and neck for the monitor. The neck stops exactly on the terminal's underside at
+            // 1.03 m, which is where BuildStations has anchored the screen since before this desk had
+            // anything to stand it on.
+            b.Box(new Vector3(0f, OnBench(0.907f), 0f), new Vector3(0.26f, 0.014f, 0.18f),
+                PaletteUv.Family.Sump, 6);
+            b.Box(new Vector3(0f, OnBench(0.972f), 0f), new Vector3(0.07f, 0.116f, 0.07f),
+                PaletteUv.Family.Steel, 6);
+
+            return b.ToMesh("Lab_Desk");
+        }
+
+        /// <summary>
+        /// The loose things around the terminal desk: a chair, a letter tray and a stack of paper.
+        /// Separate objects rather than part of the desk mesh, because each is skewed a few degrees —
+        /// a chair squared exactly to a desk is the one arrangement no lab has ever had.
+        /// </summary>
+        private static void BuildTerminalDeskDressing(GameObject root, Material palette)
+        {
+            const float deskX = RoomWidth * 0.5f - 1.1f;
+            const float deskZ = 1.6f;
+
+            AddProp(root, "Buerostuhl_Terminal", SaveMesh(BuildTaskChairMesh()), palette,
+                new Vector3(deskX - 0.18f, 0f, deskZ - 0.58f), 8f, addCollider: true);
+            AddProp(root, "Ablagekorb_Terminal", SaveMesh(BuildLetterTrayMesh()), palette,
+                new Vector3(deskX + 0.54f, BenchHeight, deskZ + 0.24f), -9f, addCollider: false);
+            AddProp(root, "Papiere_Terminal", SaveMesh(BuildPaperStackMesh()), palette,
+                new Vector3(deskX - 0.60f, BenchHeight, deskZ - 0.16f), 14f, addCollider: false);
+        }
+
+        /// <summary>
+        /// A task chair, facing +Z at zero yaw. Cylinders build along +Y, so the base is a pentagonal
+        /// foot on five castors rather than a five-arm star — same read at this scale, and every piece
+        /// stacks on the one below it instead of intersecting it.
+        /// </summary>
+        private static Mesh BuildTaskChairMesh()
+        {
+            var b = new ProcMesh.Builder();
+
+            for (int i = 0; i < 5; i++)
+            {
+                float a = i / 5f * Mathf.PI * 2f;
+                b.Cylinder(new Vector3(Mathf.Cos(a) * 0.235f, 0f, Mathf.Sin(a) * 0.235f),
+                    0.028f, 0.04f, 6, PaletteUv.Family.Sump, 3);
+            }
+
+            b.Cylinder(new Vector3(0f, 0.04f, 0f), 0.265f, 0.04f, 5, PaletteUv.Family.Sump, 5);
+            b.Cylinder(new Vector3(0f, 0.08f, 0f), 0.045f, 0.12f, 10, PaletteUv.Family.Steel, 6);
+            b.Cylinder(new Vector3(0f, 0.20f, 0f), 0.030f, 0.20f, 10, PaletteUv.Family.Steel, 9);
+
+            b.Box(new Vector3(0f, 0.43f, 0f), new Vector3(0.46f, 0.06f, 0.44f), PaletteUv.Family.Steel, 4);
+            b.Box(new Vector3(0f, 0.475f, 0f), new Vector3(0.42f, 0.03f, 0.40f),
+                PaletteUv.Family.DeepBlue, 6);
+            b.Box(new Vector3(0f, 0.595f, -0.17f), new Vector3(0.06f, 0.21f, 0.06f),
+                PaletteUv.Family.Steel, 5);
+            b.Box(new Vector3(0f, 0.900f, -0.19f), new Vector3(0.44f, 0.40f, 0.05f),
+                PaletteUv.Family.DeepBlue, 6);
+
+            return b.ToMesh("Lab_TaskChair");
+        }
+
+        private static Mesh BuildLetterTrayMesh()
+        {
+            var b = new ProcMesh.Builder()
+                .Box(new Vector3(0f, 0.006f, 0f), new Vector3(0.24f, 0.012f, 0.32f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(-0.114f, 0.037f, 0f), new Vector3(0.012f, 0.05f, 0.32f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.114f, 0.037f, 0f), new Vector3(0.012f, 0.05f, 0.32f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0f, 0.037f, 0.154f), new Vector3(0.216f, 0.05f, 0.012f),
+                    PaletteUv.Family.Steel, 6)
+                .Box(new Vector3(0.004f, 0.0145f, -0.006f), new Vector3(0.20f, 0.005f, 0.27f),
+                    PaletteUv.Family.NeutralWarm, 14)
+                .Box(new Vector3(-0.006f, 0.0195f, 0.004f), new Vector3(0.20f, 0.005f, 0.27f),
+                    PaletteUv.Family.NeutralWarm, 13);
+
+            return b.ToMesh("Lab_LetterTray");
+        }
+
+        private static Mesh BuildPaperStackMesh()
+        {
+            var b = new ProcMesh.Builder();
+
+            for (int i = 0; i < 4; i++)
+            {
+                b.Box(new Vector3(i % 2 * 0.006f - 0.003f, 0.002f + i * 0.005f, i * 0.004f - 0.006f),
+                    new Vector3(0.21f, 0.004f, 0.29f), PaletteUv.Family.NeutralWarm, 14 - i % 2);
+            }
+
+            b.Box(new Vector3(0.02f, 0.024f, 0.02f), new Vector3(0.13f, 0.008f, 0.008f),
+                PaletteUv.Family.DeepBlue, 6);
+
+            return b.ToMesh("Lab_PaperStack");
         }
 
         // -- The building around the lab (#84) ----------------------------------------------------
@@ -596,6 +851,22 @@ namespace Residue.Editor.Build
             b.Box(centre, size, PaletteUv.Family.Sump, 5);
         }
 
+        /// <summary>
+        /// Skirting along a wall that is not axis-aligned. Order the endpoints so the room lies on
+        /// the <c>(d.z, -d.x)</c> side of the run — the same handedness
+        /// <see cref="ProcMesh.Builder.Prism"/> uses for its outward faces, so a splayed wall and the
+        /// skirting under it are described the same way round.
+        /// </summary>
+        private static void AddDiagonalSkirting(ProcMesh.Builder b, Vector2 from, Vector2 to)
+        {
+            Vector2 run = to - from;
+            if (run.sqrMagnitude <= 1e-6f) return;
+
+            Vector2 inward = new Vector2(run.y, -run.x).normalized * SkirtingProud;
+            b.Prism(0f, SkirtingHeight, PaletteUv.Family.Sump, 5,
+                from, to, to + inward, from + inward);
+        }
+
         /// <summary>A downstand beam, so a ceiling has structure in it rather than being a flat lid.</summary>
         private static void AddBeam(ProcMesh.Builder b, WallAxis axis, float v, float u0, float u1,
                                     float ceiling)
@@ -639,8 +910,8 @@ namespace Residue.Editor.Build
         private const float StoreWindowX = -4.0f;
         private const float StoreDoorX = -2.2f;
         private const float OfficeDoorX = 3.2f;
-        // 5.1 rather than 5.2: the splayed corner's west end is embedded in this wall and reaches
-        // back to x = 5.99, so the window has to stop short of it.
+        // 5.1 rather than 5.2: this wall now stops dead at SplayX (6.2), where the splayed corner
+        // pier takes over, so the window has to clear that end with a pier of its own.
         private const float OfficeWindowX = 5.1f;
 
         /// <summary>
@@ -672,15 +943,11 @@ namespace Residue.Editor.Build
             AddStatic(shell, "Buero", SaveMesh(BuildOfficeShell()), palette, Vector3.zero, true);
             AddStatic(shell, "Verladehalle", SaveMesh(BuildDockShell()), palette, Vector3.zero, true);
 
-            // The 45 degree cut across the corridor's outer corner, and the only piece of the
-            // building that is not axis-aligned — which is exactly why it is its own object.
-            // ProcMesh.Builder writes axis-aligned boxes only, so the angle lives in a transform.
-            var splayMesh = SaveMesh(ProcMesh.Box("Lab_CorridorSplay",
-                new Vector3(2.10f, RoomHeight, WallThickness), PaletteUv.Family.NeutralCold, 6));
-            var splay = AddStatic(shell, "Flur_Eckschraege", splayMesh, palette,
-                new Vector3((SplayX + CorrEast) * 0.5f, RoomHeight * 0.5f, (CorrNorth + SplayZ) * 0.5f),
-                addCollider: true);
-            splay.transform.localRotation = Quaternion.Euler(0f, 45f, 0f);
+            // Flur_Eckschraege is deliberately gone. The 45 degree corner used to be a rotated box
+            // parented here, which is precisely how it came to sit inside the corner it was meant to
+            // replace: a square-ended panel can only close a mitre by burying its ends in the walls
+            // either side. It is now a mitred pier inside Lab_CorridorShell, so the corner is one
+            // solid rather than three overlapping ones. See BuildCorridorShell.
 
             BuildOpeningTrim(shell, palette);
             BuildBuildingFixtures(shell, palette);
@@ -692,6 +959,14 @@ namespace Residue.Editor.Build
         /// east flank to a second door. Lower ceiling than the lab, warmer and darker floor — the
         /// style contract has no textures to change, so ceiling height and palette step are the only
         /// two levers there are for saying "you have left the big room".
+        /// <para>
+        /// <b>The splayed corner is a pier, not a panel.</b> It was a rotated box laid across the
+        /// corner while both walls still ran through to meet behind it, so three solids occupied the
+        /// same 45 degree wedge and their coincident faces shimmered. The party wall now stops at
+        /// <see cref="SplayX"/>, the east wall stops at <see cref="SplayZ"/>, and the pentagonal pier
+        /// between them fills everything the two walls gave up — including the corner of the party
+        /// wall the office needs, which is why the chamfer could not simply be cut out of both.
+        /// </para>
         /// </summary>
         private static Mesh BuildCorridorShell()
         {
@@ -723,23 +998,38 @@ namespace Residue.Editor.Build
             AddSlab(b, TailWest, CorrEast + t, TailSouth - t, CorrSouth, RoomHeight, RoomHeight + t,
                 PaletteUv.Family.NeutralCold, 4);
 
+            // Walls along X own the corners and run to the outer face; walls along Z stop against
+            // their inner faces. That is the lab shell's own convention, and keeping to it is what
+            // stops two walls claiming the same 0.2 x 0.2 post where they meet.
             AddWall(b, WallAxis.AlongZ, CorrWest - t * 0.5f, CorrSouth, CorrNorth, h, wall, step);
-            AddWall(b, WallAxis.AlongX, PartyZ - t * 0.5f, CorrWest - t, CorrEast + t, h, wall, step, north);
-            AddWall(b, WallAxis.AlongZ, CorrEast + t * 0.5f, TailSouth - t, PartyZ, h, wall, step);
-            AddWall(b, WallAxis.AlongX, TailSouth - t * 0.5f, TailWest - t, CorrEast + t, h, wall, step);
+            AddWall(b, WallAxis.AlongX, PartyZ - t * 0.5f, CorrWest - t, SplayX, h, wall, step, north);
+            AddWall(b, WallAxis.AlongZ, CorrEast + t * 0.5f, TailSouth, SplayZ, h, wall, step);
+            AddWall(b, WallAxis.AlongX, TailSouth - t * 0.5f, TailWest, CorrEast + t, h, wall, step);
+
+            // The splayed corner. A pentagon, not a triangle: north of it is the office, which needs
+            // the party wall carried through to x = CorrEast + t, so the chamfer can only be taken
+            // out of the corridor's side of the block. The two walls above stop exactly on its E-A
+            // and C-D faces, so the join is a butt and no volume is shared.
+            b.Prism(0f, h, wall, step,
+                new Vector2(SplayX, PartyZ),          // A, where the party wall stops
+                new Vector2(CorrEast + t, PartyZ),    // B, the outer corner
+                new Vector2(CorrEast + t, SplayZ),    // C
+                new Vector2(CorrEast, SplayZ),        // D, where the east wall stops
+                new Vector2(SplayX, CorrNorth));      // E, back up the 45 degree face
 
             // Trim against the lab's own walls is built here rather than into Lab_Room: those two
             // faces belong to the corridor from the corridor's side, and the lab must not grow
             // geometry that only exists because something outside it was added.
             AddSkirting(b, WallAxis.AlongX, CorrSouth, 1f, CorrWest, TailWest, Opening.Door(LabNorthDoorX));
             AddSkirting(b, WallAxis.AlongZ, TailWest, 1f, TailSouth, CorrSouth, Opening.Door(LabEastDoorZ));
-            // Both runs stop 0.2 m short of the splayed corner, which is where they would otherwise
-            // start passing through it: a 45 degree wall meets an orthogonal one over a span, not at
-            // a point.
-            AddSkirting(b, WallAxis.AlongX, CorrNorth, -1f, CorrWest, SplayX - 0.2f, north);
+            // The two orthogonal runs stop a mitre's width short of the splay and the diagonal run
+            // picks up between them, so the skirting turns the corner with the wall instead of
+            // stopping 0.2 m either side of it.
+            AddSkirting(b, WallAxis.AlongX, CorrNorth, -1f, CorrWest, SplayX - 0.02f, north);
             AddSkirting(b, WallAxis.AlongZ, CorrWest, 1f, CorrSouth, CorrNorth);
-            AddSkirting(b, WallAxis.AlongZ, CorrEast, -1f, TailSouth, SplayZ - 0.2f);
+            AddSkirting(b, WallAxis.AlongZ, CorrEast, -1f, TailSouth, SplayZ - 0.02f);
             AddSkirting(b, WallAxis.AlongX, TailSouth, 1f, TailWest, CorrEast);
+            AddDiagonalSkirting(b, new Vector2(SplayX, CorrNorth), new Vector2(CorrEast, SplayZ));
 
             // Beams land on pilasters. Both are placed clear of the lab's north doorway (x 0.8..2.2)
             // and clear of the luminaires, which sit in the bays between them.
@@ -775,8 +1065,10 @@ namespace Residue.Editor.Build
             AddSlab(b, StoreWest - t, StoreEast + t, PartyZ, StoreNorth + t, RoomHeight, RoomHeight + t,
                 PaletteUv.Family.NeutralCold, 4);
 
-            AddWall(b, WallAxis.AlongZ, StoreWest - t * 0.5f, PartyZ, StoreNorth + t, h, wall, step);
-            AddWall(b, WallAxis.AlongX, StoreNorth + t * 0.5f, StoreWest - t, StoreEast + t, h, wall, step);
+            // The X wall owns the north-west corner and stops at StoreEast, where the office's own
+            // west wall carries on north — both corners belong to exactly one solid.
+            AddWall(b, WallAxis.AlongZ, StoreWest - t * 0.5f, PartyZ, StoreNorth, h, wall, step);
+            AddWall(b, WallAxis.AlongX, StoreNorth + t * 0.5f, StoreWest - t, StoreEast, h, wall, step);
 
             AddSkirting(b, WallAxis.AlongZ, StoreWest, 1f, PartyZ, StoreNorth);
             AddSkirting(b, WallAxis.AlongZ, StoreEast, -1f, PartyZ, StoreNorth);
@@ -803,25 +1095,31 @@ namespace Residue.Editor.Build
 
             var b = new ProcMesh.Builder();
 
+            // The nook's slabs start at the far side of the north wall rather than at its inner face,
+            // so they butt against the office's own slabs instead of lying across them. Two floor
+            // plates sharing a strip is two coplanar top faces, which is a shimmering band across the
+            // threshold of the nook and nothing else.
             AddSlab(b, StoreEast, OfficeEast + t, PartyZ, OfficeNorth + t, -t, 0f,
                 PaletteUv.Family.NeutralWarm, 9);
-            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth, NookNorth + t, -t, 0f,
+            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth + t, NookNorth + t, -t, 0f,
                 PaletteUv.Family.NeutralWarm, 9);
             AddSlab(b, StoreEast, OfficeEast + t, PartyZ, OfficeNorth + t, OfficeCeiling, OfficeCeiling + t,
                 PaletteUv.Family.NeutralCold, 9);
-            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth, NookNorth + t, OfficeCeiling, OfficeCeiling + t,
+            AddSlab(b, NookWest - t, NookEast + t, OfficeNorth + t, NookNorth + t, OfficeCeiling, OfficeCeiling + t,
                 PaletteUv.Family.NeutralCold, 9);
-            AddSlab(b, NookWest, NookEast, OfficeNorth, NookNorth, NookCeiling, NookCeiling + t,
+            AddSlab(b, NookWest, NookEast, OfficeNorth + t, NookNorth, NookCeiling, NookCeiling + t,
                 PaletteUv.Family.NeutralCold, 9);
             AddSlab(b, NookWest, NookEast, OfficeNorth, OfficeNorth + t, NookCeiling, OfficeCeiling,
                 PaletteUv.Family.NeutralWarm, 8);
 
-            AddWall(b, WallAxis.AlongZ, StoreEast + t * 0.5f, PartyZ, OfficeNorth + t, h, wall, step);
-            AddWall(b, WallAxis.AlongZ, OfficeEast + t * 0.5f, PartyZ, OfficeNorth + t, h, wall, step);
+            // Same corner convention as the corridor and the store: the walls along X carry through
+            // to the outer faces, the walls along Z stop against them.
+            AddWall(b, WallAxis.AlongZ, StoreEast + t * 0.5f, PartyZ, OfficeNorth, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, OfficeEast + t * 0.5f, PartyZ, OfficeNorth, h, wall, step);
             AddWall(b, WallAxis.AlongX, OfficeNorth + t * 0.5f, StoreEast, NookWest, h, wall, step);
             AddWall(b, WallAxis.AlongX, OfficeNorth + t * 0.5f, NookEast, OfficeEast + t, h, wall, step);
-            AddWall(b, WallAxis.AlongZ, NookWest - t * 0.5f, OfficeNorth, NookNorth + t, h, wall, step);
-            AddWall(b, WallAxis.AlongZ, NookEast + t * 0.5f, OfficeNorth, NookNorth + t, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, NookWest - t * 0.5f, OfficeNorth + t, NookNorth, h, wall, step);
+            AddWall(b, WallAxis.AlongZ, NookEast + t * 0.5f, OfficeNorth + t, NookNorth, h, wall, step);
             AddWall(b, WallAxis.AlongX, NookNorth + t * 0.5f, NookWest - t, NookEast + t, h, wall, step);
 
             AddSkirting(b, WallAxis.AlongZ, OfficeWest, 1f, PartyZ, OfficeNorth);
@@ -865,7 +1163,8 @@ namespace Residue.Editor.Build
             AddSlab(b, DockWest - t, east, DockSouth - t, DockNorth + t, DockHeight, DockHeight + t,
                 PaletteUv.Family.NeutralCold, 5);
 
-            AddWall(b, WallAxis.AlongZ, DockWest - t * 0.5f, DockSouth - t, DockNorth + t, DockHeight, wall, step);
+            // The two walls along X own both corners; the west wall stops against their inner faces.
+            AddWall(b, WallAxis.AlongZ, DockWest - t * 0.5f, DockSouth, DockNorth, DockHeight, wall, step);
             AddWall(b, WallAxis.AlongX, DockSouth - t * 0.5f, DockWest - t, east, DockHeight, wall, step);
             AddWall(b, WallAxis.AlongX, DockNorth + t * 0.5f, DockWest - t, east, DockHeight, wall, step);
 
@@ -1404,9 +1703,14 @@ namespace Residue.Editor.Build
                     new Vector3(visual.Size.x * 0.5f - 0.08f, visual.Size.y - 0.04f, front + 0.008f),
                     addCollider: false);
 
+                // The loading port is per-instrument now that the tops carry furnaces, baths and
+                // rotor drums: it is wherever that machine's chassis has a clear patch left, and the
+                // port collar in BuildMachineBody is cut at the same place so a vial always stands in
+                // a socket rather than on a lid.
                 var vialSocket = new GameObject("VialSocket");
                 vialSocket.transform.SetParent(machineGo.transform, false);
-                vialSocket.transform.localPosition = new Vector3(0f, visual.Size.y + 0.005f, -0.06f);
+                vialSocket.transform.localPosition =
+                    new Vector3(visual.Port.x, visual.Size.y + 0.005f, visual.Port.y);
 
                 var traySocket = new GameObject("PrintoutSocket");
                 traySocket.transform.SetParent(machineGo.transform, false);
@@ -1472,6 +1776,15 @@ namespace Residue.Editor.Build
                 PaletteUv.Family.DeepBlue, 5));
             AddChild(terminalGo, "Monitor", monitorMesh, palette, new Vector3(0f, 0.3f, 0f), addCollider: true);
 
+            // A dark panel laid on the monitor's -Z face, which is the side the desk is worked from.
+            // Not the screen material: this terminal's readout is the UI overlay, so what the geometry
+            // has to say is "there is glass here", and a palette step does that without claiming a
+            // second texture exception. No collider — the Monitor behind it is the interaction target.
+            var monitorFaceMesh = SaveMesh(ProcMesh.Box("Terminal_MonitorFace",
+                new Vector3(0.44f, 0.27f, 0.008f), PaletteUv.Family.DeepBlue, 1));
+            AddChild(terminalGo, "MonitorFace", monitorFaceMesh, palette,
+                new Vector3(0f, 0.315f, -0.029f), addCollider: false);
+
             var terminal = terminalGo.AddComponent<TerminalStation>();
 
             BuildBookRack(root, scene, palette, books);
@@ -1480,6 +1793,28 @@ namespace Residue.Editor.Build
         }
 
         // -- Machine visuals ---------------------------------------------------------------------------
+
+        /// <summary>
+        /// Which instrument a chassis is wearing.
+        /// <para>
+        /// §5.2 gives every machine a real identity — a 900 s cooling curve run, a titration, a
+        /// heated bath, a spun bowl — and a rack of five near-identical pale boxes throws all of it
+        /// away at exactly the moment the player is scanning the bench to decide which one to walk
+        /// to. The chassis stays a shared family so the lab still looks like one lab; what is bolted
+        /// to the top of it is what the instrument actually is.
+        /// </para>
+        /// </summary>
+        private enum MachineForm
+        {
+            Generic,
+            CoolingCurve,
+            KarlFischer,
+            Viscometer,
+            FlashPoint,
+            AcidTitrator,
+            Centrifuge,
+            Elemental
+        }
 
         /// <summary>Per-instrument proportions, so they are distinguishable by silhouette alone.</summary>
         private readonly struct MachineVisual
@@ -1490,45 +1825,92 @@ namespace Residue.Editor.Build
             public readonly bool Panel;
             public readonly int Dials;
             public readonly int Vents;
+            public readonly MachineForm Form;
+            public readonly PaletteUv.Family Body;
+            public readonly int BodyStep;
 
-            public MachineVisual(Vector3 size, Vector2 screenSize, float screenY, bool panel, int dials, int vents)
+            /// <summary>Where the vial port is cut in the chassis top, as (x, z) in machine space.
+            /// Not always the centre any more: the centre is where the interesting geometry is.</summary>
+            public readonly Vector2 Port;
+
+            public MachineVisual(Vector3 size, Vector2 screenSize, float screenY, bool panel,
+                                 int dials, int vents, MachineForm form, PaletteUv.Family body,
+                                 int bodyStep, Vector2 port)
             {
                 Size = size; ScreenSize = screenSize; ScreenY = screenY;
                 Panel = panel; Dials = dials; Vents = vents;
+                Form = form; Body = body; BodyStep = bodyStep; Port = port;
             }
         }
 
+        // Every chassis obeys the same three rules, because BuildStations anchors real components to
+        // them: the screen bezel must clear the button row at y 0.14..0.18 and stay inside the body;
+        // the status light sits at (Size.x/2 - 0.08, Size.y - 0.04) on the front face and must not
+        // land on the bezel; and the dial row runs along the front-left of the chassis top, so every
+        // superstructure below keeps out of that strip.
         private static MachineVisual VisualFor(string id) => id switch
         {
-            // Tall, wide and busy. The cooling curve tester is the centrepiece and the expensive
-            // option, and should read that way from across the room.
-            "cooling_curve" => new MachineVisual(new Vector3(0.80f, 0.64f, 0.52f), new Vector2(0.42f, 0.26f), 0.44f, true, 3, 8),
+            // The centrepiece and the expensive option: a tube furnace, a quench vessel and a probe
+            // on a gantry. Nearly a metre of instrument above the bench, and the only one you can
+            // pick out of the row from the doorway.
+            "cooling_curve" => new MachineVisual(new Vector3(0.80f, 0.50f, 0.52f), new Vector2(0.42f, 0.24f),
+                0.34f, true, 3, 8, MachineForm.CoolingCurve, PaletteUv.Family.NeutralCold, 9,
+                new Vector2(0f, -0.06f)),
 
-            // A titrator is a small box with a two-line readout and a lot of knobs.
-            "karl_fischer" => new MachineVisual(new Vector3(0.46f, 0.38f, 0.42f), new Vector2(0.22f, 0.10f), 0.28f, false, 3, 2),
+            // Glass: a titration cell under a capped head, a burette on its stand and two reagent
+            // bottles. Small box, tall glassware.
+            "karl_fischer" => new MachineVisual(new Vector3(0.56f, 0.36f, 0.42f), new Vector2(0.22f, 0.10f),
+                0.27f, false, 3, 2, MachineForm.KarlFischer, PaletteUv.Family.NeutralWarm, 10,
+                new Vector2(0f, -0.06f)),
 
-            "viscometer" => new MachineVisual(new Vector3(0.44f, 0.52f, 0.40f), new Vector2(0.20f, 0.10f), 0.40f, false, 2, 5),
+            // It preheats, and the bath is why: an open tank of oil with three capillary tubes
+            // standing in it. The heat is the silhouette.
+            "viscometer" => new MachineVisual(new Vector3(0.56f, 0.36f, 0.44f), new Vector2(0.20f, 0.10f),
+                0.27f, false, 2, 5, MachineForm.Viscometer, PaletteUv.Family.Steel, 9,
+                new Vector2(0.16f, -0.06f)),
 
-            "centrifuge" => new MachineVisual(new Vector3(0.50f, 0.40f, 0.50f), new Vector2(0.20f, 0.09f), 0.28f, false, 2, 3),
+            // Closed cup, hinged lid arm, ignition head over it.
+            "flash_point" => new MachineVisual(new Vector3(0.50f, 0.34f, 0.44f), new Vector2(0.20f, 0.10f),
+                0.26f, false, 2, 3, MachineForm.FlashPoint, PaletteUv.Family.NeutralCold, 7,
+                new Vector2(0.15f, -0.06f)),
 
-            "elemental" => new MachineVisual(new Vector3(0.64f, 0.44f, 0.48f), new Vector2(0.32f, 0.20f), 0.29f, true, 2, 4),
+            // A titrator like the Karl Fischer, but with the carousel that says it runs samples in
+            // batches — the two are meant to be confusable at a distance and not up close.
+            "tan_titrator" => new MachineVisual(new Vector3(0.56f, 0.36f, 0.44f), new Vector2(0.22f, 0.12f),
+                0.28f, false, 3, 3, MachineForm.AcidTitrator, PaletteUv.Family.NeutralWarm, 7,
+                new Vector2(-0.20f, -0.11f)),
 
-            _ => new MachineVisual(new Vector3(0.55f, 0.44f, 0.46f), new Vector2(0.26f, 0.14f), 0.30f, false, 2, 4)
+            // Squat and heavy, all drum: a latched rotor bowl on a hinge.
+            "centrifuge" => new MachineVisual(new Vector3(0.58f, 0.34f, 0.54f), new Vector2(0.20f, 0.09f),
+                0.26f, false, 2, 3, MachineForm.Centrifuge, PaletteUv.Family.Steel, 11,
+                new Vector2(0.22f, 0.19f)),
+
+            // Widest of the five: a shielded sample chamber, an optics tower and a carrier gas
+            // bottle strapped between them.
+            "elemental" => new MachineVisual(new Vector3(0.72f, 0.46f, 0.50f), new Vector2(0.32f, 0.20f),
+                0.32f, true, 2, 4, MachineForm.Elemental, PaletteUv.Family.NeutralCold, 6,
+                new Vector2(0.06f, 0.13f)),
+
+            _ => new MachineVisual(new Vector3(0.55f, 0.40f, 0.46f), new Vector2(0.26f, 0.14f),
+                0.28f, false, 2, 4, MachineForm.Generic, PaletteUv.Family.NeutralWarm, 7,
+                new Vector2(0f, -0.06f))
         };
 
         /// <summary>
-        /// One mesh for an instrument's chassis: body, screen bezel, dials, vent slats, output slot
-        /// and feet. Pivot at base centre per §2.1, so the machine sits on whatever it is placed on.
+        /// One mesh for an instrument: the shared chassis — body, feet, screen bezel, dials, vent
+        /// fins, output slot and vial port — plus whatever <see cref="MachineForm"/> bolts to the top
+        /// of it. Pivot at base centre per §2.1, so the machine sits on whatever it is placed on.
         /// </summary>
         private static Mesh BuildMachineBody(string name, MachineVisual v)
         {
             var b = new ProcMesh.Builder();
             float front = v.Size.z * 0.5f;
+            float top = v.Size.y;
             const float footHeight = 0.018f;
 
             float bodyHeight = v.Size.y - footHeight;
             b.Box(new Vector3(0f, footHeight + bodyHeight * 0.5f, 0f),
-                new Vector3(v.Size.x, bodyHeight, v.Size.z), PaletteUv.Family.NeutralWarm, 7);
+                new Vector3(v.Size.x, bodyHeight, v.Size.z), v.Body, v.BodyStep);
 
             // Feet lift it off the bench so it reads as equipment rather than a painted block.
             float fx = v.Size.x * 0.5f - 0.045f, fz = v.Size.z * 0.5f - 0.045f;
@@ -1547,34 +1929,258 @@ namespace Residue.Editor.Build
             b.Box(new Vector3(0f, v.ScreenY, front - 0.004f), new Vector3(bw, bh, 0.012f),
                 PaletteUv.Family.Sump, 2);
 
-            // Dials along the lower front. Cylinders build along +Y, so these read as knobs on the
-            // top lip rather than dials on the face — good enough for greybox, and a dial that
-            // protrudes upward is still unmistakably a dial.
+            // Dials along the front-LEFT of the top lip. Cylinders build along +Y, so these read as
+            // knobs rather than dials on the face. Left rather than right because the status light
+            // owns the front-right corner and every superstructure below is laid out around this
+            // strip.
             for (int i = 0; i < v.Dials; i++)
             {
-                float x = v.Size.x * 0.5f - 0.075f - i * 0.075f;
-                b.Cylinder(new Vector3(x, v.Size.y - 0.002f, front - 0.06f), 0.024f, 0.016f, 12,
+                float x = -v.Size.x * 0.5f + 0.075f + i * 0.075f;
+                b.Cylinder(new Vector3(x, top - 0.002f, front - 0.06f), 0.024f, 0.016f, 16,
                     PaletteUv.Family.Brass, 9);
             }
 
-            // Vent slats down one side.
+            // Vent fins down one side. They stand PROUD of the side face rather than flush with it:
+            // flush meant the fin's outer face and the body's side face were the same plane, which
+            // is a shimmering stripe down every instrument in the row.
             for (int i = 0; i < v.Vents; i++)
             {
-                float y = footHeight + 0.05f + i * 0.028f;
+                float y = footHeight + 0.05f + i * 0.030f;
                 if (y > v.Size.y - 0.05f) break;
-                b.Box(new Vector3(-v.Size.x * 0.5f + 0.0035f, y, 0f),
-                    new Vector3(0.007f, 0.012f, v.Size.z * 0.55f), PaletteUv.Family.Sump, 3);
+                b.Box(new Vector3(-v.Size.x * 0.5f - 0.005f, y, 0f),
+                    new Vector3(0.010f, 0.012f, v.Size.z * 0.55f), PaletteUv.Family.Sump, 3);
             }
 
             // Output slot the printout emerges from.
             b.Box(new Vector3(0f, 0.075f, front - 0.006f), new Vector3(0.20f, 0.016f, 0.014f),
                 PaletteUv.Family.Sump, 1);
 
-            // Top-loading port for the vial.
-            b.Cylinder(new Vector3(0f, v.Size.y - 0.006f, -0.06f), 0.032f, 0.008f, 12,
+            // Top-loading port for the vial, wherever this instrument had room to put it.
+            b.Cylinder(new Vector3(v.Port.x, top - 0.006f, v.Port.y), 0.032f, 0.008f, 16,
                 PaletteUv.Family.Sump, 2);
 
+            switch (v.Form)
+            {
+                case MachineForm.CoolingCurve: AddCoolingCurveRig(b, top); break;
+                case MachineForm.KarlFischer: AddKarlFischerRig(b, top); break;
+                case MachineForm.Viscometer: AddViscometerRig(b, top); break;
+                case MachineForm.FlashPoint: AddFlashPointRig(b, top); break;
+                case MachineForm.AcidTitrator: AddAcidTitratorRig(b, top); break;
+                case MachineForm.Centrifuge: AddCentrifugeRig(b, top); break;
+                case MachineForm.Elemental: AddElementalRig(b, top); break;
+                default: AddGenericRig(b, top); break;
+            }
+
             return b.ToMesh(name);
+        }
+
+        // -- Per-instrument superstructure -----------------------------------------------------------
+        //
+        // Everything below is authored in machine space with y measured from the bench, and every
+        // piece stacks on the one under it rather than intersecting it, so no two solids in an
+        // instrument share volume either. Palette use is restricted to the neutrals, steel, brass,
+        // deep blue, sump and coolant: hard rule 4 puts the signal row out of bounds, and the oxide
+        // and solvent rows are the two that come close enough to amber and green to be worth
+        // avoiding on something the player looks at while reading a verdict.
+
+        /// <summary>Tube furnace, quench vessel and a probe hung from a gantry (§5.2's 900 s run).</summary>
+        private static void AddCoolingCurveRig(ProcMesh.Builder b, float top)
+        {
+            b.Cylinder(new Vector3(-0.24f, top, -0.02f), 0.135f, 0.30f, 16, PaletteUv.Family.Steel, 6);
+            b.Cylinder(new Vector3(-0.24f, top + 0.30f, -0.02f), 0.150f, 0.035f, 16,
+                PaletteUv.Family.NeutralCold, 5);
+            b.Cylinder(new Vector3(-0.24f, top + 0.335f, -0.02f), 0.030f, 0.030f, 12,
+                PaletteUv.Family.Brass, 8);
+
+            b.Cylinder(new Vector3(0.20f, top, -0.02f), 0.095f, 0.22f, 16, PaletteUv.Family.Steel, 9);
+            b.Cylinder(new Vector3(0.20f, top + 0.22f, -0.02f), 0.105f, 0.025f, 16,
+                PaletteUv.Family.Sump, 4);
+
+            b.Box(new Vector3(0.36f, top + 0.23f, -0.02f), new Vector3(0.05f, 0.46f, 0.06f),
+                PaletteUv.Family.Steel, 5);
+            b.Box(new Vector3(0.2325f, top + 0.44f, -0.02f), new Vector3(0.205f, 0.04f, 0.05f),
+                PaletteUv.Family.Steel, 5);
+            b.Box(new Vector3(0.20f, top + 0.385f, -0.02f), new Vector3(0.05f, 0.07f, 0.05f),
+                PaletteUv.Family.Sump, 5);
+            b.Cylinder(new Vector3(0.20f, top + 0.245f, -0.02f), 0.011f, 0.105f, 10,
+                PaletteUv.Family.Brass, 6);
+        }
+
+        /// <summary>Titration cell, burette on its stand, and the reagent bottles feeding it.</summary>
+        private static void AddKarlFischerRig(ProcMesh.Builder b, float top)
+        {
+            b.Cylinder(new Vector3(-0.14f, top, 0.02f), 0.055f, 0.17f, 14, PaletteUv.Family.Coolant, 12);
+            b.Cylinder(new Vector3(-0.14f, top + 0.17f, 0.02f), 0.065f, 0.025f, 14,
+                PaletteUv.Family.Sump, 5);
+            foreach (float x in new[] { -0.175f, -0.105f })
+                b.Cylinder(new Vector3(x, top + 0.195f, 0.02f), 0.008f, 0.05f, 8, PaletteUv.Family.Steel, 6);
+
+            b.Cylinder(new Vector3(0.10f, top, 0.02f), 0.020f, 0.34f, 12, PaletteUv.Family.Coolant, 13);
+            b.Box(new Vector3(0.10f, top + 0.36f, 0.02f), new Vector3(0.07f, 0.04f, 0.07f),
+                PaletteUv.Family.Steel, 5);
+            b.Box(new Vector3(0.17f, top + 0.20f, 0.02f), new Vector3(0.035f, 0.40f, 0.035f),
+                PaletteUv.Family.Steel, 4);
+            b.Box(new Vector3(0.13625f, top + 0.24f, 0.02f), new Vector3(0.0325f, 0.025f, 0.03f),
+                PaletteUv.Family.Steel, 6);
+
+            foreach (float z in new[] { -0.09f, 0.09f })
+            {
+                b.Cylinder(new Vector3(0.235f, top, z), 0.040f, 0.15f, 12, PaletteUv.Family.NeutralCold, 3);
+                b.Cylinder(new Vector3(0.235f, top + 0.15f, z), 0.022f, 0.025f, 10,
+                    PaletteUv.Family.DeepBlue, 6);
+            }
+        }
+
+        /// <summary>The heated bath and the capillaries standing in it — this is the one that
+        /// preheats, and the bath of oil is why.</summary>
+        private static void AddViscometerRig(ProcMesh.Builder b, float top)
+        {
+            const float cx = -0.12f, cz = -0.10f;
+
+            b.Box(new Vector3(cx, top + 0.10f, cz + 0.09f), new Vector3(0.30f, 0.20f, 0.02f),
+                PaletteUv.Family.Steel, 7);
+            b.Box(new Vector3(cx, top + 0.10f, cz - 0.09f), new Vector3(0.30f, 0.20f, 0.02f),
+                PaletteUv.Family.Steel, 7);
+            b.Box(new Vector3(cx - 0.14f, top + 0.10f, cz), new Vector3(0.02f, 0.20f, 0.16f),
+                PaletteUv.Family.Steel, 7);
+            b.Box(new Vector3(cx + 0.14f, top + 0.10f, cz), new Vector3(0.02f, 0.20f, 0.16f),
+                PaletteUv.Family.Steel, 7);
+
+            // The oil, filling the tank exactly to its inner faces.
+            b.Box(new Vector3(cx, top + 0.075f, cz), new Vector3(0.26f, 0.15f, 0.16f),
+                PaletteUv.Family.Sump, 5);
+
+            // Capillaries in three pieces so the timing bulb sits between them instead of inside.
+            foreach (float dx in new[] { -0.07f, 0f, 0.07f })
+            {
+                b.Cylinder(new Vector3(cx + dx, top + 0.15f, cz), 0.011f, 0.09f, 8,
+                    PaletteUv.Family.Coolant, 13);
+                b.Cylinder(new Vector3(cx + dx, top + 0.24f, cz), 0.022f, 0.035f, 10,
+                    PaletteUv.Family.Coolant, 12);
+                b.Cylinder(new Vector3(cx + dx, top + 0.275f, cz), 0.011f, 0.135f, 8,
+                    PaletteUv.Family.Coolant, 13);
+            }
+
+            // Thermostat head at the back-right, clear of the port collar in front of it.
+            b.Box(new Vector3(0.19f, top + 0.07f, -0.16f), new Vector3(0.12f, 0.14f, 0.12f),
+                PaletteUv.Family.Steel, 5);
+            b.Cylinder(new Vector3(0.19f, top + 0.14f, -0.16f), 0.030f, 0.02f, 12,
+                PaletteUv.Family.Brass, 8);
+        }
+
+        /// <summary>Closed cup, hinged lid arm, ignition head swung over it.</summary>
+        private static void AddFlashPointRig(ProcMesh.Builder b, float top)
+        {
+            b.Cylinder(new Vector3(-0.07f, top, -0.04f), 0.085f, 0.10f, 14, PaletteUv.Family.Steel, 6);
+            b.Cylinder(new Vector3(-0.07f, top + 0.10f, -0.04f), 0.095f, 0.025f, 14,
+                PaletteUv.Family.Steel, 9);
+            b.Cylinder(new Vector3(-0.11f, top + 0.125f, -0.075f), 0.008f, 0.20f, 8,
+                PaletteUv.Family.Coolant, 12);
+
+            b.Box(new Vector3(0.15f, top + 0.13f, -0.12f), new Vector3(0.04f, 0.26f, 0.04f),
+                PaletteUv.Family.Steel, 4);
+            b.Box(new Vector3(0.045f, top + 0.245f, -0.12f), new Vector3(0.17f, 0.03f, 0.035f),
+                PaletteUv.Family.Steel, 5);
+            b.Box(new Vector3(-0.04f, top + 0.19f, -0.12f), new Vector3(0.05f, 0.08f, 0.05f),
+                PaletteUv.Family.Sump, 5);
+            b.Cylinder(new Vector3(-0.04f, top + 0.125f, -0.12f), 0.008f, 0.025f, 8,
+                PaletteUv.Family.Brass, 9);
+        }
+
+        /// <summary>Burette and electrode over a six-place sample carousel.</summary>
+        private static void AddAcidTitratorRig(ProcMesh.Builder b, float top)
+        {
+            b.Cylinder(new Vector3(0.14f, top, -0.02f), 0.135f, 0.03f, 16, PaletteUv.Family.Steel, 5);
+            for (int i = 0; i < 6; i++)
+            {
+                float a = i / 6f * Mathf.PI * 2f;
+                b.Cylinder(new Vector3(0.14f + Mathf.Cos(a) * 0.085f, top + 0.03f,
+                        -0.02f + Mathf.Sin(a) * 0.085f),
+                    0.030f, 0.07f, 10, PaletteUv.Family.Coolant, 12);
+            }
+
+            b.Cylinder(new Vector3(-0.06f, top, -0.10f), 0.020f, 0.32f, 12, PaletteUv.Family.Coolant, 13);
+            b.Box(new Vector3(-0.12f, top + 0.20f, -0.10f), new Vector3(0.035f, 0.40f, 0.035f),
+                PaletteUv.Family.Steel, 4);
+            b.Box(new Vector3(-0.09125f, top + 0.26f, -0.10f), new Vector3(0.0225f, 0.025f, 0.03f),
+                PaletteUv.Family.Steel, 6);
+            b.Box(new Vector3(0.019f, top + 0.34f, -0.10f), new Vector3(0.243f, 0.03f, 0.035f),
+                PaletteUv.Family.Steel, 5);
+            b.Cylinder(new Vector3(0.10f, top + 0.24f, -0.10f), 0.010f, 0.085f, 8,
+                PaletteUv.Family.DeepBlue, 6);
+        }
+
+        /// <summary>A latched rotor bowl on a hinge. Squat, and all drum.</summary>
+        private static void AddCentrifugeRig(ProcMesh.Builder b, float top)
+        {
+            // Seat, bowl, lid. This is the widest curved surface in the room at standing height, so
+            // it is where the segment count is worth spending — a faceted drum is the one place the
+            // flat-shaded look stops reading as deliberate.
+            b.Cylinder(new Vector3(-0.02f, top, -0.05f), 0.195f, 0.02f, 24, PaletteUv.Family.Sump, 4);
+            b.Cylinder(new Vector3(-0.02f, top + 0.02f, -0.05f), 0.185f, 0.14f, 24,
+                PaletteUv.Family.Steel, 7);
+            b.Cylinder(new Vector3(-0.02f, top + 0.16f, -0.05f), 0.195f, 0.03f, 24,
+                PaletteUv.Family.NeutralCold, 11);
+
+            // Sight port, so a closed lid still says something spins under it.
+            b.Cylinder(new Vector3(-0.02f, top + 0.19f, -0.05f), 0.075f, 0.012f, 20,
+                PaletteUv.Family.Steel, 4);
+            b.Cylinder(new Vector3(-0.02f, top + 0.202f, -0.05f), 0.062f, 0.004f, 20,
+                PaletteUv.Family.DeepBlue, 2);
+
+            b.Box(new Vector3(-0.02f, top + 0.07625f, -0.26f), new Vector3(0.08f, 0.1525f, 0.02f),
+                PaletteUv.Family.Sump, 4);
+            b.Box(new Vector3(-0.02f, top + 0.175f, -0.26f), new Vector3(0.10f, 0.045f, 0.02f),
+                PaletteUv.Family.Sump, 4);
+            b.Box(new Vector3(-0.02f, top + 0.205f, 0.125f), new Vector3(0.09f, 0.03f, 0.03f),
+                PaletteUv.Family.Brass, 8);
+            b.Box(new Vector3(0.22f, top + 0.015f, -0.05f), new Vector3(0.05f, 0.03f, 0.03f),
+                PaletteUv.Family.Sump, 3);
+        }
+
+        /// <summary>Shielded sample chamber, optics tower, and the carrier gas bottle between.</summary>
+        private static void AddElementalRig(ProcMesh.Builder b, float top)
+        {
+            b.Box(new Vector3(-0.20f, top + 0.07f, -0.02f), new Vector3(0.28f, 0.14f, 0.28f),
+                PaletteUv.Family.NeutralCold, 4);
+            // Round shielded port rather than a square hatch: it is what says "do not open this while
+            // it is running" without a decal, and the style contract has no decals.
+            b.Cylinder(new Vector3(-0.20f, top + 0.14f, -0.02f), 0.115f, 0.03f, 20,
+                PaletteUv.Family.Steel, 8);
+            b.Box(new Vector3(-0.20f, top + 0.185f, 0.06f), new Vector3(0.10f, 0.03f, 0.025f),
+                PaletteUv.Family.Brass, 8);
+
+            b.Box(new Vector3(0.22f, top + 0.15f, -0.03f), new Vector3(0.18f, 0.30f, 0.22f),
+                PaletteUv.Family.NeutralCold, 7);
+            for (int i = 0; i < 4; i++)
+            {
+                b.Box(new Vector3(0.22f, top + 0.18f + i * 0.030f, 0.086f),
+                    new Vector3(0.16f, 0.012f, 0.012f), PaletteUv.Family.Sump, 3);
+            }
+
+            b.Box(new Vector3(0.22f, top + 0.35f, -0.03f), new Vector3(0.14f, 0.10f, 0.16f),
+                PaletteUv.Family.Steel, 6);
+            b.Cylinder(new Vector3(0.22f, top + 0.40f, -0.03f), 0.035f, 0.08f, 20,
+                PaletteUv.Family.Steel, 4);
+
+            // Carrier gas: bottle, neck, regulator and gauge, standing between the two.
+            b.Cylinder(new Vector3(0f, top, -0.15f), 0.045f, 0.30f, 20, PaletteUv.Family.Steel, 5);
+            b.Cylinder(new Vector3(0f, top + 0.30f, -0.15f), 0.018f, 0.05f, 12,
+                PaletteUv.Family.Brass, 7);
+            b.Box(new Vector3(0.063f, top + 0.33f, -0.15f), new Vector3(0.09f, 0.06f, 0.06f),
+                PaletteUv.Family.Brass, 6);
+            b.Cylinder(new Vector3(0.063f, top + 0.36f, -0.15f), 0.028f, 0.015f, 20,
+                PaletteUv.Family.NeutralCold, 12);
+        }
+
+        /// <summary>Whatever an unrecognised machine id gets: a hood and a stack, so a new instrument
+        /// still reads as an instrument rather than as an unfinished box.</summary>
+        private static void AddGenericRig(ProcMesh.Builder b, float top)
+        {
+            b.Box(new Vector3(0.06f, top + 0.06f, 0.04f), new Vector3(0.30f, 0.12f, 0.24f),
+                PaletteUv.Family.Steel, 7);
+            b.Cylinder(new Vector3(0.06f, top + 0.12f, 0.04f), 0.030f, 0.16f, 12,
+                PaletteUv.Family.Steel, 5);
         }
 
         // -- Reference case ----------------------------------------------------------------------------
