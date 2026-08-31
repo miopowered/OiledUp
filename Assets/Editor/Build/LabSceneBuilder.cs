@@ -250,11 +250,17 @@ namespace Residue.Editor.Build
             AddStatic(root, "Bench_Machines", SaveMesh(BuildBenchMesh("Lab_Bench", 8f, 0.7f, -1)),
                 palette, new Vector3(0f, BenchPivot, -RoomDepth * 0.5f + 0.55f), addCollider: true);
 
-            // No shelf under the intake bench: two of DeliveryBay's four standings fall inside its
-            // footprint at floor height, so whatever is under this bench has to stay clear floor.
+            // Moved off the delivery bay, and it had to move rather than lose its shelf. It used to
+            // stand at x -3.9, z 1.6, which put two of DeliveryBay's four carton standings — the ones
+            // at z 1.6 — directly underneath it. That was invisible while the bench was a solid box
+            // and became obvious the moment it grew legs: cartons standing under a table, in front of
+            // the bay they had just been carried through.
+            //
+            // Against the north wall instead, clear of the standings (which reach z 2.76) and west of
+            // the north doorway (x 0.8..2.2), so the approach from the bay is still a straight walk.
             AddStatic(root, "Bench_Intake",
-                SaveMesh(BuildBenchMesh("Lab_IntakeBench", 1.6f, 0.8f, 0, underShelf: false)),
-                palette, new Vector3(-RoomWidth * 0.5f + 1.1f, BenchPivot, 1.6f), addCollider: true);
+                SaveMesh(BuildBenchMesh("Lab_IntakeBench", 1.6f, 0.8f, 0)),
+                palette, new Vector3(-2f, BenchPivot, RoomDepth * 0.5f - 0.5f), addCollider: true);
 
             AddStatic(root, "Bench_Terminal", SaveMesh(BuildTerminalDeskMesh()), palette,
                 new Vector3(RoomWidth * 0.5f - 1.1f, BenchPivot, 1.6f), addCollider: true);
@@ -1759,7 +1765,11 @@ namespace Residue.Editor.Build
 
             AddRack(root, scene, "rack_island_a", new Vector3(-0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
             AddRack(root, scene, "rack_island_b", new Vector3(0.8f, BenchHeight, -1.4f), palette, rackMesh, 8);
-            AddRack(root, scene, "rack_bench", new Vector3(-3.85f, BenchHeight, benchZ), palette, rackMesh, 4);
+            // x -3.7, not -3.85: the base is 0.56 across, so at -3.85 it reached x -4.13 while the
+            // bench ends at -4.00 and 13 cm of it hung over the end in mid air. Pulled in far enough
+            // to leave 2 cm of worktop showing, so it reads as standing on the bench rather than as
+            // being flush by luck.
+            AddRack(root, scene, "rack_bench", new Vector3(-3.7f, BenchHeight, benchZ), palette, rackMesh, 4);
 
             // The intake crate is gone (#30). It spawned the day's vials directly on the bench at
             // 09:00, which is the teleporting-content problem the printout work removed everywhere
