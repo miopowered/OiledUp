@@ -42,6 +42,8 @@ namespace Residue.Data
 
         public static readonly LocKey Continue = new("menu.continue", "CONTINUE");
         public static readonly LocKey SinglePlayer = new("menu.single_player", "SINGLE PLAYER");
+        public static readonly LocKey Tutorial = new("menu.tutorial", "TUTORIAL");
+
         public static readonly LocKey CoOp = new("menu.co_op", "CO-OP");
         public static readonly LocKey Settings = new("menu.settings", "SETTINGS");
         public static readonly LocKey Credits = new("menu.credits", "CREDITS");
@@ -53,6 +55,10 @@ namespace Residue.Data
 
         public static readonly LocKey OfflineNote = new("menu.offline_note",
             "Single player needs no sign-in, no lobby and no connection. It works offline.");
+
+        public static readonly LocKey TutorialNote = new("menu.tutorial_note",
+            "Two guided days on one fixed contract, kept apart from your run and replayable on its " +
+            "own. It shows you round the room and never tells you what a sample is.");
 
         public static readonly LocKey NoConnectionOnTitle = new("menu.no_connection",
             "No LabConnection on this object, so nothing here can start a game.  build {build}");

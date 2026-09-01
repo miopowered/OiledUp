@@ -175,13 +175,29 @@ namespace Residue.Gameplay.World
             // refused (#49).
             if (RunSaveSlot.TakeContinueRequest()) ContinueSavedRun();
 
-            Lab ??= new LabState(catalog, ContractPlan.Default(),
-                                 seed == 0 ? Random.Range(1, int.MaxValue) : seed);
+            // Read here, and always read, for the reason the CONTINUE latch is: the lab arrives
+            // through a scene load and there is nothing on the other side to hand an argument to. The
+            // Lab check is what makes the two latches order-independent — a save that rebuilt itself
+            // wins, and a tutorial request left over from a menu the player backed out of is simply
+            // consumed and dropped.
+            bool tutorial = TutorialRun.TakeRequest() && Lab == null;
+
+            Lab ??= tutorial
+                ? new LabState(catalog, ContractPlan.Tutorial(), ContractPlan.TutorialSeed)
+                : new LabState(catalog, ContractPlan.Default(),
+                               seed == 0 ? Random.Range(1, int.MaxValue) : seed);
             Lab.MachineTimeScale = machineTimeScale;
 
             // End of day is the only moment the simulation is quiescent, so it is the only moment a
             // snapshot is a picture of anything. See RunSnapshotCapture.
-            if (savingAllowed) Lab.DayEnded += OnDayEndedSaveRun;
+            //
+            // The tutorial is not subscribed at all, rather than guarded inside the handler. There is
+            // one save slot (#49) and it belongs to the real contract: a two-day guided run that wrote
+            // to it would destroy a twenty-day contract at day 14 for anyone who pressed TUTORIAL to
+            // look at it, and OnDayEndedSaveRun deletes the file outright on a finished run — which
+            // the tutorial reaches in ten minutes. Nothing is lost by it: the tutorial is short,
+            // fixed-seed and replayable from the menu, so there is no run in it to lose.
+            if (savingAllowed && !tutorial) Lab.DayEnded += OnDayEndedSaveRun;
 
             // Loud on purpose. A scaled lab tells you nothing about whether the queue pressure works,
             // and this is exactly the kind of testing knob that ends up in a build.
@@ -217,7 +233,16 @@ namespace Residue.Gameplay.World
             // And this process reads its own lab rather than a snapshot of it. On a client this stays
             // null and Residue.Net installs the replicated view instead — see LabView.
             LabView.Host = new HostLabView(Lab);
+
+            // Last, and only on a tutorial. The tracker subscribes to signals the lines above have
+            // just finished installing, and it is an observer throughout — see TutorialObjectives for
+            // why nothing in the simulation is allowed to know it is there.
+            if (tutorial) TutorialObjectives.Begin(Lab);
         }
+
+        /// <summary>True while this run is the guided two-day contract (<see cref="TutorialRun"/>).</summary>
+        public bool IsTutorial => Lab != null && Lab.Plan != null &&
+                                  Lab.Plan.Id == ContractPlan.TutorialId;
 
         // -- Saving and continuing (#49) ----------------------------------------------------------------
 
@@ -360,6 +385,11 @@ namespace Residue.Gameplay.World
             if (Instance == this) Instance = null;
             if (Lab != null) Lab.DayEnded -= OnDayEndedSaveRun;
             if (LabCommands.Executor != null && LabCommands.Executor.Lab == Lab) LabCommands.Executor = null;
+
+            // Checked against this runtime's own lab for the reason the executor is, and unhooked at
+            // all because the tracker holds a subscription to a static event: a card left listening
+            // after its lab has gone would tick on the next run's actions.
+            TutorialObjectives.End(Lab);
 
             // Checked against this runtime's own lab, for the same reason the executor is: a second
             // LabRuntime destroying itself in Awake must not unhook the one that is actually running.

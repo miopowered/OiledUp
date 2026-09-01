@@ -60,6 +60,7 @@ namespace Residue.Data
                 GermanScreens.AddTo(table);
                 GermanMenu.AddTo(table);
                 GermanLab.AddTo(table);
+                GermanTutorial.AddTo(table);
                 GermanConsequences.AddTo(table);
                 return table;
             }

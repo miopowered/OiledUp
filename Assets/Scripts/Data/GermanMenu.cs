@@ -21,6 +21,7 @@ namespace Residue.Data
 
             table["menu.continue"] = "FORTSETZEN";
             table["menu.single_player"] = "EINZELSPIELER";
+            table["menu.tutorial"] = "TUTORIAL";
             table["menu.co_op"] = "KOOP";
             table["menu.settings"] = "EINSTELLUNGEN";
             table["menu.credits"] = "MITWIRKENDE";
@@ -30,6 +31,10 @@ namespace Residue.Data
             table["menu.offline_note"] =
                 "Einzelspieler braucht keine Anmeldung, keine Lobby und keine Verbindung. Es " +
                 "funktioniert offline.";
+
+            table["menu.tutorial_note"] =
+                "Zwei angeleitete Tage auf einem festen Auftrag, getrennt von deinem Durchlauf und " +
+                "für sich wiederholbar. Er zeigt dir den Raum und sagt dir nie, was eine Probe ist.";
 
             table["menu.no_connection"] =
                 "Keine LabConnection an diesem Objekt, hier kann also nichts ein Spiel starten.  " +

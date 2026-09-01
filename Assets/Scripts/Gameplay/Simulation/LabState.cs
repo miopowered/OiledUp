@@ -460,7 +460,7 @@ namespace Residue.Gameplay.Simulation
                 // Who sent it is decided before the label, because the label is drawn from their
                 // sites (#29). A profile nobody in the catalog runs still arrives — anonymously,
                 // through the generic plant list — rather than being dropped from the day.
-                var customer = PickSender(profileId);
+                var customer = PickSender(profileId, plan.CustomerIds);
 
                 var request = GenerationRequest.Default(
                     profile, EquipmentTags.For(customer, profileId, ref rng), Day);
@@ -526,8 +526,16 @@ namespace Residue.Gameplay.Simulation
         /// senders, not just its chemistry — two players on the same seed have to see the same names
         /// on the same days or a shared run is not the same run.
         /// </para>
+        /// <para>
+        /// <paramref name="allowed"/> is <see cref="DayPlan.CustomerIds"/> and is null on every day of
+        /// the shipping contract, which is why that contract draws exactly the senders it always did.
+        /// A filter that matches nobody falls through to the whole catalog rather than to an anonymous
+        /// delivery: a day naming a firm this build has never heard of is a content fault, and
+        /// silently posting the vials from nowhere would hide it behind a delivery note with no name
+        /// on it.
+        /// </para>
         /// </summary>
-        private CustomerDef PickSender(string profileId)
+        private CustomerDef PickSender(string profileId, string[] allowed)
         {
             candidates.Clear();
 
@@ -536,10 +544,31 @@ namespace Residue.Gameplay.Simulation
 
             for (int i = 0; i < all.Count; i++)
             {
-                if (all[i] != null && all[i].Runs(profileId)) candidates.Add(all[i]);
+                if (all[i] == null || !all[i].Runs(profileId)) continue;
+                if (!IsAllowed(allowed, all[i].Id)) continue;
+                candidates.Add(all[i]);
+            }
+
+            if (candidates.Count == 0 && allowed != null && allowed.Length > 0)
+            {
+                for (int i = 0; i < all.Count; i++)
+                {
+                    if (all[i] != null && all[i].Runs(profileId)) candidates.Add(all[i]);
+                }
             }
 
             return candidates.Count == 0 ? null : candidates[rng.Range(0, candidates.Count)];
+        }
+
+        private static bool IsAllowed(string[] allowed, string customerId)
+        {
+            if (allowed == null || allowed.Length == 0) return true;
+
+            for (int i = 0; i < allowed.Length; i++)
+            {
+                if (string.Equals(allowed[i], customerId, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         /// <summary>

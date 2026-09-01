@@ -35,6 +35,7 @@ namespace Residue.Net.UI
         private readonly Button continueButton;
         private readonly Label continueHint;
         private readonly Button soloButton;
+        private readonly Button tutorialButton;
         private readonly Button coOpButton;
         private readonly Label identityLabel;
 
@@ -66,6 +67,15 @@ namespace Residue.Net.UI
                 () => this.connection?.StartSinglePlayer());
             actions.Add(soloButton);
 
+            // Quiet, always, and never promoted. RefreshContinue's rule is that the page has exactly
+            // one primary action and it is the way back into the game — a second accent face is the
+            // same as none. The tutorial is not that way in even for a player with no save: it is a
+            // separate two-day contract they can choose, and a front door that shouted it at every
+            // first-time player would be telling them the game starts somewhere it does not.
+            tutorialButton = UiKit.QuietButton(MenuStrings.Tutorial,
+                () => this.connection?.StartTutorial());
+            actions.Add(tutorialButton);
+
             coOpButton = UiKit.QuietButton(MenuStrings.CoOp, () => coOp?.Invoke());
             actions.Add(coOpButton);
 
@@ -78,6 +88,7 @@ namespace Residue.Net.UI
             continueHint = UiKit.Hint(string.Empty);
             column.Add(continueHint);
 
+            column.Add(UiKit.Hint(MenuStrings.TutorialNote));
             column.Add(UiKit.Hint(MenuStrings.OfflineNote));
 
             column.Add(UiKit.Divider());
@@ -100,6 +111,7 @@ namespace Residue.Net.UI
                 // Not a state the game has, but a menu that silently does nothing is worse than one
                 // that says why. Single player is the path this would have broken, so name it.
                 soloButton.SetEnabled(false);
+                tutorialButton.SetEnabled(false);
                 coOpButton.SetEnabled(false);
                 continueButton.SetEnabled(false);
                 identityLabel.text = MenuStrings.NoConnectionOnTitle.Format(
@@ -109,6 +121,7 @@ namespace Residue.Net.UI
 
             bool open = ConnectStates.AcceptsCommands(connection.State);
             soloButton.SetEnabled(open);
+            tutorialButton.SetEnabled(open);
             coOpButton.SetEnabled(open);
             continueButton.SetEnabled(open && loadable);
 

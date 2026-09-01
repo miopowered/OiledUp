@@ -47,6 +47,8 @@ namespace Residue.Gameplay.World
         private Label inspectionHelp;
         private VisualElement briefCard;
         private bool briefOpen;
+        private TutorialCard tutorialCard;
+        private bool tutorialCardHidden;
         private VisualElement root;
 
         private void Awake()
@@ -60,7 +62,17 @@ namespace Residue.Gameplay.World
             // element changes identity, and a card that re-opened on every rebuild would keep coming
             // back at a player who had already put it away. GameSettings.Load() runs at
             // BeforeSceneLoad, so the answer is already on disk by now.
-            briefOpen = !GameSettings.ShiftBriefSeen;
+            //
+            // On a tutorial run it starts closed even for a first-time player, and the flag is left
+            // exactly as it was. The two cards are complements, not substitutes — the objective card
+            // says what to do next, the brief says why any of it is worth doing — but they share a
+            // corner, and opening a first run on both is two walls of text. So the tutorial is what
+            // greets you, [Tab] swaps to the standing orders whenever you want the reasoning, and a
+            // player who does the tutorial and then starts a real run still gets the card, unread and
+            // owed, because doing a tutorial is not the same as having been told why the lab works
+            // the way it does. LabRuntime runs first (DefaultExecutionOrder -100), so the tracker
+            // already exists by the time this is asked.
+            briefOpen = !GameSettings.ShiftBriefSeen && TutorialObjectives.Current == null;
         }
 
         private void OnEnable() => EnsureUi();
@@ -186,6 +198,12 @@ namespace Residue.Gameplay.World
             BuildInspectionOverlay();
             BuildShiftBrief();
 
+            // After the brief so it draws over it if both were ever up at once. They never are —
+            // UpdateTutorial hides this one whenever the brief is open — but the two occupy the same
+            // corner and a stacking order left to chance is a bug waiting for a refactor.
+            tutorialCard = new TutorialCard();
+            root.Add(tutorialCard.Root);
+
             // Interaction diagnostics. Deliberately monospaced-ish and magenta-tinted so it can
             // never be mistaken for game UI.
             debugLabel = new Label();
@@ -235,7 +253,15 @@ namespace Residue.Gameplay.World
 
             UpdateInventory();
             UpdateInspection();
-            UpdateShiftBrief();
+
+            // Asked once and handed to both cards: they share a corner, so they have to agree about
+            // whether something else owns the screen or one of them draws through a terminal.
+            bool screenUp = !interactor.enabled
+                            || (interactor.Inspection != null && interactor.Inspection.IsOpen)
+                            || (interactor.Terminal != null && interactor.Terminal.IsOpen);
+
+            UpdateShiftBrief(screenUp);
+            UpdateTutorial(screenUp);
 
             // Tell the player what the thing in their hands does, since a carried item cannot be
             // looked at and therefore never shows a prompt of its own.
@@ -487,20 +513,16 @@ namespace Residue.Gameplay.World
         /// stays.
         /// </para>
         /// <para>
-        /// <paramref name="screenUp"/> is read off <c>interactor.enabled</c> because that is the one
+        /// <paramref name="screenUp"/> comes from <c>interactor.enabled</c> because that is the one
         /// signal every screen in the game already produces — the terminal, item inspection and the
         /// pause menu all disable the interactor while they hold the keyboard. Watching it lets
         /// <c>Residue.Gameplay</c> notice a <c>Residue.Net</c> menu without referencing the assembly
         /// it must not reference.
         /// </para>
         /// </summary>
-        private void UpdateShiftBrief()
+        private void UpdateShiftBrief(bool screenUp)
         {
             if (briefCard == null) return;
-
-            bool screenUp = !interactor.enabled
-                            || (interactor.Inspection != null && interactor.Inspection.IsOpen)
-                            || (interactor.Terminal != null && interactor.Terminal.IsOpen);
 
             var keyboard = Keyboard.current;
             if (!screenUp && keyboard != null && keyboard.tabKey.wasPressedThisFrame)
@@ -513,6 +535,40 @@ namespace Residue.Gameplay.World
             }
 
             briefCard.style.display = briefOpen && !screenUp ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        /// <summary>
+        /// The tutorial's objective card, on any run that is one and on no other.
+        ///
+        /// <para>
+        /// <b>[F1] puts it away and brings it back, and that is the whole of "skippable".</b> The
+        /// brief owns [Tab] and the two cards share this corner, so a second key is what lets a
+        /// player have either, both in turn, or neither. Per-session rather than written to
+        /// <c>GameSettings</c> like <c>ShiftBriefSeen</c>: a card the player asked for from the menu a
+        /// minute ago is not something to remember having refused.
+        /// </para>
+        ///
+        /// <para>
+        /// Hidden while the brief is open because they would otherwise draw on top of each other, and
+        /// while any screen has the keyboard, for the reason the brief is. Nothing here can gate
+        /// anything — the card is a label, the tracker is an observer, and a player who never presses
+        /// [F1] and never reads a word of it plays an ordinary two-day contract.
+        /// </para>
+        /// </summary>
+        private void UpdateTutorial(bool screenUp)
+        {
+            if (tutorialCard == null) return;
+
+            var objectives = TutorialObjectives.Current;
+
+            var keyboard = Keyboard.current;
+            if (objectives != null && !screenUp && keyboard != null &&
+                keyboard.f1Key.wasPressedThisFrame)
+            {
+                tutorialCardHidden = !tutorialCardHidden;
+            }
+
+            tutorialCard.Refresh(objectives, !screenUp && !briefOpen && !tutorialCardHidden);
         }
 
         /// <summary>

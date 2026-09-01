@@ -654,8 +654,34 @@ namespace Residue.Net.Connect
         {
             if (!ConnectStates.AcceptsCommands(State)) return;
 
-            // A NEW SHIFT must never inherit a CONTINUE the player changed their mind about.
+            // A NEW SHIFT must never inherit a CONTINUE — or a TUTORIAL — the player changed their
+            // mind about. Both latches are read on the far side of a scene load, so the only place
+            // they can be cleared is here, before the load starts.
             RunSaveSlot.ForgetContinueRequest();
+            TutorialRun.Forget();
+            StartLabScene();
+        }
+
+        /// <summary>
+        /// Start the guided two-day contract (<see cref="ContractPlan.Tutorial"/>).
+        /// <para>
+        /// The same path as <see cref="StartSinglePlayer"/> with a different latch set, for the reason
+        /// <see cref="ContinueSinglePlayer"/> gives: the component that builds the run wakes on the
+        /// other side of the scene load and there is nothing to hand it an argument.
+        /// </para>
+        /// <para>
+        /// Single player only, and for the same reason CONTINUE is. A tutorial is a fixed seed, a
+        /// fixed contract and an objective card counting one person's actions; a lobby whose host
+        /// quietly started one would hand three other people a scripted two-day shift they did not ask
+        /// for, and the card would tick on nobody's hands but the host's.
+        /// </para>
+        /// </summary>
+        public void StartTutorial()
+        {
+            if (!ConnectStates.AcceptsCommands(State)) return;
+
+            RunSaveSlot.ForgetContinueRequest();
+            TutorialRun.Request();
             StartLabScene();
         }
 
@@ -675,6 +701,7 @@ namespace Residue.Net.Connect
             if (!ConnectStates.AcceptsCommands(State)) return;
 
             RunSaveSlot.RequestContinue();
+            TutorialRun.Forget();
             StartLabScene();
         }
 
@@ -791,8 +818,10 @@ namespace Residue.Net.Connect
 
             // A co-op shift is a fresh contract. CONTINUE is single player only — see
             // ContinueSinglePlayer — and a latch left set would drop four players into day 14 of the
-            // host's solo run.
+            // host's solo run. TUTORIAL is single player for the same reason, and a latch left set
+            // would drop them into a scripted two-day one instead.
             RunSaveSlot.ForgetContinueRequest();
+            TutorialRun.Forget();
 
             manager.NetworkConfig.ConnectionData = Encoding.UTF8.GetBytes(Identity.StableId);
             Hook(manager);

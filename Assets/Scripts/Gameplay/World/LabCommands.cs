@@ -58,6 +58,31 @@ namespace Residue.Gameplay.World
         public static LabCommandExecutor Executor;
 
         /// <summary>
+        /// An action asked for <i>in this process</i> came back accepted.
+        ///
+        /// <para>
+        /// The one place a local system can watch what the player actually did without polling the
+        /// world for it. <c>TutorialObjectives</c> is the reason it exists: an objective card that
+        /// asked the room every frame whether a carton had moved would be a second, worse opinion
+        /// about state the host already owns, and it would tick on a carton somebody else carried.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Local, deliberately.</b> It is raised where the answer arrives, so on a client it fires
+        /// for that client's own accepted requests and on a host for the host's. A host validating a
+        /// client's command reaches <see cref="ExecuteHere"/> through the router and never comes
+        /// through here, which is what stops one player's HUD reacting to another's hands.
+        /// </para>
+        ///
+        /// <para>
+        /// Nothing may mutate the lab from a handler. This fires after the answer has been delivered,
+        /// on state that is already settled; a subscriber that sent another command from inside it
+        /// would be re-entering the executor mid-answer.
+        /// </para>
+        /// </summary>
+        public static event Action<LabCommand> Accepted;
+
+        /// <summary>
         /// Ask the lab to do something.
         /// <para>
         /// <paramref name="answered"/> runs in this process, on the player who asked. It is the right
@@ -74,13 +99,21 @@ namespace Residue.Gameplay.World
                 return;
             }
 
+            // The caller's own half first, then the announcement: a watcher must never see an action
+            // reported before the vial it moved has actually been reparented.
+            void Answer(LabCommandResult result)
+            {
+                answered?.Invoke(result);
+                if (result.Accepted) Accepted?.Invoke(command);
+            }
+
             if (Router != null)
             {
-                Router(actor, command, answered);
+                Router(actor, command, Answer);
                 return;
             }
 
-            answered?.Invoke(ExecuteHere(actor, command));
+            Answer(ExecuteHere(actor, command));
         }
 
         /// <summary>
