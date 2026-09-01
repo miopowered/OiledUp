@@ -40,6 +40,9 @@ namespace Residue.Tests.EditMode
         private bool originalAuthority;
         private GameObject host;
 
+        /// <summary>Fixtures put into the open scene by a marker test, torn down with it.</summary>
+        private readonly List<GameObject> placed = new();
+
         [SetUp]
         public void SetUp()
         {
@@ -69,6 +72,12 @@ namespace Residue.Tests.EditMode
 
             if (host != null) Object.DestroyImmediate(host);
             host = null;
+
+            foreach (var go in placed)
+            {
+                if (go != null) Object.DestroyImmediate(go);
+            }
+            placed.Clear();
 
             try
             {
@@ -715,6 +724,271 @@ namespace Residue.Tests.EditMode
                 Regex.IsMatch(text, lead + Regex.Escape(term) + tail, RegexOptions.IgnoreCase),
                 $"The tutorial names the {kind} \"{term}\". It says where to look and how the room " +
                 "works, never what the answer is (hard rule 1).");
+        }
+
+        // -- The in-world markers ----------------------------------------------------------------------
+
+        /// <summary>
+        /// Promise: the arrows exist on a tutorial and nowhere else.
+        ///
+        /// <para>
+        /// <c>TutorialObjectives.Current</c> is null on every run that is not the tutorial, and its
+        /// doc says every reader treats that as "draw nothing". <see cref="TutorialTargets"/> is where
+        /// that check lives for the world marker and the screen compass both, so this is the whole of
+        /// "the real contract acquires no hand-hold" — asserted with a positive control either side of
+        /// it, because a resolver that answered nothing under every condition would pass the negative
+        /// half on its own.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void NothingIsMarked_OnARunThatIsNotTheTutorial()
+        {
+            PlaceInstrument("marker-a", new Vector3(100000f, 0f, 0f));
+
+            var targets = new TutorialTargets();
+            var here = new Vector3(100000f, 0f, 0f);
+
+            Assert.IsNull(TutorialObjectives.Current,
+                "Fixture: a run is already being tracked, so the negative half proves nothing.");
+
+            Assert.IsFalse(targets.ResolveCurrent(here, null).Exists,
+                "Something in the room is being marked on a run that is not the tutorial.");
+
+            // The control: with a tracker attached and an objective that points at an instrument,
+            // the same room and the same resolver do produce a target.
+            var lab = TutorialLab();
+            var objectives = TutorialObjectives.Begin(lab);
+            objectives.Complete(TutorialStep.TakeACarton);
+            objectives.Complete(TutorialStep.OpenTheCarton);
+            objectives.Complete(TutorialStep.TakeAVial);
+
+            Assert.AreEqual(TutorialStep.LoadAnInstrument, objectives.Next,
+                "Fixture: the control is not pointing at an instrument.");
+
+            targets.Rescan();
+            Assert.IsTrue(targets.ResolveCurrent(here, null).Exists,
+                "The tutorial is running, an objective points at an instrument, and there is one in " +
+                "the room — and nothing was marked.");
+
+            TutorialObjectives.End(lab);
+
+            targets.Rescan();
+            Assert.IsFalse(targets.ResolveCurrent(here, null).Exists,
+                "The tutorial ended and the arrow stayed up.");
+        }
+
+        /// <summary>
+        /// Promise: the arrow does not change its mind while you walk towards it.
+        ///
+        /// <para>
+        /// Nearest is only how a target is <i>chosen</i>. Several instruments are equally valid for
+        /// "load an instrument", and a marker recomputed from distance every frame would hop between
+        /// two of them as the player crossed the room — which reads as a bug and, worse, sends
+        /// somebody back the way they came. The incumbent therefore wins for as long as it is still a
+        /// candidate, and only stops being the answer when it stops being one at all.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void AStep_KeepsItsTargetWhileThatTargetIsStillValid()
+        {
+            // Far from anything the open scene might contain, so "nearest" is unambiguously one of
+            // these two and the test cannot be decided by another suite's leftovers.
+            var near = new Vector3(100000f, 0f, 0f);
+            var far = new Vector3(100000f, 0f, 40f);
+
+            var first = PlaceInstrument("marker-near", near);
+            var second = PlaceInstrument("marker-far", far);
+
+            var targets = new TutorialTargets();
+            targets.Rescan();
+
+            var chosen = targets.Resolve(TutorialStep.LoadAnInstrument, near, null);
+            Assert.IsTrue(chosen.Exists, "Fixture: two instruments in the room and neither was picked.");
+            Assert.AreSame(first.transform, chosen.Anchor, "The nearest instrument was not chosen.");
+
+            // Walk to the other one, looking again the whole way. Every one of these answers has to
+            // be the same answer.
+            for (int step = 1; step <= 8; step++)
+            {
+                targets.Rescan();
+                var from = Vector3.Lerp(near, far, step / 8f);
+                var again = targets.Resolve(TutorialStep.LoadAnInstrument, from, null);
+
+                Assert.AreSame(first.transform, again.Anchor,
+                    $"The marker moved to a different instrument {step}/8 of the way across the room.");
+            }
+
+            // It gives the target up only when the target is gone.
+            Object.DestroyImmediate(first);
+            targets.Rescan();
+
+            var replacement = targets.Resolve(TutorialStep.LoadAnInstrument, far, null);
+            Assert.IsTrue(replacement.Exists, "The marked instrument was removed and nothing replaced it.");
+            Assert.AreSame(second.transform, replacement.Anchor,
+                "The only instrument left was not picked up.");
+        }
+
+        /// <summary>
+        /// Promise: hard rule 1. The marker points at fixtures, never at answers.
+        ///
+        /// <para>
+        /// A quest arrow is the most dangerous possible reader of ground truth: "the vial that needs
+        /// the standard" is a single line of code away, it would be invisible in a screenshot, and a
+        /// player who followed it would beat the game without ever learning the diagnostic tree the
+        /// whole design is about building. "An instrument", "the terminal", "a carton" are procedural
+        /// and safe; anything picked for a reason a <c>SampleGroundTruth</c> knows is not.
+        /// </para>
+        ///
+        /// <para>
+        /// Checked two ways. A source scan, because by the time a chemistry fact has become a
+        /// <c>Transform</c> the distinction is gone — the same argument
+        /// <see cref="TheObjectiveCard_DrawsNoVerdictColour"/> makes for colour. And the public
+        /// surface by reflection, so no future caller can hand one of these types a sample either.
+        /// </para>
+        /// </summary>
+        [Test]
+        public void TheInWorldMarker_NeverAsksAnythingAboutASample()
+        {
+            // Everything a resolution must not be allowed to consult. Deliberately wider than
+            // SampleGroundTruth itself: a measured reading, a severity and a filed verdict are all
+            // downstream of it, and a marker that read one of those would be laundering the same
+            // information through a type that is allowed on a client.
+            var forbidden = new[]
+            {
+                "SampleGroundTruth", "SampleState", "SampleRegistry", "MeasurementPipeline",
+                "TestResult", "ReadingSeverity", "Verdict", "FaultSeverity", "FaultDef",
+                "ElementDef", "ProfileDef", "SampleAmbiguity", "Residue.Chemistry"
+            };
+
+            foreach (string file in MarkerSources())
+            {
+                Assert.IsTrue(File.Exists(file),
+                    $"{Path.GetFileName(file)} has moved; this check is pointed nowhere.");
+
+                foreach (var (line, index) in Code(file))
+                {
+                    foreach (string term in forbidden)
+                    {
+                        Assert.IsFalse(Regex.IsMatch(line, $@"\b{Regex.Escape(term)}\b"),
+                            $"{Path.GetFileName(file)}:{index + 1} names {term}. The tutorial's arrow " +
+                            "picks a target by kind and by position, never for a reason drawn from a " +
+                            $"sample's chemistry (hard rule 1):\n  {line.Trim()}");
+                    }
+                }
+            }
+
+            // And nothing on the public surface can be handed one either.
+            foreach (var type in new[] { typeof(TutorialTarget), typeof(TutorialTargets),
+                                         typeof(TutorialMarker), typeof(TutorialCompass) })
+            {
+                foreach (var member in type.GetMembers())
+                {
+                    foreach (var used in Signature(member))
+                    {
+                        Assert.IsFalse(used.Namespace != null &&
+                                       used.Namespace.StartsWith("Residue.Chemistry",
+                                                                 StringComparison.Ordinal),
+                            $"{type.Name}.{member.Name} takes or returns {used.FullName}. The marker " +
+                            "layer must have no way to be told what a sample is.");
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Promise: hard rule 4, for the half of the tutorial that is drawn in the room rather than on
+        /// a card. A floating quest marker is the single most likely thing in the game to reach for
+        /// green, and it would be the most-seen green on a first run — spending the exact thing that
+        /// makes red mean CRITICAL at a glance. Both arrows are
+        /// <c>SignalPalette.Accent</c>, like the card's "next" row.
+        /// </summary>
+        [Test]
+        public void TheInWorldMarkers_DrawNoVerdictColour()
+        {
+            var offenders = new List<string>();
+
+            foreach (string file in MarkerSources())
+            {
+                foreach (var (line, index) in Code(file))
+                {
+                    if (Regex.IsMatch(line, @"SignalPalette\.(Critical|Caution|Normal)\b") ||
+                        Regex.IsMatch(line, @"PaletteUv\.Signal\b") ||
+                        Regex.IsMatch(line, @"PaletteUv\.Family\.Signal\b"))
+                    {
+                        offenders.Add($"{Path.GetFileName(file)}:{index + 1}  {line.Trim()}");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(offenders,
+                "The tutorial's in-world marker draws a verdict colour. Palette row 4 is reserved " +
+                "(hard rule 4) and a signpost is not a verdict:\n  " + string.Join("\n  ", offenders));
+        }
+
+        private static string[] MarkerSources()
+        {
+            string world = Path.Combine(Application.dataPath, "Scripts", "Gameplay", "World");
+
+            return new[]
+            {
+                Path.Combine(world, "TutorialTarget.cs"),
+                Path.Combine(world, "TutorialTargets.cs"),
+                Path.Combine(world, "TutorialMarker.cs"),
+                Path.Combine(world, "TutorialCompass.cs")
+            };
+        }
+
+        /// <summary>
+        /// The lines of a file that are code. Comments are excluded because these checks are about
+        /// what the marker <i>does</i>, and the doc comments on all four files explain at length
+        /// exactly which types they are forbidden to touch.
+        /// </summary>
+        private static IEnumerable<(string Line, int Index)> Code(string path) =>
+            File.ReadAllLines(path)
+                .Select((line, index) => (Line: line, Index: index))
+                .Where(entry =>
+                {
+                    string trimmed = entry.Line.TrimStart();
+                    return !trimmed.StartsWith("//") && !trimmed.StartsWith("*") &&
+                           !trimmed.StartsWith("/*");
+                });
+
+        /// <summary>Every type that appears in a member's signature.</summary>
+        private static IEnumerable<Type> Signature(System.Reflection.MemberInfo member)
+        {
+            switch (member)
+            {
+                case System.Reflection.MethodInfo method:
+                    yield return method.ReturnType;
+                    foreach (var p in method.GetParameters()) yield return p.ParameterType;
+                    break;
+
+                case System.Reflection.ConstructorInfo constructor:
+                    foreach (var p in constructor.GetParameters()) yield return p.ParameterType;
+                    break;
+
+                case System.Reflection.PropertyInfo property:
+                    yield return property.PropertyType;
+                    break;
+
+                case System.Reflection.FieldInfo field:
+                    yield return field.FieldType;
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// An instrument in the open scene, far enough out that no other suite's leftovers can be
+        /// nearer to the test's own vantage point than it is.
+        /// </summary>
+        private GameObject PlaceInstrument(string instanceId, Vector3 at)
+        {
+            var go = new GameObject(instanceId);
+            go.transform.position = at;
+            go.AddComponent<MachineStation>();
+
+            placed.Add(go);
+            return go;
         }
 
         // -- The save slot -----------------------------------------------------------------------------

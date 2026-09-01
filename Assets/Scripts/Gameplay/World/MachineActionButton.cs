@@ -61,6 +61,13 @@ namespace Residue.Gameplay.World
             if (station == null) station = GetComponentInParent<MachineStation>();
         }
 
+        /// <summary>
+        /// Which of the four this button is. Exposed so something looking for "the flush button on
+        /// that instrument" can find it without a naming convention — see <see cref="TutorialTargets"/>.
+        /// Read-only: which action a button performs is authored, not chosen at runtime.
+        /// </summary>
+        public MachineAction Action => action;
+
         private IMachineView Machine => station != null ? station.Machine : null;
 
         private static bool ShiftOver

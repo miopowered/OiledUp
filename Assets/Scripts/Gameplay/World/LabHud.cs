@@ -48,8 +48,16 @@ namespace Residue.Gameplay.World
         private VisualElement briefCard;
         private bool briefOpen;
         private TutorialCard tutorialCard;
+        private TutorialCompass tutorialCompass;
         private bool tutorialCardHidden;
         private VisualElement root;
+
+        // The tutorial's in-world pointing. One resolver shared by the arrow in the room and the
+        // arrow at the screen edge, so the two cannot end up pointing at different things — and it is
+        // built here rather than in either drawer because it holds the standing answer that keeps the
+        // marker from hopping between two instruments as the player walks.
+        private readonly TutorialTargets tutorialTargets = new();
+        private readonly TutorialMarker tutorialMarker = new();
 
         private void Awake()
         {
@@ -134,6 +142,13 @@ namespace Residue.Gameplay.World
                     justifyContent = Justify.Center
                 }
             };
+            // Under the crosshair and under everything added after it — the toast, the hands line, the
+            // inventory, both cards. A transparent full-screen layer that draws one arrow has no
+            // business being able to cover a prompt, and TutorialCompass keeps it away from the
+            // middle of the screen besides.
+            tutorialCompass = new TutorialCompass();
+            root.Add(tutorialCompass.Root);
+
             root.Add(centre);
 
             crosshair = new VisualElement();
@@ -374,7 +389,15 @@ namespace Residue.Gameplay.World
             }
         }
 
-        private void OnDestroy() => ReleaseInventoryIcons();
+        private void OnDestroy()
+        {
+            ReleaseInventoryIcons();
+
+            // The marker owns a GameObject, a Mesh and a Material that Unity will not collect on its
+            // own. A HUD torn down with a scene change would otherwise leave an arrow hanging in the
+            // room it was pointing at.
+            tutorialMarker.Dispose();
+        }
 
         private void ReleaseInventoryIcons()
         {
@@ -554,6 +577,15 @@ namespace Residue.Gameplay.World
         /// anything — the card is a label, the tracker is an observer, and a player who never presses
         /// [F1] and never reads a word of it plays an ordinary two-day contract.
         /// </para>
+        ///
+        /// <para>
+        /// <b>The arrows go away with it.</b> The card names the next objective and
+        /// <see cref="TutorialMarker"/> says where it is; they are one instrument, and dismissing half
+        /// of it is not something anybody asked for. So the card, the marker and
+        /// <see cref="TutorialCompass"/> all hang off the same <c>show</c> — which includes
+        /// <see cref="TutorialObjectives.Current"/> being non-null, and that is what keeps a real run
+        /// free of every part of this.
+        /// </para>
         /// </summary>
         private void UpdateTutorial(bool screenUp)
         {
@@ -568,7 +600,24 @@ namespace Residue.Gameplay.World
                 tutorialCardHidden = !tutorialCardHidden;
             }
 
-            tutorialCard.Refresh(objectives, !screenUp && !briefOpen && !tutorialCardHidden);
+            bool show = objectives != null && !screenUp && !briefOpen && !tutorialCardHidden;
+            tutorialCard.Refresh(objectives, show);
+
+            // Resolved once and handed to both, so the arrow in the room and the arrow at the edge
+            // can never be pointing at two different things. The eye camera rather than Camera.main:
+            // with four players in one process there is no such thing as "the" camera, and this HUD
+            // belongs to exactly one of them.
+            var eye = interactor.Eye;
+            var target = show && eye != null
+                ? tutorialTargets.ResolveCurrent(eye.transform.position, interactor.Inventory)
+                : TutorialTarget.None;
+
+            tutorialMarker.Refresh(target, eye, show);
+
+            // Exact complements: the compass draws precisely when the marker cannot be seen, so a
+            // player with a live objective always has one of the two on screen and never both.
+            tutorialCompass.Refresh(tutorialMarker.HasTarget && !tutorialMarker.Visible,
+                                    tutorialMarker.Point, tutorialMarker.OnScreen, eye);
         }
 
         /// <summary>

@@ -141,6 +141,17 @@ namespace Residue.Gameplay.World
         public float Range => range;
         public LayerMask Mask => mask;
 
+        /// <summary>
+        /// This player's eye camera, or null on an avatar that has none.
+        /// <para>
+        /// Exposed because the ray below is cast from it, so anything that wants to know what this
+        /// player can see — the HUD placing a marker, the debug overlay drawing the ray — has to be
+        /// looking through the same lens. Asking <c>Camera.main</c> instead would find somebody else's
+        /// eyes the moment there are two players in the process.
+        /// </para>
+        /// </summary>
+        public Camera Eye => player != null ? player.EyeCamera : null;
+
         /// <summary>The ray cast this frame, from camera centre.</summary>
         public Ray LastRay { get; private set; }
 
