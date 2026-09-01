@@ -7,8 +7,10 @@ The lab analyses **oil-based heat-treatment process fluids** for industrial cust
 (cold, martempering, vacuum, accelerated), general hardening oils and corrosion-protection oils.
 Water-based polymer quenchants and aqueous cleaners are out of scope.
 
-> Assemblies and namespaces are still `Residue.*` from the working title. Renaming them is tracked
-> separately — it is ~30 files of mechanical churn and would bury any real change it travelled with.
+> Assemblies and namespaces are `Residue.*`, from the working title, and they are **staying that
+> way** — the owner decided to keep it (#34, closed as not planned). It is not pending debt and
+> nobody should go looking for the rename: `Residue.Data`, `Residue.Chemistry`, `Residue.Gameplay`,
+> `Residue.Net` and `Residue.Editor` are simply what the assemblies are called.
 
 **Read [`docs/DESIGN.md`](docs/DESIGN.md) before doing design-adjacent work.** It is the source of
 truth for what the game is. This file covers only what the code and the spec do not already say.

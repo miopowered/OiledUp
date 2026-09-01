@@ -5,11 +5,12 @@
 | Milestone | State |
 |---|---|
 | M0 Grey box · M2 Verdict loop · M3 Contamination · M5 Day cycle | Complete |
-| M1 Chemistry + tests | Complete bar debug tooling and CI ([#3](https://github.com/miopowered/OiledUp/issues/3), [#18](https://github.com/miopowered/OiledUp/issues/18)) |
+| M1 Chemistry + tests | Complete bar CI ([#18](https://github.com/miopowered/OiledUp/issues/18)) |
 | M4 Co-op | Complete; not yet played in a real two-instance session |
 | D1 Heat-treatment domain · D2 Deliveries and customers | Complete |
 | F1 Frontend, options, accessibility | Complete |
-| M6 Art · M7 Content and balance · M8 Weird layer | Not started |
+| M6 Art | Underway — the lab has a building, distinct instruments and a tutorial |
+| M7 Content and balance · M8 Weird layer | Not started |
 
 A single player can play a full contract end to end: samples arrive by truck, are
 unboxed, reconciled against a delivery note, prepped, run, filed, and resolved —
@@ -38,22 +39,19 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
   the reflection sweep in `NetworkViewTests` — but no two-instance session has actually been run.
   Build a player, join the Editor, and watch a guest carry a carton in and open it.
 
-- **The EditMode suite is not routinely run.** [#76](https://github.com/miopowered/OiledUp/issues/76)
-  fixed the deadlock that made it unrunnable, but that fix is itself unvalidated, and roughly sixty
-  tests added since have never been executed. Run `Residue > Build > Run EditMode Tests` and read
-  `Temp/oiledup-editmode.txt`.
+- **The EditMode suite is not routinely run, and this is the largest single risk in the project.**
+  [#76](https://github.com/miopowered/OiledUp/issues/76) fixed the deadlock that made it unrunnable,
+  but that fix is itself unvalidated and the suite is now around 220 tests, most of them never
+  executed. Several assert against generator output nobody has run — the tutorial's fixed-seed first
+  day especially. Everything is compile-checked and boundary-checked by reflection, which is not the
+  same thing. Run `Residue > Build > Run EditMode Tests` and read `Temp/oiledup-editmode.txt`; it
+  appends a line per test as it goes, so a run that dies partway still says how far it got.
 - **[#18](https://github.com/miopowered/OiledUp/issues/18) CI is deliberately off** while this is a
   single-developer project — the local path works, it is just operated by hand. Revisit if a second
   person commits, or if `main` goes red unnoticed again.
-- **`.meta` files are outstanding** for the scripts added in the audio, credits and sample-dump
-  commits. Unity was not running when they landed, so it has not imported them yet. Open the Editor
-  and commit the generated `.meta` files before pushing to another machine.
 
 ### Polish and accessibility ([F1](https://github.com/miopowered/OiledUp/milestone/12))
 
-- [#46](https://github.com/miopowered/OiledUp/issues/46) Audio is in but unheard — room tone,
-  per-instrument run-finished chimes, machine loops and interaction feedback all ship, and the volume
-  sliders route. Nobody has actually listened to it yet.
 - **No language ships but English.** [#55](https://github.com/miopowered/OiledUp/issues/55) made
   translation possible, not done: ~500 strings now carry ids and named arguments, and a test fails
   any new literal reaching a draw call. Actually translating is a separate job, and so is the font —
@@ -63,8 +61,10 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the full design and technical rules.
 ### Not started
 
 - Art pass (M6), content and balance pass (M7), and the optional weird layer (M8).
-- [#34](https://github.com/miopowered/OiledUp/issues/34) Assemblies and namespaces are still
-  `Residue.*` from the working title.
+
+The assemblies are named `Residue.*` after the working title and are staying that way
+([#34](https://github.com/miopowered/OiledUp/issues/34), closed as not planned). That is a decision,
+not outstanding work.
 
 Track the details in [GitHub Issues](https://github.com/miopowered/OiledUp/issues).
 
