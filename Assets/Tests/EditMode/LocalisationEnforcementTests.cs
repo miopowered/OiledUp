@@ -59,6 +59,7 @@ namespace Residue.Tests.EditMode
         {
             @"UiKit\.Title", @"UiKit\.Heading", @"UiKit\.Body", @"UiKit\.Hint", @"UiKit\.Value",
             @"UiKit\.ActionButton", @"UiKit\.QuietButton", @"UiKit\.DangerButton",
+            @"HudStyle\.Text", @"HudStyle\.Caption",
             @"\.Say"
         };
 

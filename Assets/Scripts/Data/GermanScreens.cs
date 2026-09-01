@@ -223,6 +223,11 @@ namespace Residue.Data
                 "[WASD] bewegen    [E] benutzen    [1–3] wählen    [G] ablegen    " +
                 "[Space] ansehen    [LMB drag] drehen    [Wheel] zoomen    [Tab] Daueraufträge";
 
+            table["hud.controls_heading"] = "STEUERUNG";
+
+            table["hud.controls_essential"] =
+                "[WASD] bewegen    [E] benutzen    [1–3] Plätze    [Tab] Aufträge + Steuerung";
+
             table["hud.hands"] = "in Händen: {item}    [G] ablegen    [Space] ansehen";
 
             table["hud.hands_with_use"] =
@@ -238,11 +243,25 @@ namespace Residue.Data
 
             table["hud.brief_closing"] = "{closing}\n[Tab] legt das weg — [Tab] holt es zurück.";
             table["hud.shift_over"] = "SCHICHTENDE — reiche deine Befunde ein";
-            table["hud.time_left"] = "noch {time}";
 
-            table["hud.status"] =
-                "TAG {day}   {clock}\n£{money}   RUF {reputation}   FASS {solvent}   " +
-                "STD {standards}\n{open}";
+            // -- HUD header -------------------------------------------------------------------------
+            //
+            // Every caption here is a single word by design, and German is the reason: the header lays
+            // its cells out in a row against a flexible spacer, and a caption that wraps would push its
+            // own number out of the bar. Short words also happen to be the accurate ones — FASS is the
+            // drum, AMPULLEN are the certified ampoules.
+            //
+            // The pound sign moves: German writes the amount before the symbol, which is exactly the
+            // decision a concatenation at the call site could not have expressed.
+
+            table["hud.shift_caption"] = "TAG {day} · RESTZEIT";
+            table["hud.balance_caption"] = "SALDO";
+            table["hud.balance_overdrawn_caption"] = "ÜBERZOGEN";
+            table["hud.balance_value"] = "{sign}{amount} £";
+            table["hud.reputation_caption"] = "RUF";
+            table["hud.drum_caption"] = "FASS";
+            table["hud.standards_caption"] = "AMPULLEN";
+            table["hud.slot_empty"] = "leer";
 
             table["hud.open_samples_one"] = "1 Probe offen";
             table["hud.open_samples_many"] = "{count} Proben offen";

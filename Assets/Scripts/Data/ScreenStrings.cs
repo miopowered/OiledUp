@@ -384,13 +384,31 @@ namespace Residue.Data
         // -- HUD ----------------------------------------------------------------------------------
 
         /// <summary>
-        /// The greybox control list. The bracketed keys are bindings rather than words — a
-        /// translator moves and translates the verbs around them, and leaves the brackets alone.
+        /// The full control list, drawn on the standing-orders card rather than permanently across
+        /// the bottom of the screen. The bracketed keys are bindings rather than words — a translator
+        /// moves and translates the verbs around them, and leaves the brackets alone.
         /// </summary>
         public static readonly LocKey HudControls = new(
             "hud.controls",
             "[WASD] move    [E] interact    [1–3] select    [G] set down    [Space] inspect    " +
             "[LMB drag] rotate    [Wheel] zoom    [Tab] standing orders");
+
+        /// <summary>Names the block of bindings on the standing-orders card.</summary>
+        public static readonly LocKey HudControlsHeading = new("hud.controls_heading", "CONTROLS");
+
+        /// <summary>
+        /// The bindings that stay on screen for ever.
+        /// <para>
+        /// A binding earns a place here only if it is <b>not</b> already shown where it applies:
+        /// [G] and [Space] are on the hands line the moment you are carrying something, and the
+        /// rotate/zoom pair is spelled out by the inspection overlay that is the only place they do
+        /// anything. What is left is what a player who has picked nothing up yet cannot otherwise
+        /// discover — and the one key that produces the rest.
+        /// </para>
+        /// </summary>
+        public static readonly LocKey HudControlsEssential = new(
+            "hud.controls_essential",
+            "[WASD] move    [E] interact    [1–3] slots    [Tab] orders + controls");
 
         public static readonly LocKey HudHands = new(
             "hud.hands", "in hands: {item}    [G] set down    [Space] inspect");
@@ -413,13 +431,56 @@ namespace Residue.Data
         public static readonly LocKey HudShiftOver = new(
             "hud.shift_over", "SHIFT OVER — file your verdicts");
 
-        public static readonly LocKey HudTimeLeft = new(
-            "hud.time_left", "{time} left");
+        // -- HUD header ---------------------------------------------------------------------------
+        //
+        // The header draws numbers, and a bare number means nothing without the word naming it. Each
+        // caption below is one cell's label; the values beside them are numerals, which are not
+        // language and do not come through here (see LocKey: "ids are not data" — nor are figures).
+        //
+        // hud.status and hud.time_left used to live here: one three-line blob with seven arguments in
+        // it, which is the shape a translator can do least with — the line breaks and the column
+        // spacing were baked into the English, so every language inherited a layout decision. The
+        // header lays itself out now and each caption is a word on its own.
 
-        public static readonly LocKey HudStatus = new(
-            "hud.status",
-            "DAY {day}   {clock}\n£{money}   REP {reputation}   DRUM {solvent}   STD {standards}\n" +
-            "{open}");
+        /// <summary>
+        /// The one caption that names two things, because the clock under it is the answer to both:
+        /// which day this is, and how much of it is left.
+        /// </summary>
+        public static readonly LocKey HudShiftCaption = new(
+            "hud.shift_caption", "DAY {day} · TIME LEFT");
+
+        public static readonly LocKey HudBalanceCaption = new("hud.balance_caption", "BALANCE");
+
+        /// <summary>
+        /// What the balance cell is called once it goes negative.
+        /// <para>
+        /// This is how the HUD says "this is bad" without red (hard rule 4): the caption changes word,
+        /// the figure gains a minus sign and the figure goes bold. Three channels, none of them hue,
+        /// and the signal set stays worth what it is worth on a results table.
+        /// </para>
+        /// </summary>
+        public static readonly LocKey HudBalanceOverdrawnCaption = new(
+            "hud.balance_overdrawn_caption", "OVERDRAWN");
+
+        /// <summary>
+        /// The balance itself. Currency placement is a language decision, not a formatting one, which
+        /// is why the symbol is in the template rather than concatenated at the call site.
+        /// </summary>
+        public static readonly LocKey HudBalanceValue = new(
+            "hud.balance_value", "{sign}£{amount}");
+
+        public static readonly LocKey HudReputationCaption = new(
+            "hud.reputation_caption", "REPUTATION");
+
+        /// <summary>Solvent at the wash station, not flushes in hand — see #14.</summary>
+        public static readonly LocKey HudDrumCaption = new("hud.drum_caption", "DRUM");
+
+        /// <summary>Certified ampoules left (§5.3).</summary>
+        public static readonly LocKey HudStandardsCaption = new(
+            "hud.standards_caption", "STANDARDS");
+
+        /// <summary>An inventory slot with nothing in it. Lowercase: it is a state, not a name.</summary>
+        public static readonly LocKey HudSlotEmpty = new("hud.slot_empty", "empty");
 
         public static readonly LocKey HudOpenSamplesOne = new(
             "hud.open_samples_one", "1 sample open");

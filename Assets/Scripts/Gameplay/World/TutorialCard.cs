@@ -18,11 +18,11 @@ namespace Residue.Gameplay.World
     /// <para>
     /// <b>No verdict colours anywhere on it (hard rule 4).</b> A tick drawn in green would spend the
     /// one thing that makes red mean CRITICAL at a glance, and it would be the most-seen green in the
-    /// game on a first run. Done is <see cref="SignalPalette.Off"/>, pending is
-    /// <see cref="SignalPalette.Dim"/>, and whichever is next is <see cref="SignalPalette.Accent"/> —
-    /// the same three the standing orders card already uses. State is carried by the mark as well as
-    /// by the colour, so the card survives a greyscale screenshot for the same reason the results
-    /// table does (§2.2).
+    /// game on a first run. Done is <see cref="HudStyle.Faint"/>, pending is
+    /// <see cref="HudStyle.Dim"/>, and whichever is next is <see cref="HudStyle.Accent"/> — the same
+    /// three the standing orders card already uses. State is carried by the mark as well as by the
+    /// colour, so the card survives a greyscale screenshot for the same reason the results table does
+    /// (§2.2).
     /// </para>
     ///
     /// <para>
@@ -54,20 +54,23 @@ namespace Residue.Gameplay.World
 
         public TutorialCard()
         {
+            // Anchored, sized and coloured off HudStyle rather than off numbers of its own: it stands
+            // in the same corner as the standing-orders card and has to be indistinguishable from it
+            // as a shape, or swapping between the two with [Tab] reads as the layout jumping.
             Root = new VisualElement { pickingMode = PickingMode.Ignore };
             Root.style.position = Position.Absolute;
-            Root.style.left = 16;
-            Root.style.top = 96;
-            Root.style.width = 372;
-            Root.style.paddingTop = 14;
-            Root.style.paddingBottom = 14;
-            Root.style.paddingLeft = 16;
-            Root.style.paddingRight = 16;
-            Root.style.backgroundColor = new StyleColor(SignalPalette.Panel);
+            Root.style.left = HudStyle.Inset;
+            Root.style.top = HudStyle.ContentTop;
+            Root.style.width = LabHud.CardWidth;
+            Root.style.paddingTop = HudStyle.S4;
+            Root.style.paddingBottom = HudStyle.S4;
+            Root.style.paddingLeft = HudStyle.S4;
+            Root.style.paddingRight = HudStyle.S4;
+            Root.style.backgroundColor = new StyleColor(HudStyle.Plate);
             Root.style.borderLeftWidth = 2;
-            Root.style.borderLeftColor = new StyleColor(SignalPalette.Accent);
+            Root.style.borderLeftColor = new StyleColor(HudStyle.Accent);
             Root.style.display = DisplayStyle.None;
-            LabHud.Round(Root, 3);
+            HudStyle.Round(Root);
 
             Build();
         }
@@ -77,29 +80,27 @@ namespace Residue.Gameplay.World
 
         private void Build()
         {
-            heading = new Label(TutorialStrings.CardTitle);
-            LabHud.Style(heading, 14, SignalPalette.Ink);
-            heading.style.unityFontStyleAndWeight = FontStyle.Bold;
+            heading = HudStyle.Text(TutorialStrings.CardTitle, HudStyle.MetricSize, HudStyle.Ink,
+                                    bold: true);
+            heading.style.whiteSpace = WhiteSpace.Normal;
             Root.Add(heading);
 
-            progress = new Label();
-            LabHud.Style(progress, 11, SignalPalette.Off);
-            progress.style.marginTop = 2;
+            progress = HudStyle.Text(string.Empty, HudStyle.CaptionSize, HudStyle.Faint);
+            progress.style.marginTop = HudStyle.S1;
             Root.Add(progress);
 
             list = new VisualElement { pickingMode = PickingMode.Ignore };
-            list.style.marginTop = 10;
+            list.style.marginTop = HudStyle.S3;
             Root.Add(list);
 
-            detail = new Label();
-            LabHud.Style(detail, 11, SignalPalette.Dim);
-            detail.style.marginTop = 8;
+            detail = HudStyle.Text(string.Empty, HudStyle.BodySize, HudStyle.Dim);
+            detail.style.marginTop = HudStyle.S2;
             detail.style.whiteSpace = WhiteSpace.Normal;
             Root.Add(detail);
 
-            var closing = new Label(TutorialStrings.Closing);
-            LabHud.Style(closing, 11, SignalPalette.Off);
-            closing.style.marginTop = 12;
+            var closing = HudStyle.Text(TutorialStrings.Closing, HudStyle.CaptionSize,
+                                        HudStyle.Faint);
+            closing.style.marginTop = HudStyle.S3;
             closing.style.whiteSpace = WhiteSpace.Normal;
             Root.Add(closing);
         }
@@ -164,11 +165,11 @@ namespace Residue.Gameplay.World
 
         private static Label DayHeading(int day, bool spaced)
         {
-            var label = new Label(day <= 1 ? TutorialStrings.DayOneHeading : TutorialStrings.DayTwoHeading);
-            LabHud.Style(label, 11, SignalPalette.Ink);
-            label.style.unityFontStyleAndWeight = FontStyle.Bold;
-            label.style.marginTop = spaced ? 12 : 0;
-            label.style.marginBottom = 4;
+            var label = HudStyle.Text(
+                day <= 1 ? TutorialStrings.DayOneHeading : TutorialStrings.DayTwoHeading,
+                HudStyle.CaptionSize, HudStyle.Ink, bold: true);
+            label.style.marginTop = spaced ? HudStyle.S3 : 0f;
+            label.style.marginBottom = HudStyle.S1;
             label.style.whiteSpace = WhiteSpace.Normal;
             return label;
         }
@@ -180,21 +181,20 @@ namespace Residue.Gameplay.World
         /// </summary>
         private VisualElement Row(in TutorialObjectives.Objective objective, bool done, bool current)
         {
-            var colour = done ? SignalPalette.Off : current ? SignalPalette.Accent : SignalPalette.Dim;
+            var colour = done ? HudStyle.Faint : current ? HudStyle.Accent : HudStyle.Dim;
 
             var row = new VisualElement { pickingMode = PickingMode.Ignore };
             row.style.flexDirection = FlexDirection.Row;
             row.style.alignItems = Align.FlexStart;
-            row.style.marginTop = 3;
+            row.style.marginTop = HudStyle.S1;
 
-            var mark = new Label(done ? MarkDone : current ? MarkNext : MarkPending);
-            LabHud.Style(mark, 12, colour);
-            mark.style.width = 24;
+            var mark = HudStyle.Text(done ? MarkDone : current ? MarkNext : MarkPending,
+                                     HudStyle.BodySize, colour);
+            mark.style.width = 30;
             mark.style.flexShrink = 0f;
             row.Add(mark);
 
-            var line = new Label(objective.Line);
-            LabHud.Style(line, 12, colour);
+            var line = HudStyle.Text(objective.Line, HudStyle.BodySize, colour);
             line.style.flexShrink = 1f;
             line.style.whiteSpace = WhiteSpace.Normal;
             row.Add(line);
